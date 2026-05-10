@@ -414,7 +414,9 @@
       letter-spacing: 0.08em; color: var(--sup); opacity: 0.6;
       margin-bottom: 4px; text-transform: uppercase;
     }
-    .thinking-text { font-size: 12.5px; line-height: 1.6; color: var(--txt-mid); font-style: italic; }
+    .thinking-text { font-size: 12.5px; line-height: 1.6; color: var(--txt-mid); }
+    .thinking-text .md { font-size: 12.5px; }
+    .thinking-text .md p { margin-bottom: 6px; }
 
     /* ── Routing pill ── */
     .rpill {
@@ -701,14 +703,23 @@ function esc(s) {
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-// Apply color highlights to financial data (operates on already-escaped text)
-function highlightFinancial(escaped) {
-  return escaped
+// Apply color highlights to financial data (operates on already-escaped/HTML text)
+function highlightFinancial(html) {
+  return html
     .replace(/(US\$\s?[\d]+[.,][\d]+)/g,  '<span class="num-us">$1</span>')
     .replace(/(R\$\s?[\d]+[.,][\d]+)/g,   '<span class="num-rs">$1</span>')
     .replace(/([+][\d]+[.,][\d]+%)/g,     '<span class="num-pos">$1</span>')
     .replace(/([-][\d]+[.,][\d]+%)/g,     '<span class="num-neg">$1</span>')
-    .replace(/(Score[: ]+\d+\/\d+)/gi,     '<span class="num-score">$1</span>');
+    .replace(/(Score[: ]+\d+\/\d+)/gi,    '<span class="num-score">$1</span>');
+}
+
+// Render prose content as markdown + financial highlights
+function renderMD(content) {
+  if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
+    return `<p>${esc(content).replace(/\n/g,'<br>')}</p>`;
+  }
+  const sanitized = DOMPurify.sanitize(marked.parse(content || ''));
+  return `<div class="md">${highlightFinancial(sanitized)}</div>`;
 }
 
 // Chevron SVG icon
@@ -726,7 +737,7 @@ function addThinkingCard(reasoning) {
     <div class="thinking-icon">◈</div>
     <div class="thinking-body">
       <div class="thinking-label">Supervisor — Raciocínio</div>
-      <div class="thinking-text">${esc(reasoning)}</div>
+      <div class="thinking-text">${renderMD(reasoning)}</div>
     </div>`;
   msgsEl.appendChild(d);
   incMsgCount();
@@ -749,17 +760,13 @@ function addAgentCard(node, messages) {
   if (!messages || !messages.length) return;
   const msg     = messages[messages.length - 1];
   const content = msg.content || '';
-  const isData  = content.includes('\n') &&
-    (content.includes('R$') || content.includes('%') ||
-     content.includes('Score') || content.includes('Preço'));
 
   const card = document.createElement('div');
   // Intermediate cards start collapsed
   card.className = `card collapsed ${CLS[node] || 'sup'}`;
 
-  const bodyHTML = isData
-    ? `<pre>${highlightFinancial(esc(content))}</pre>`
-    : `<p>${highlightFinancial(esc(content)).replace(/\n/g,'<br>')}</p>`;
+  // All agent content renders as markdown (marked handles plain text gracefully too)
+  const bodyHTML = renderMD(content);
 
   card.innerHTML = `
     <div class="card-head">
