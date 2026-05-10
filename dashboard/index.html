@@ -1,0 +1,1063 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pipeline Financeiro — Monitor de Agentes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #08090a;
+      --bg-panel:    #0d0e10;
+      --bg-card:     #131418;
+      --bg-card-alt: #15121e;
+      --border:      rgba(255,255,255,0.06);
+      --border-b:    rgba(255,255,255,0.10);
+      --border-hi:   rgba(255,255,255,0.16);
+
+      --sup:   #5b8def;  --sup-g:  rgba(91,141,239,0.14);
+      --yfi:   #f0a648;  --yfi-g:  rgba(240,166,72,0.14);
+      --ana:   #2dd4a4;  --ana-g:  rgba(45,212,164,0.14);
+      --fin:   #a78bfa;  --fin-g:  rgba(167,139,250,0.14);
+
+      --txt:     #c9d1d9;
+      --txt-hi:  #f0f6fc;
+      --txt-mid: #8b949e;
+      --txt-lo:  #484f58;
+
+      --ui:   'Inter', -apple-system, system-ui, sans-serif;
+      --mono: 'JetBrains Mono', monospace;
+
+      --hh: 64px;
+      --lw: 320px;
+      --r:  10px;
+      --ease: cubic-bezier(0.4,0,0.2,1);
+    }
+
+    html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--txt); font-family: var(--ui); }
+
+    body::after {
+      content: '';
+      position: fixed; inset: 0;
+      background-image: radial-gradient(circle, rgba(255,255,255,0.022) 1px, transparent 1px);
+      background-size: 32px 32px;
+      pointer-events: none; z-index: 0;
+    }
+
+    /* ── Header ── */
+    .header {
+      position: relative; z-index: 10;
+      height: var(--hh);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 24px;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border-b);
+    }
+
+    .logo {
+      display: flex; align-items: center; gap: 10px;
+      font-weight: 700; font-size: 15px;
+      letter-spacing: -0.01em; color: var(--txt-hi); white-space: nowrap;
+    }
+    .logo-gem {
+      width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
+      background: linear-gradient(135deg, var(--sup), var(--ana));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px; color: #fff;
+    }
+    .logo-sub { color: var(--txt-mid); font-weight: 400; font-size: 14px; }
+
+    .ticker-form { display: flex; gap: 8px; align-items: center; }
+
+    .ticker-input {
+      background: var(--bg); border: 1px solid var(--border-b);
+      color: var(--txt-hi); font-family: var(--mono); font-size: 13px;
+      padding: 8px 14px; border-radius: var(--r); width: 180px;
+      letter-spacing: 0.1em; outline: none;
+      transition: border-color 0.18s var(--ease), box-shadow 0.18s var(--ease);
+    }
+    .ticker-input:focus { border-color: var(--sup); box-shadow: 0 0 0 3px var(--sup-g); }
+    .ticker-input::placeholder { color: var(--txt-lo); letter-spacing: 0.04em; }
+    .ticker-input.invalid { border-color: #f85149; animation: shake 0.3s ease; }
+
+    @keyframes shake {
+      0%,100% { transform: translateX(0); }
+      25% { transform: translateX(-4px); }
+      75% { transform: translateX(4px); }
+    }
+
+    .btn {
+      padding: 8px 16px; border: none; border-radius: var(--r); cursor: pointer;
+      font-family: var(--ui); font-size: 13px; font-weight: 600;
+      letter-spacing: 0.02em; transition: all 0.18s var(--ease); white-space: nowrap;
+    }
+    .btn-primary { background: var(--sup); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #6b9ef5; transform: translateY(-1px); box-shadow: 0 4px 14px rgba(91,141,239,0.3); }
+    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+    .btn-primary.running { background: var(--yfi); animation: btn-breathe 1.4s ease-in-out infinite; }
+    .btn-ghost {
+      background: rgba(255,255,255,0.04); border: 1px solid var(--border-b); color: var(--txt-mid);
+      padding: 7px 13px;
+    }
+    .btn-ghost:hover { border-color: var(--border-hi); color: var(--txt); background: rgba(255,255,255,0.07); }
+
+    @keyframes btn-breathe { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
+
+    .g-status {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12px; font-weight: 500;
+      letter-spacing: 0.03em; color: var(--txt-mid); min-width: 130px; justify-content: flex-end;
+    }
+    .g-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--txt-lo); transition: background 0.3s;
+    }
+    .g-dot.idle    { background: var(--txt-lo); }
+    .g-dot.running { background: var(--yfi); animation: dot-beat 1s ease-in-out infinite; }
+    .g-dot.done    { background: var(--ana); }
+    .g-dot.error   { background: #f85149; }
+
+    @keyframes dot-beat {
+      0%,100% { transform: scale(1); opacity: 1; }
+      50%      { transform: scale(0.65); opacity: 0.5; }
+    }
+
+    /* ── Main grid ── */
+    .main {
+      position: relative; z-index: 1;
+      display: grid;
+      grid-template-columns: var(--lw) 1fr;
+      height: calc(100vh - var(--hh));
+    }
+
+    .panel {
+      display: flex; flex-direction: column; overflow: hidden;
+      border-right: 1px solid var(--border);
+      min-height: 0;
+    }
+
+    .panel-head {
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 11px; font-weight: 600;
+      letter-spacing: 0.08em; color: var(--txt-lo); text-transform: uppercase;
+      background: var(--bg-panel); flex-shrink: 0;
+    }
+
+    .panel-badge {
+      font-size: 10px; padding: 2px 8px; border-radius: 100px;
+      border: 1px solid var(--border-b); color: var(--txt-mid);
+      font-weight: 500; letter-spacing: 0.04em; font-family: var(--ui);
+    }
+
+    /* ── Graph panel ── */
+    .graph-panel { background: var(--bg-panel); }
+
+    .graph-area {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      padding: 16px; position: relative;
+      min-height: 0; overflow: hidden;
+    }
+
+    .graph-wrap { width: 260px; height: 400px; position: relative; flex-shrink: 0; }
+
+    .graph-svg {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      overflow: visible; pointer-events: none;
+    }
+
+    .gnode {
+      position: absolute; border-radius: 50%;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      font-size: 9px; font-weight: 700;
+      letter-spacing: 0.08em; line-height: 1.3; text-align: center;
+      transform: translate(-50%, -50%);
+      transition: box-shadow 0.3s, opacity 0.3s;
+      cursor: default; user-select: none;
+    }
+    .gnode::after {
+      content: ''; position: absolute; inset: -9px; border-radius: 50%;
+      border: 1px solid currentColor; opacity: 0; pointer-events: none;
+    }
+    .gnode.active::after { animation: ring-out 1.3s ease-out infinite; }
+    @keyframes ring-out {
+      0%   { opacity: 0.45; transform: scale(1); }
+      100% { opacity: 0;    transform: scale(1.65); }
+    }
+
+    #gn-START, #gn-FINISH {
+      width: 38px; height: 38px;
+      border: 1px solid var(--txt-lo); color: var(--txt-lo); font-size: 8px;
+    }
+    #gn-FINISH { border-color: var(--fin); color: var(--fin); }
+    #gn-Supervisor {
+      width: 76px; height: 76px;
+      border: 1.5px solid var(--sup); color: var(--sup);
+      background: rgba(91,141,239,0.05);
+    }
+    #gn-YFinance {
+      width: 60px; height: 60px;
+      border: 1.5px solid var(--yfi); color: var(--yfi);
+      background: rgba(240,166,72,0.05);
+    }
+    #gn-Analyzer {
+      width: 60px; height: 60px;
+      border: 1.5px solid var(--ana); color: var(--ana);
+      background: rgba(45,212,164,0.05);
+    }
+    .gnode.active { z-index: 5; }
+    #gn-Supervisor.active { box-shadow: 0 0 20px var(--sup-g); }
+    #gn-YFinance.active   { box-shadow: 0 0 16px var(--yfi-g); }
+    #gn-Analyzer.active   { box-shadow: 0 0 16px var(--ana-g); }
+    #gn-FINISH.active     { box-shadow: 0 0 14px var(--fin-g); }
+    .gnode.done { opacity: 0.3; }
+    .gnode.done::after { display: none; }
+
+    /* ── Stats strip ── */
+    .stats-strip {
+      border-top: 1px solid var(--border); padding: 16px 18px;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+      flex-shrink: 0;
+    }
+    .stat { display: flex; flex-direction: column; gap: 4px; }
+    .stat-l {
+      font-size: 10px; font-weight: 600;
+      letter-spacing: 0.08em; color: var(--txt-lo); text-transform: uppercase;
+    }
+    .stat-v { font-family: var(--mono); font-size: 14px; font-weight: 500; color: var(--txt-hi); }
+    .stat-full { grid-column: 1 / -1; }
+
+    /* ── Feed panel ── */
+    .feed-panel { background: var(--bg); border-right: none; }
+
+    /* Single scroll container — the only overflow-y: auto in the layout */
+    .msgs {
+      flex: 1; overflow-y: auto; padding: 16px 20px 32px;
+      display: flex; flex-direction: column; gap: 8px;
+      scroll-behavior: smooth; min-height: 0;
+    }
+    .msgs::-webkit-scrollbar { width: 4px; }
+    .msgs::-webkit-scrollbar-track { background: transparent; }
+    .msgs::-webkit-scrollbar-thumb { background: var(--border-b); border-radius: 4px; }
+    .msgs::-webkit-scrollbar-thumb:hover { background: var(--border-hi); }
+
+    /* empty state */
+    .empty {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 12px; color: var(--txt-lo);
+    }
+    .empty-ico { font-size: 32px; opacity: 0.2; }
+    .empty-txt { font-size: 14px; font-weight: 500; color: var(--txt-mid); }
+    .empty-hint { font-size: 12px; }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      overflow: hidden;
+      flex-shrink: 0;
+      animation: card-in 0.26s cubic-bezier(0.16,1,0.3,1) both;
+    }
+    @keyframes card-in {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .card-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 14px; cursor: pointer; user-select: none;
+      transition: background 0.15s;
+    }
+    .card-head:hover { background: rgba(255,255,255,0.025); }
+
+    .agent-badge {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+    }
+    .agent-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .card-ts { font-family: var(--mono); font-size: 10px; color: var(--txt-lo); }
+    .card-head-right { display: flex; align-items: center; gap: 8px; }
+
+    /* Chevron: points down when expanded, right when collapsed */
+    .expand-chevron {
+      width: 14px; height: 14px; color: var(--txt-lo);
+      transition: transform 0.2s ease; flex-shrink: 0; opacity: 0.6;
+    }
+    .card.collapsed .expand-chevron { transform: rotate(-90deg); }
+    .card.fin .expand-chevron { display: none; }
+
+    /* Card body — grows freely; NO overflow or max-height here */
+    .card-body {
+      padding: 0 14px 14px;
+      font-size: 13px; line-height: 1.65; color: var(--txt);
+    }
+    .card-body pre {
+      white-space: pre-wrap; word-break: break-word;
+      font-family: var(--mono); font-size: 12px; line-height: 1.6;
+    }
+
+    /* Collapsed: show ~5 lines + fade; still NO scroll inside */
+    .card.collapsed .card-body {
+      max-height: 110px;
+      overflow: hidden;
+      mask-image: linear-gradient(to bottom, black 45%, transparent 100%);
+      -webkit-mask-image: linear-gradient(to bottom, black 45%, transparent 100%);
+    }
+
+    /* Agent-colored accents */
+    .card.sup { border-color: rgba(91,141,239,0.18); }
+    .card.sup .card-head { background: rgba(91,141,239,0.05); border-bottom: 1px solid rgba(91,141,239,0.1); }
+    .card.sup .agent-badge { color: var(--sup); }
+    .card.sup .agent-dot { background: var(--sup); }
+
+    .card.yfi { border-color: rgba(240,166,72,0.18); }
+    .card.yfi .card-head { background: rgba(240,166,72,0.05); border-bottom: 1px solid rgba(240,166,72,0.1); }
+    .card.yfi .agent-badge { color: var(--yfi); }
+    .card.yfi .agent-dot { background: var(--yfi); }
+
+    .card.ana { border-color: rgba(45,212,164,0.18); }
+    .card.ana .card-head { background: rgba(45,212,164,0.05); border-bottom: 1px solid rgba(45,212,164,0.1); }
+    .card.ana .agent-badge { color: var(--ana); }
+    .card.ana .agent-dot { background: var(--ana); }
+
+    .card.fin {
+      border-color: rgba(167,139,250,0.28);
+      background: var(--bg-card-alt);
+      box-shadow: 0 0 0 1px rgba(167,139,250,0.07), 0 8px 32px rgba(0,0,0,0.35);
+    }
+    .card.fin .card-head {
+      background: rgba(167,139,250,0.06);
+      border-bottom: 1px solid rgba(167,139,250,0.14);
+      cursor: default;
+    }
+    .card.fin .card-head:hover { background: rgba(167,139,250,0.06); }
+    .card.fin .agent-badge { color: var(--fin); }
+    .card.fin .agent-dot { background: var(--fin); }
+    /* Fin card body has extra top padding */
+    .card.fin .card-body { padding-top: 14px; }
+
+    /* Action buttons (copy / export) */
+    .action-btn {
+      background: rgba(167,139,250,0.08); border: 1px solid rgba(167,139,250,0.2);
+      color: var(--fin); padding: 3px 10px; border-radius: 6px;
+      font-family: var(--ui); font-size: 11px; font-weight: 600;
+      letter-spacing: 0.03em; cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .action-btn:hover { background: rgba(167,139,250,0.16); border-color: rgba(167,139,250,0.38); }
+
+    /* ── Markdown prose (inside .md) ── */
+    .card-body .md { font-family: var(--ui); }
+    .card-body .md h1 {
+      font-size: 17px; font-weight: 700; color: var(--txt-hi);
+      margin: 0 0 12px; letter-spacing: -0.02em;
+      border-bottom: 1px solid var(--border-b); padding-bottom: 10px;
+    }
+    .card-body .md h2 {
+      font-size: 14px; font-weight: 700; color: var(--txt-hi);
+      margin: 18px 0 8px; letter-spacing: -0.01em;
+    }
+    .card-body .md h3 {
+      font-size: 13px; font-weight: 600; color: var(--txt-hi);
+      margin: 14px 0 6px;
+    }
+    .card-body .md p { margin-bottom: 10px; }
+    .card-body .md p:last-child { margin-bottom: 0; }
+    .card-body .md strong { color: var(--txt-hi); font-weight: 600; }
+    .card-body .md em { font-style: italic; color: var(--txt-mid); }
+    .card-body .md ul, .card-body .md ol { padding-left: 20px; margin-bottom: 10px; }
+    .card-body .md li { margin-bottom: 4px; }
+    .card-body .md code {
+      font-family: var(--mono); font-size: 11.5px;
+      background: rgba(255,255,255,0.07); padding: 1px 5px; border-radius: 3px;
+      color: var(--ana);
+    }
+    .card-body .md hr { border: none; border-top: 1px solid var(--border-b); margin: 16px 0; }
+    .card-body .md blockquote {
+      border-left: 2px solid var(--fin); padding-left: 12px;
+      color: var(--txt-mid); margin: 10px 0; font-style: italic;
+    }
+    .card-body .md table { width: 100%; border-collapse: collapse; margin-bottom: 10px; font-size: 12px; }
+    .card-body .md th, .card-body .md td { padding: 6px 10px; border: 1px solid var(--border-b); }
+    .card-body .md th { background: rgba(255,255,255,0.04); font-weight: 600; color: var(--txt-hi); }
+
+    /* ── Financial syntax highlight ── */
+    .num-rs    { color: var(--yfi); font-weight: 600; }
+    .num-us    { color: var(--yfi); font-weight: 600; }
+    .num-pos   { color: var(--ana); font-weight: 600; }
+    .num-neg   { color: #f85149;    font-weight: 600; }
+    .num-score { color: var(--sup); font-weight: 600; }
+
+    /* ── Thinking card ── */
+    .thinking-card {
+      background: rgba(91,141,239,0.04);
+      border: 1px solid rgba(91,141,239,0.12);
+      border-left: 2px solid var(--sup);
+      border-radius: var(--r); padding: 10px 14px;
+      animation: card-in 0.2s ease both;
+      display: flex; gap: 10px; align-items: flex-start;
+      flex-shrink: 0;
+    }
+    .thinking-icon { font-size: 12px; flex-shrink: 0; margin-top: 2px; color: var(--sup); opacity: 0.55; }
+    .thinking-body { flex: 1; }
+    .thinking-label {
+      font-size: 10px; font-weight: 700;
+      letter-spacing: 0.08em; color: var(--sup); opacity: 0.6;
+      margin-bottom: 4px; text-transform: uppercase;
+    }
+    .thinking-text { font-size: 12.5px; line-height: 1.6; color: var(--txt-mid); font-style: italic; }
+
+    /* ── Routing pill ── */
+    .rpill {
+      align-self: center; flex-shrink: 0;
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 12px; border-radius: 100px;
+      background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+      font-size: 11px; font-weight: 500; letter-spacing: 0.04em; color: var(--txt-mid);
+      animation: card-in 0.16s ease both;
+    }
+    .rpill .arrow { color: var(--txt-lo); }
+    .rpill .dest  { font-weight: 700; }
+    .rpill .dest.yfi { color: var(--yfi); }
+    .rpill .dest.ana { color: var(--ana); }
+    .rpill .dest.fin { color: var(--fin); }
+
+    /* ── Error card ── */
+    .err-card {
+      background: rgba(248,81,73,0.06); border: 1px solid rgba(248,81,73,0.18);
+      border-radius: var(--r); padding: 12px 16px; color: #f85149;
+      font-size: 13px; animation: card-in 0.2s ease both; flex-shrink: 0;
+    }
+
+    /* ── Edge flow animation ── */
+    .edge-active {
+      stroke-dasharray: 6 4 !important;
+      animation: edge-flow 0.55s linear infinite !important;
+    }
+    @keyframes edge-flow {
+      from { stroke-dashoffset: 10; }
+      to   { stroke-dashoffset: 0; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ══ Header ══ -->
+<header class="header">
+  <div class="logo">
+    <div class="logo-gem">◈</div>
+    Pipeline&nbsp;<span class="logo-sub">Financeiro</span>
+  </div>
+
+  <div class="ticker-form">
+    <input id="t-input" class="ticker-input" type="text"
+           placeholder="WEGE3, PETR4…" maxlength="10" autocomplete="off" autocapitalize="characters">
+    <button id="t-btn" class="btn btn-primary">Analisar</button>
+    <button id="clear-btn" class="btn btn-ghost">Limpar</button>
+  </div>
+
+  <div class="g-status">
+    <div class="g-dot idle" id="g-dot"></div>
+    <span id="g-txt">Aguardando</span>
+  </div>
+</header>
+
+<!-- ══ Main ══ -->
+<main class="main">
+
+  <!-- Left: graph topology -->
+  <aside class="panel graph-panel">
+    <div class="panel-head">
+      <span>Topologia do Grafo</span>
+      <span class="panel-badge" id="phase-badge">—</span>
+    </div>
+
+    <div class="graph-area">
+      <div class="graph-wrap" id="gwrap">
+        <svg class="graph-svg" id="gsvg" viewBox="0 0 260 400"></svg>
+        <div class="gnode" id="gn-START"      style="left:130px;top:28px">START</div>
+        <div class="gnode" id="gn-Supervisor" style="left:130px;top:128px">SUPER<br>VISOR</div>
+        <div class="gnode" id="gn-YFinance"   style="left:52px;top:254px">YFIN<br>ANCE</div>
+        <div class="gnode" id="gn-Analyzer"   style="left:208px;top:254px">ANALY<br>ZER</div>
+        <div class="gnode" id="gn-FINISH"     style="left:130px;top:364px">FINISH</div>
+      </div>
+    </div>
+
+    <div class="stats-strip">
+      <div class="stat">
+        <div class="stat-l">Iterações</div>
+        <div class="stat-v" id="s-loops">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-l">Duração</div>
+        <div class="stat-v" id="s-dur">—</div>
+      </div>
+      <div class="stat stat-full">
+        <div class="stat-l">Próximo Agente</div>
+        <div class="stat-v" id="s-next">—</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Right: message feed -->
+  <section class="panel feed-panel">
+    <div class="panel-head">
+      <span>Fluxo de Mensagens</span>
+      <span id="msg-count" class="panel-badge">0 eventos</span>
+    </div>
+
+    <div class="msgs" id="msgs">
+      <div class="empty" id="empty-state">
+        <div class="empty-ico">◈</div>
+        <div class="empty-txt">Aguardando análise</div>
+        <div class="empty-hint">Digite um ticker (ex: WEGE3) e clique em Analisar</div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Graph geometry
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const N = {
+  START:      { x: 130, y: 28,  r: 19,  col: '#484f58' },
+  Supervisor: { x: 130, y: 128, r: 38,  col: '#5b8def' },
+  YFinance:   { x: 52,  y: 254, r: 30,  col: '#f0a648' },
+  Analyzer:   { x: 208, y: 254, r: 30,  col: '#2dd4a4' },
+  FINISH:     { x: 130, y: 364, r: 19,  col: '#a78bfa' },
+};
+
+function ptOn(cx, cy, r, tx, ty) {
+  const dx = tx - cx, dy = ty - cy, d = Math.sqrt(dx*dx + dy*dy);
+  return { x: cx + r * dx / d, y: cy + r * dy / d };
+}
+
+function f(n) { return n.toFixed(1); }
+
+function initGraph() {
+  const svg = document.getElementById('gsvg');
+  svg.innerHTML = `<defs>
+    <marker id="ah"     markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <polygon points="0 0,7 2.5,0 5" fill="rgba(255,255,255,0.15)"/>
+    </marker>
+    <marker id="ah-r"   markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <polygon points="0 0,7 2.5,0 5" fill="rgba(255,255,255,0.1)"/>
+    </marker>
+    <marker id="ah-fin" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+      <polygon points="0 0,7 2.5,0 5" fill="rgba(167,139,250,0.3)"/>
+    </marker>
+  </defs>`;
+
+  function makePath(d, stroke, strokeW, dasharray, marker, id) {
+    const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    p.setAttribute('d', d);
+    p.setAttribute('stroke', stroke);
+    p.setAttribute('stroke-width', strokeW || '1.5');
+    p.setAttribute('fill', 'none');
+    if (dasharray) p.setAttribute('stroke-dasharray', dasharray);
+    if (marker)    p.setAttribute('marker-end', `url(#${marker})`);
+    if (id)        p.id = id;
+    return p;
+  }
+
+  // START → Supervisor
+  { const s = ptOn(N.START.x,N.START.y,N.START.r,N.Supervisor.x,N.Supervisor.y);
+    const e = ptOn(N.Supervisor.x,N.Supervisor.y,N.Supervisor.r,N.START.x,N.START.y);
+    svg.appendChild(makePath(`M${f(s.x)},${f(s.y)} L${f(e.x)},${f(e.y)}`,'rgba(255,255,255,0.12)',1.5,null,'ah','ep-START-Supervisor')); }
+
+  // Supervisor → YFinance
+  { const s = ptOn(N.Supervisor.x,N.Supervisor.y,N.Supervisor.r,N.YFinance.x,N.YFinance.y);
+    const e = ptOn(N.YFinance.x,N.YFinance.y,N.YFinance.r,N.Supervisor.x,N.Supervisor.y);
+    svg.appendChild(makePath(`M${f(s.x)},${f(s.y)} L${f(e.x)},${f(e.y)}`,'rgba(255,255,255,0.1)',1.5,null,'ah','ep-Supervisor-YFinance')); }
+
+  // Supervisor → Analyzer
+  { const s = ptOn(N.Supervisor.x,N.Supervisor.y,N.Supervisor.r,N.Analyzer.x,N.Analyzer.y);
+    const e = ptOn(N.Analyzer.x,N.Analyzer.y,N.Analyzer.r,N.Supervisor.x,N.Supervisor.y);
+    svg.appendChild(makePath(`M${f(s.x)},${f(s.y)} L${f(e.x)},${f(e.y)}`,'rgba(255,255,255,0.1)',1.5,null,'ah','ep-Supervisor-Analyzer')); }
+
+  // Supervisor → FINISH (dashed)
+  { const s = ptOn(N.Supervisor.x,N.Supervisor.y,N.Supervisor.r,N.FINISH.x,N.FINISH.y);
+    const e = ptOn(N.FINISH.x,N.FINISH.y,N.FINISH.r,N.Supervisor.x,N.Supervisor.y);
+    svg.appendChild(makePath(`M${f(s.x)},${f(s.y)} L${f(e.x)},${f(e.y)}`,'rgba(167,139,250,0.28)',1.5,'5,4','ah-fin','ep-Supervisor-FINISH')); }
+
+  // YFinance → Supervisor (curved)
+  { const sx=N.YFinance.x-22, sy=N.YFinance.y-14, ex=N.Supervisor.x-30, ey=N.Supervisor.y+14;
+    const s=ptOn(N.YFinance.x,N.YFinance.y,N.YFinance.r,sx,sy);
+    const e=ptOn(N.Supervisor.x,N.Supervisor.y,N.Supervisor.r,ex,ey);
+    svg.appendChild(makePath(
+      `M${f(s.x)},${f(s.y)} C${f(N.YFinance.x-62)},${f(N.YFinance.y-25)} ${f(N.Supervisor.x-68)},${f(N.Supervisor.y+28)} ${f(e.x)},${f(e.y)}`,
+      'rgba(255,255,255,0.08)',1.5,null,'ah-r','ep-YFinance-Supervisor')); }
+
+  // Analyzer → Supervisor (curved)
+  { const sx=N.Analyzer.x+22, sy=N.Analyzer.y-14, ex=N.Supervisor.x+30, ey=N.Supervisor.y+14;
+    const s=ptOn(N.Analyzer.x,N.Analyzer.y,N.Analyzer.r,sx,sy);
+    const e=ptOn(N.Supervisor.x,N.Supervisor.y,N.Supervisor.r,ex,ey);
+    svg.appendChild(makePath(
+      `M${f(s.x)},${f(s.y)} C${f(N.Analyzer.x+62)},${f(N.Analyzer.y-25)} ${f(N.Supervisor.x+68)},${f(N.Supervisor.y+28)} ${f(e.x)},${f(e.y)}`,
+      'rgba(255,255,255,0.08)',1.5,null,'ah-r','ep-Analyzer-Supervisor')); }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Node state
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+let _prevActive = null;
+
+function activateNode(name) {
+  if (_prevActive && _prevActive !== name) {
+    const prev = document.getElementById(`gn-${_prevActive}`);
+    if (prev) { prev.classList.remove('active'); prev.classList.add('done'); }
+  }
+  _prevActive = name;
+  const el = document.getElementById(`gn-${name}`);
+  if (el) { el.classList.remove('done'); el.classList.add('active'); }
+  highlightEdge(name);
+}
+
+function highlightEdge(toNode) {
+  document.querySelectorAll('#gsvg path').forEach(p => {
+    p.classList.remove('edge-active');
+    p.style.stroke = ''; p.style.strokeWidth = '';
+  });
+  document.querySelectorAll(`#gsvg path[id$="-${toNode}"]`).forEach(p => {
+    p.classList.add('edge-active');
+    p.style.stroke = (N[toNode]?.col || '#fff') + 'cc';
+    p.style.strokeWidth = '2';
+  });
+}
+
+function resetGraph() {
+  document.querySelectorAll('.gnode').forEach(n => n.classList.remove('active','done'));
+  document.querySelectorAll('#gsvg path').forEach(p => {
+    p.classList.remove('edge-active'); p.style.stroke=''; p.style.strokeWidth='';
+  });
+  _prevActive = null;
+}
+
+function finishGraph() {
+  document.querySelectorAll('.gnode').forEach(n => { n.classList.remove('active'); n.classList.add('done'); });
+  const fin = document.getElementById('gn-FINISH');
+  if (fin) { fin.classList.remove('done'); fin.classList.add('active'); }
+  highlightEdge('FINISH');
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Message feed
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const msgsEl   = document.getElementById('msgs');
+const emptyEl  = document.getElementById('empty-state');
+let msgCount   = 0;
+let currentTicker = '';
+
+function showFeed()  { emptyEl.style.display = 'none'; }
+function clearFeed() {
+  msgsEl.innerHTML = '';
+  msgsEl.appendChild(emptyEl);
+  emptyEl.style.display = 'flex';
+  msgCount = 0;
+  document.getElementById('msg-count').textContent = '0 eventos';
+}
+
+function incMsgCount() {
+  msgCount++;
+  document.getElementById('msg-count').textContent = `${msgCount} evento${msgCount !== 1 ? 's' : ''}`;
+}
+
+function scrollBottom() { msgsEl.scrollTop = msgsEl.scrollHeight; }
+
+function ts() {
+  return new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+const LABELS = {
+  Supervisor: 'Supervisor',
+  YFinance:   'YFinance Agent',
+  Analyzer:   'Analyzer Agent',
+  FINISH:     'Análise Concluída',
+};
+
+const CLS = {
+  Supervisor: 'sup',
+  YFinance:   'yfi',
+  Analyzer:   'ana',
+  FINISH:     'fin',
+};
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Apply color highlights to financial data (operates on already-escaped text)
+function highlightFinancial(escaped) {
+  return escaped
+    .replace(/(US\$\s?[\d]+[.,][\d]+)/g,  '<span class="num-us">$1</span>')
+    .replace(/(R\$\s?[\d]+[.,][\d]+)/g,   '<span class="num-rs">$1</span>')
+    .replace(/([+][\d]+[.,][\d]+%)/g,     '<span class="num-pos">$1</span>')
+    .replace(/([-][\d]+[.,][\d]+%)/g,     '<span class="num-neg">$1</span>')
+    .replace(/(Score[: ]+\d+\/\d+)/gi,     '<span class="num-score">$1</span>');
+}
+
+// Chevron SVG icon
+function chevronSVG() {
+  return `<svg class="expand-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="4 6 8 10 12 6"/>
+  </svg>`;
+}
+
+function addThinkingCard(reasoning) {
+  if (!reasoning) return;
+  const d = document.createElement('div');
+  d.className = 'thinking-card';
+  d.innerHTML = `
+    <div class="thinking-icon">◈</div>
+    <div class="thinking-body">
+      <div class="thinking-label">Supervisor — Raciocínio</div>
+      <div class="thinking-text">${esc(reasoning)}</div>
+    </div>`;
+  msgsEl.appendChild(d);
+  incMsgCount();
+  scrollBottom();
+}
+
+function addRoutingPill(nextAgent, iter) {
+  const dest = nextAgent.toLowerCase().replace('finish','fin');
+  const pill = document.createElement('div');
+  pill.className = 'rpill';
+  pill.innerHTML = `<span class="arrow">→</span> Supervisor roteou para
+    <span class="dest ${dest}">${nextAgent}</span>
+    ${iter ? `<span style="opacity:.4;font-size:10px">iter ${iter}</span>` : ''}`;
+  msgsEl.appendChild(pill);
+  incMsgCount();
+  scrollBottom();
+}
+
+function addAgentCard(node, messages) {
+  if (!messages || !messages.length) return;
+  const msg     = messages[messages.length - 1];
+  const content = msg.content || '';
+  const isData  = content.includes('\n') &&
+    (content.includes('R$') || content.includes('%') ||
+     content.includes('Score') || content.includes('Preço'));
+
+  const card = document.createElement('div');
+  // Intermediate cards start collapsed
+  card.className = `card collapsed ${CLS[node] || 'sup'}`;
+
+  const bodyHTML = isData
+    ? `<pre>${highlightFinancial(esc(content))}</pre>`
+    : `<p>${highlightFinancial(esc(content)).replace(/\n/g,'<br>')}</p>`;
+
+  card.innerHTML = `
+    <div class="card-head">
+      <div class="agent-badge">
+        <div class="agent-dot"></div>
+        <span>${LABELS[node] || node.toUpperCase()}</span>
+      </div>
+      <div class="card-head-right">
+        <span class="card-ts">${ts()}</span>
+        ${chevronSVG()}
+      </div>
+    </div>
+    <div class="card-body">${bodyHTML}</div>`;
+
+  msgsEl.appendChild(card);
+  incMsgCount();
+  scrollBottom();
+}
+
+function addFinishCard(content) {
+  const card = document.createElement('div');
+  card.className = 'card fin';
+  card.dataset.content = content || '';
+
+  // Render markdown safely
+  const rendered = typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined'
+    ? DOMPurify.sanitize(marked.parse(content || ''))
+    : `<p>${esc(content || '').replace(/\n/g,'<br>')}</p>`;
+
+  card.innerHTML = `
+    <div class="card-head">
+      <div class="agent-badge">
+        <div class="agent-dot"></div>
+        <span>${LABELS.FINISH}</span>
+      </div>
+      <div class="card-head-right">
+        <span class="card-ts">${ts()}</span>
+        <button class="action-btn" onclick="copyText(this)">Copiar</button>
+        <button class="action-btn" onclick="exportMD(this)">.md</button>
+        <button class="action-btn" onclick="exportPDF(this)">.pdf</button>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="md">${rendered}</div>
+    </div>`;
+
+  msgsEl.appendChild(card);
+  incMsgCount();
+  scrollBottom();
+}
+
+function addQueryCard(ticker) {
+  const card = document.createElement('div');
+  card.className = 'card sup collapsed';
+  card.innerHTML = `
+    <div class="card-head">
+      <div class="agent-badge">
+        <div class="agent-dot"></div>
+        <span>Query do Usuário</span>
+      </div>
+      <div class="card-head-right">
+        <span class="card-ts">${ts()}</span>
+        ${chevronSVG()}
+      </div>
+    </div>
+    <div class="card-body">
+      <p>Analisar ação <strong style="color:var(--sup);font-family:var(--mono)">${esc(ticker.toUpperCase())}</strong></p>
+    </div>`;
+  msgsEl.appendChild(card);
+  incMsgCount();
+  scrollBottom();
+}
+
+function addErrCard(msg) {
+  const d = document.createElement('div');
+  d.className = 'err-card';
+  d.innerHTML = `<strong>Erro:</strong> ${esc(msg)}`;
+  msgsEl.appendChild(d);
+  scrollBottom();
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Card expand / collapse
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+document.addEventListener('click', e => {
+  const head = e.target.closest('.card-head');
+  if (!head) return;
+  const card = head.closest('.card');
+  if (!card || card.classList.contains('fin')) return;
+  card.classList.toggle('collapsed');
+  scrollBottom();
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Copy / Export
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function copyText(btn) {
+  const card = btn.closest('.card');
+  navigator.clipboard.writeText(card.dataset.content || '').then(() => {
+    const orig = btn.textContent;
+    btn.textContent = 'Copiado!';
+    setTimeout(() => btn.textContent = orig, 1500);
+  });
+}
+
+function exportMD(btn) {
+  const card   = btn.closest('.card');
+  const content = card.dataset.content || '';
+  const ticker  = (currentTicker || 'analise').toUpperCase();
+  const date    = new Date().toISOString().slice(0, 10);
+  const blob    = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+  const a       = document.createElement('a');
+  a.href        = URL.createObjectURL(blob);
+  a.download    = `analise-${ticker}-${date}.md`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function exportPDF(btn) {
+  const card   = btn.closest('.card');
+  const mdEl   = card.querySelector('.md');
+  const ticker  = (currentTicker || 'analise').toUpperCase();
+  if (!mdEl || typeof html2pdf === 'undefined') {
+    alert('PDF não disponível (biblioteca não carregada).');
+    return;
+  }
+  const orig = btn.textContent;
+  btn.textContent = '...';
+  btn.disabled = true;
+
+  // Clone for PDF (light bg, dark text)
+  const clone = mdEl.cloneNode(true);
+  clone.style.cssText = 'font-family:Inter,sans-serif;color:#111;background:#fff;padding:24px;font-size:13px;line-height:1.65';
+  clone.querySelectorAll('h1,h2,h3').forEach(h => { h.style.color='#111'; h.style.marginTop='16px'; });
+  clone.querySelectorAll('strong').forEach(s => s.style.color='#111');
+  clone.querySelectorAll('em').forEach(s => s.style.color='#555');
+  clone.querySelectorAll('blockquote').forEach(b => { b.style.borderLeft='3px solid #7c3aed'; b.style.paddingLeft='12px'; b.style.color='#555'; });
+  clone.querySelectorAll('code').forEach(c => { c.style.background='#f3f4f6'; c.style.color='#059669'; c.style.padding='1px 4px'; c.style.borderRadius='3px'; });
+  clone.querySelectorAll('hr').forEach(h => h.style.borderTop='1px solid #e5e7eb');
+  clone.querySelectorAll('[class^="num-"]').forEach(n => n.style.color='inherit');
+
+  html2pdf().from(clone).set({
+    margin: 14,
+    filename: `analise-${ticker}.pdf`,
+    image: { type: 'jpeg', quality: 0.95 },
+    html2canvas: { scale: 2, backgroundColor: '#ffffff', useCORS: true },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+  }).save().then(() => {
+    btn.textContent = orig;
+    btn.disabled = false;
+  });
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Status bar
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function setStatus(state, label) {
+  document.getElementById('g-dot').className = `g-dot ${state}`;
+  document.getElementById('g-txt').textContent = label;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Pipeline
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+let es = null, t0 = null, durTick = null, accumLoops = 0, lastMsg = null;
+
+function startAnalysis(ticker) {
+  stopAnalysis(false);
+  clearFeed();
+  showFeed();
+  resetGraph();
+  accumLoops  = 0;
+  lastMsg     = null;
+  currentTicker = ticker;
+  t0          = Date.now();
+
+  document.getElementById('s-loops').textContent = '0 / 3';
+  document.getElementById('s-dur').textContent   = '0.0s';
+  document.getElementById('s-next').textContent  = '...';
+  document.getElementById('phase-badge').textContent = 'executando';
+
+  setStatus('running', 'Executando');
+  const btn = document.getElementById('t-btn');
+  btn.textContent = 'Parar';
+  btn.classList.add('running');
+  btn.onclick = () => stopAnalysis(false);
+
+  durTick = setInterval(() => {
+    const s = ((Date.now() - t0) / 1000).toFixed(1);
+    document.getElementById('s-dur').textContent = `${s}s`;
+  }, 100);
+
+  addQueryCard(ticker);
+
+  es = new EventSource(`/analyze?ticker=${encodeURIComponent(ticker)}`);
+  es.onmessage = e => handleEvent(JSON.parse(e.data));
+  es.onerror   = () => {
+    stopAnalysis(false);
+    setStatus('error', 'Erro');
+    addErrCard('Falha na conexão. Verifique se o servidor está rodando em http://localhost:8000');
+  };
+}
+
+function handleEvent(data) {
+  if (data.done)  { stopAnalysis(true);  return; }
+  if (data.error) { addErrCard(data.error); stopAnalysis(false); return; }
+
+  const node = data.node;
+  activateNode(node);
+
+  if (node === 'Supervisor') {
+    if (data.loop_count !== undefined) accumLoops += data.loop_count;
+    if (data.reasoning)  addThinkingCard(data.reasoning);
+    if (data.next_agent) {
+      document.getElementById('s-loops').textContent = `${accumLoops} / 3`;
+      document.getElementById('s-next').textContent  = data.next_agent;
+      if (data.next_agent === 'FINISH') {
+        addRoutingPill('FINISH', accumLoops);
+        setTimeout(finishGraph, 350);
+      } else {
+        addRoutingPill(data.next_agent, accumLoops);
+      }
+    }
+  }
+
+  if (data.messages?.length) {
+    addAgentCard(node, data.messages);
+    lastMsg = data.messages[data.messages.length - 1].content;
+  }
+}
+
+function stopAnalysis(completed) {
+  if (es) { es.close(); es = null; }
+  clearInterval(durTick);
+
+  const btn = document.getElementById('t-btn');
+  btn.textContent = 'Analisar';
+  btn.classList.remove('running');
+  btn.onclick = null; // addEventListener on line below handles default click
+
+  if (completed) {
+    setStatus('done', 'Concluído');
+    document.getElementById('phase-badge').textContent = 'concluído';
+    document.getElementById('s-next').textContent = 'FINISH';
+    if (lastMsg) addFinishCard(lastMsg);
+  } else if (t0) {
+    setStatus('idle', 'Aguardando');
+    document.getElementById('phase-badge').textContent = '—';
+  }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// UI events
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function handleClick() {
+  const inp = document.getElementById('t-input');
+  const v   = inp.value.trim();
+  if (!v) {
+    inp.classList.add('invalid');
+    setTimeout(() => inp.classList.remove('invalid'), 600);
+    inp.focus();
+    return;
+  }
+  startAnalysis(v.toUpperCase());
+}
+
+document.getElementById('t-btn').addEventListener('click', handleClick);
+
+document.getElementById('t-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') handleClick();
+  setTimeout(() => { e.target.value = e.target.value.toUpperCase(); }, 0);
+});
+
+document.getElementById('clear-btn').addEventListener('click', () => {
+  stopAnalysis(false);
+  clearFeed();
+  resetGraph();
+  setStatus('idle', 'Aguardando');
+  ['s-loops','s-dur','s-next'].forEach(id => document.getElementById(id).textContent = '—');
+  document.getElementById('phase-badge').textContent = '—';
+  t0 = null;
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Boot
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// Configure marked for line breaks
+if (typeof marked !== 'undefined') {
+  marked.setOptions({ breaks: true, gfm: true });
+}
+
+initGraph();
+</script>
+</body>
+</html>
