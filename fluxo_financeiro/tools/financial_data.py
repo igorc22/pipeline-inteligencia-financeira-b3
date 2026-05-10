@@ -292,12 +292,12 @@ def _calcular_score(df_demonstrativo, df_balanco, df_fluxo_caixa) -> dict:
     else:
         details['margin'] = f"[NAO] Gross Margin caiu ({gm_cur:.1%} vs {gm_prv:.1%})"
 
-    if score >= 8:
-        interpretation = 'Excelente (8-9) - Empresa com fundamentals muito solidos'
-    elif score >= 6:
-        interpretation = 'Bom (6-7) - Empresa competente, algumas fraquezas'
+    if score >= 7:
+        interpretation = 'Excelente (7-9) - Empresa com fundamentals muito solidos'
+    elif score >= 4:
+        interpretation = 'Bom (4-6) - Empresa competente, algumas fraquezas'
     else:
-        interpretation = 'Fraco (0-5) - Empresa com serios problemas financeiros'
+        interpretation = 'Fraco (0-3) - Empresa com serios problemas financeiros'
 
     return {'piotroski_score': score, 'interpretation': interpretation, 'details': details}
 
