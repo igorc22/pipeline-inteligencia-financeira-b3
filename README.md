@@ -4,15 +4,16 @@ Sistema multi-agente com LLM para análise de ações da B3 usando LangGraph, yf
 
 ## Visão Geral
 
-Um **Supervisor** central orquestra três agentes:
+Um **Supervisor** central orquestra três agentes, e um **Consolidador** fecha toda análise com um relatório:
 
 - **YFinance Agent**: coleta dados de mercado (preço, P/L, ROE, DY, histórico), métricas de risco (Sharpe, Sortino, Max Drawdown, VaR, Beta, Alpha) e Piotroski F-Score
 - **Analyzer Agent**: busca notícias (NewsAPI + Google Search via Gemini) em duas passagens, uma sobre a empresa e outra sobre o setor
 - **Investigator Agent** *(condicional)*: acionado só quando o Supervisor detecta uma anomalia; busca fatos relevantes e histórico trimestral para explicar a causa
+- **Consolidador** *(sempre no fim)*: junta dados, notícias, setor e diagnóstico num relatório (resumo, indicadores, riscos e limitações), sem recomendação de compra ou venda
 
 ```
 Usuário → Supervisor → YFinance → Supervisor → Analyzer (empresa) → Supervisor
-        → Analyzer (setor) → Supervisor → [Investigator → Supervisor] → FINISH
+        → Analyzer (setor) → Supervisor → [Investigator → Supervisor] → FINISH → Consolidador
 ```
 
 Desenhos completos (fluxo, decisões do Supervisor, camadas e serviços) em [`docs/arquitetura.md`](docs/arquitetura.md); o porquê de cada escolha em [`docs/decisoes.md`](docs/decisoes.md).
@@ -105,7 +106,7 @@ uv run python -c "from fluxo_financeiro.tools.investigation import buscar_histor
 fluxo_financeiro/
 ├── shared/    # config, tipos (MessagesState, RouteDecision), logger
 ├── tools/     # financial_data, news, investigation
-├── agents/    # collectors (YFinance), analysts (Analyzer), investigators (Investigator)
+├── agents/    # collectors (YFinance), analysts (Analyzer), investigators (Investigator), consolidator
 └── graph/     # supervisor (guards + LLM) e StateGraph
 api/           # FastAPI com streaming SSE
 scripts/       # e2e.py (teste end-to-end com chamadas reais)

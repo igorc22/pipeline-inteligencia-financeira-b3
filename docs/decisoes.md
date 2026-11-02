@@ -298,6 +298,36 @@ Se houver sinal, o Supervisor manda para o Investigator na Etapa 4 **por guard**
 
 ---
 
+## Parte 10 — Resposta final
+
+### D41 — Consolidador fixo depois do FINISH
+Toda análise agora termina num **Consolidador**, que junta dados, notícias, setor e diagnóstico num relatório só. Antes, a resposta era a última mensagem do grafo: o contexto do setor (quando não havia anomalia) ou só o diagnóstico (quando havia).
+
+**Por que fixo e não escolhido pelo Supervisor:** o router troca todo FINISH, inclusive o do hard stop, pelo nó `Consolidador`, que segue para o fim por uma aresta fixa. Ele não entrou no `RouteDecision`. Se o LLM do Supervisor pudesse escolhê-lo, poderia chamá-lo cedo demais ou esquecer dele. É a mesma linha das D20 e D40: o que é objetivo fica em código.
+
+**Como ele funciona:** é uma função com saída estruturada (`RelatorioFinal`), sem tools, então não usa `create_agent`. Recebe só as respostas do YFinance, do Analyzer e do Investigator. As tarefas do Supervisor ficam de fora: são menos tokens, e o texto da web, que pode trazer instruções, chega como dado delimitado. O markdown é montado em código.
+
+**Três cuidados em código:**
+- O diagnóstico é **copiado literalmente** do Investigator, e o LLM não o reescreve. Assim Causa, Natureza, Evidências e Impacto chegam inteiros.
+- Se faltou uma etapa (hard stop, ticker inexistente), a limitação é escrita pelo código, e o relatório não finge ter notícias que não buscou.
+- Se o LLM do Consolidador falhar, a resposta vira as respostas dos agentes juntadas. A análise inteira não se perde no último passo.
+
+**Sem `defer=True`:** o `defer` serve para esperar ramos paralelos convergirem. Meu grafo é sequencial, então ele não faria nada. Volta à mesa junto com o paralelismo via `Send`.
+
+**Custo medido (02/11/2026, LangSmith):** ~2 mil tokens, ~US$ 0,0015 a 0,0023 e ~2 s por análise, cerca de 10% do total. Resultados:
+- VALE3: 5 loops, com o diagnóstico completo no relatório.
+- WEGE3: 4 loops, sem a seção de diagnóstico.
+- ABCD3 (ticker inexistente): 0 indicadores e 2 limitações, sem número inventado.
+
+### D42 — Estado estruturado incremental e relatório sem veredito
+O state ganhou só o campo `relatorio` (`RelatorioFinal`: resumo, indicadores, contexto, riscos, limitações, diagnóstico). As `messages` com `name=` continuam sendo o que os guards e o prompt do Supervisor leem.
+
+**Por quê:** a migração completa (`dados`, `noticias`, `diagnostico`, `erros`, com o Supervisor lendo campos) mexe em guards, prompt, testes, API e dashboard. É um projeto próprio. Começar pelo relatório entrega a resposta final agora, sem quebrar o que funciona.
+
+**Sem recomendação de compra ou venda:** o relatório descreve o que os dados mostram e não dá veredito nem preço-alvo. O projeto é de estudo, e um "compre" gerado por LLM a partir de poucas fontes passaria uma confiança que os dados não sustentam.
+
+---
+
 ## Jeito de trabalhar
 
 ### D29 — Notebook primeiro, pacote depois
@@ -330,8 +360,8 @@ Uma fixture mocka o LLM em todos os testes de `test_supervisor.py`, e os testes 
 
 Ainda não são decisões, mas são sinais de que algumas escolhas antigas estão chegando no limite:
 
-- **A resposta final é só a última mensagem.** Dependendo do caminho, quem "responde" ao usuário é o Analyzer de setor ou o Investigator. Falta alguém que junte tudo (consolidador).
-- **Estado só com mensagens (D05).** Para paralelizar agentes ou consolidar, campos estruturados (`dados`, `noticias`, `diagnostico`, `erros`) seriam melhores que texto livre.
+- ~~**A resposta final é só a última mensagem.**~~ Resolvido com o Consolidador (D41).
+- **Estado só com mensagens (D05).** Parcial (D42): `sinais_anomalia` e `relatorio` já são campos; dados, notícias e diagnóstico ainda trafegam como texto entre os agentes. Para paralelizar, campos estruturados (`dados`, `noticias`, `diagnostico`, `erros`) seriam melhores.
 - **Erros como string (D06).** O Supervisor não sabe que algo falhou, então não consegue reagir.
 - **Analyzer e Investigator se sobrepõem.** Os dois fazem pesquisa na web com focos diferentes.
 - ~~**Custo invisível.**~~ Resolvido com o LangSmith (D36): cada análise mostra tokens e custo por etapa.
@@ -341,7 +371,7 @@ Ainda não são decisões, mas são sinais de que algumas escolhas antigas estã
 
 Vindas do desenho de evolução no Excalidraw (coordenador, agente de dados, analista, subgrafo de pesquisa, consolidador e human-in-the-loop). **Nada disso está decidido ainda:**
 
-- Criar um **Consolidador** (com `defer=True`) e passar para **estado estruturado**?
+- ~~Criar um **Consolidador**~~: feito (D41). Em aberto: migrar o resto do **estado estruturado**, e levar o `relatorio` como JSON para o SSE e para o dashboard (cards por seção)?
 - Transformar o Analyzer de setor + Investigator num **subgrafo de pesquisa** (geração de perguntas → web → síntese → crítico)?
 - **Checkpointer** para sessão (`thread_id`) × **cache de dados frescos** por ticker (são problemas diferentes)?
 - **Human-in-the-loop** com `interrupt()`, o que exige um endpoint de `resume` na API?
