@@ -5,6 +5,7 @@ from fluxo_financeiro.shared.types import MessagesState
 from fluxo_financeiro.agents.collectors import yfinance_agent
 from fluxo_financeiro.agents.analysts import analyzer_agent
 from fluxo_financeiro.agents.investigators import investigator_agent
+from fluxo_financeiro.agents.consolidator import consolidar, formatar_relatorio, relatorio_de_emergencia
 from fluxo_financeiro.graph.supervisor import supervisor_node, router
 from fluxo_financeiro.shared.utils import extrair_ticker, logger
 # Exceção à regra de camadas (graph ← agents): o detector é cálculo em código, sem agente,
@@ -56,12 +57,28 @@ def investigator_node(state: MessagesState):
     return {"messages": [HumanMessage(content=last_message.text, name="Investigator")]}
 
 
+def consolidador_node(state: MessagesState):
+    """Fim de todo fluxo: junta as respostas dos agentes num relatório. Não soma loop_count."""
+    logger.info(f"[node] Consolidador: consolidando ({len(state['messages'])} msgs)")
+    try:
+        relatorio = consolidar(state["messages"])
+        conteudo = formatar_relatorio(relatorio, _ticker_da_conversa(state))
+    except Exception:
+        # A análise já custou várias chamadas: se o último passo falha, entrega o que os agentes disseram.
+        logger.exception("[node] Consolidador: falha no LLM, usando as respostas dos agentes")
+        relatorio = None
+        conteudo = relatorio_de_emergencia(state["messages"])
+    logger.info(f"[node] Consolidador: relatório pronto ({len(conteudo)} chars)")
+    return {"messages": [HumanMessage(content=conteudo, name="Consolidador")], "relatorio": relatorio}
+
+
 workflow = StateGraph(MessagesState)
 
 workflow.add_node("Supervisor", supervisor_node)
 workflow.add_node("YFinance", yfinance_node)
 workflow.add_node("Analyzer", analyzer_node)
 workflow.add_node("Investigator", investigator_node)
+workflow.add_node("Consolidador", consolidador_node)
 
 workflow.add_edge(START, "Supervisor")
 workflow.add_conditional_edges("Supervisor", router)
@@ -69,5 +86,6 @@ workflow.add_conditional_edges("Supervisor", router)
 workflow.add_edge("YFinance", "Supervisor")
 workflow.add_edge("Analyzer", "Supervisor")
 workflow.add_edge("Investigator", "Supervisor")
+workflow.add_edge("Consolidador", END)
 
 app = workflow.compile()

@@ -148,8 +148,8 @@ def test_supervisor_etapa4_sem_anomalia_finaliza_sem_mensagem(mock_llm):
     ("YFinance", "YFinance"),
     ("Analyzer", "Analyzer"),
     ("Investigator", "Investigator"),
-    ("FINISH", "__end__"),
+    ("FINISH", "Consolidador"),
 ])
 def test_router(next_agent, destino):
-    """Test que o router mapeia cada decisão para o nó correto (FINISH → __end__)."""
+    """Test que o router mapeia cada decisão para o nó correto (FINISH → Consolidador, que vai ao END)."""
     assert router(_state([HumanMessage(content="test")], next_agent=next_agent)) == destino
