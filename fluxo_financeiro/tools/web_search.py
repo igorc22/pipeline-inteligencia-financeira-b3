@@ -1,10 +1,21 @@
 """Busca na web via Gemini + Google Search (grounding). Usado por buscar_noticias_web e buscar_fatos_relevantes."""
 from google import genai
 from google.genai import types
+from langsmith import wrappers
 
 from fluxo_financeiro.shared.config import GEMINI_API_KEY, MODEL
 
 MAX_FONTES = 5
+
+
+def _criar_cliente() -> genai.Client:
+    """Cliente do Google instrumentado para o LangSmith.
+
+    Esta chamada usa o SDK do Google direto (fora do LangChain), então não entraria no trace
+    sozinha. O wrap_gemini registra a chamada como um passo "busca_google" dentro da tool,
+    com tokens e latência. Com LANGSMITH_TRACING desligado, o wrapper não faz nada.
+    """
+    return wrappers.wrap_gemini(genai.Client(api_key=GEMINI_API_KEY), chat_name="busca_google")
 
 
 def pesquisar_na_web(prompt: str) -> str:
@@ -13,7 +24,7 @@ def pesquisar_na_web(prompt: str) -> str:
     Retorna string vazia se o modelo não produziu texto. Exceções (chave inválida, rede, cota)
     sobem para a tool que chamou, que as converte em mensagem de erro.
     """
-    client = genai.Client(api_key=GEMINI_API_KEY)
+    client = _criar_cliente()
     response = client.models.generate_content(
         model=MODEL,
         contents=prompt,

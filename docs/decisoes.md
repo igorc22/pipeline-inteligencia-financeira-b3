@@ -238,7 +238,20 @@ Substitui a "temperatura 0" da D04.
 
 **Por quê:** com a troca de provedor (D33) a busca da Anthropic deixou de ser uma opção. Juntar as duas tools num helper evita duplicar a chamada, e de quebra a resposta agora traz as **fontes** (título e link) que o Google usou, que viram evidência para o Investigator.
 
-**Problema em aberto:** a busca com Google Search nos modelos Gemini 3+ só funciona com faturamento ativo no projeto da chave (5.000 buscas grátis por mês, depois $14 a cada 1.000). Com a minha chave atual ela retorna 429 (cota zero). O `gemini-2.5-flash-lite`, que tinha busca no free tier, já foi desativado. Enquanto isso, as tools devolvem a mensagem de erro e o fluxo segue: o Analyzer usa a NewsAPI, e o Investigator se apoia no histórico trimestral (foi assim que ele acertou a causa no e2e da VALE3).
+**Cota:** a busca com Google Search nos modelos Gemini 3+ só funciona com faturamento ativo no projeto da chave (5.000 buscas grátis por mês, depois $14 a cada 1.000). No free tier ela retornava 429 (cota zero), e o `gemini-2.5-flash-lite`, que tinha busca grátis, já foi desativado. Enquanto isso, as tools devolviam o erro e o fluxo seguia com NewsAPI + histórico trimestral (foi assim que o Investigator acertou a causa no primeiro e2e da VALE3).
+
+**Resolvido em 02/11/2026:** ativei o faturamento com R$ 20 pré-pagos no AI Studio. Atenção: o crédito de boas-vindas e o Free Trial do Google Cloud não pagam a API do Gemini; só crédito comprado no AI Studio Billing. Com a busca ligada, o e2e da VALE3 usou as 3 tools do Investigator (fatos relevantes, depois histórico trimestral) e o Analyzer caiu no fallback da web nas duas passagens, porque a NewsAPI não achou artigos para as queries. Os dois e2e continuam passando.
+
+### D36 — Tracing no LangSmith, inclusive das buscas no Google
+Liguei o LangSmith pelo `.env` (`LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_AGENT_ID=pipeline-b3`, `LANGSMITH_AGENT_ENVIRONMENT=local`). O LangChain e o LangGraph mandam os traces sozinhos; o único código novo foi envolver o cliente do Google com `wrap_gemini` em `tools/web_search.py`.
+
+**Por quê:** era o "logging de custo por etapa" do meu desenho. Agora cada análise mostra o caminho do grafo, o tempo e os tokens de cada agente e tool. A busca precisa do `wrap_gemini` porque chama o SDK do Google direto, fora do LangChain; sem ele, os tokens dessa chamada sumiriam do trace.
+
+**O que o primeiro trace mostrou (VALE3, 02/11/2026):** 25 s, ~29,5 mil tokens, ~US$ 0,016 por análise. O Investigator é a etapa mais cara (~10 mil tokens, um terço do total). As passagens do Supervisor resolvidas por guard aparecem com 0 tokens, ou seja, a D20 economiza chamadas de verdade. O custo do LangSmith não inclui a taxa por busca do Google Search.
+
+**Agente, não projeto:** comecei com `LANGSMITH_PROJECT`, e os traces chegaram, mas não apareciam na interface. O LangSmith Cloud agora organiza tudo por **agente + ambiente** (`local`, `development`, `staging`, `production`), e a forma antiga manda para um projeto que a navegação por agentes não mostra. Troquei pelas variáveis de agente. Não dá para usar as duas formas juntas: com `LANGSMITH_PROJECT` e `LANGSMITH_AGENT_*` ao mesmo tempo, o SDK não envia nada. Por enquanto uso `local`; `production` fica para quando o projeto rodar de verdade.
+
+**Cuidado:** com o tracing ligado no `.env`, os testes também mandariam traces. O `tests/conftest.py` desliga o tracing antes de qualquer import, e conferi que o `pytest` não cria nada no LangSmith.
 
 ---
 
@@ -278,7 +291,7 @@ Ainda não são decisões, mas são sinais de que algumas escolhas antigas estã
 - **Estado só com mensagens (D05).** Para paralelizar agentes ou consolidar, campos estruturados (`dados`, `noticias`, `diagnostico`, `erros`) seriam melhores que texto livre.
 - **Erros como string (D06).** O Supervisor não sabe que algo falhou, então não consegue reagir.
 - **Analyzer e Investigator se sobrepõem.** Os dois fazem pesquisa na web com focos diferentes.
-- **Custo invisível.** Não sei quanto custa cada análise, e as chamadas de busca feitas pelo SDK do Google direto (fora do LangChain) nem aparecem no tracing.
+- ~~**Custo invisível.**~~ Resolvido com o LangSmith (D36): cada análise mostra tokens e custo por etapa.
 - **Documentação desatualiza rápido.** Os docs ainda falavam do MVP (hard stop 3, dois agentes) quando o código já estava em outra fase.
 
 ## Próximas decisões em aberto
@@ -289,7 +302,8 @@ Vindas do desenho de evolução no Excalidraw (coordenador, agente de dados, ana
 - Transformar o Analyzer de setor + Investigator num **subgrafo de pesquisa** (geração de perguntas → web → síntese → crítico)?
 - **Checkpointer** para sessão (`thread_id`) × **cache de dados frescos** por ticker (são problemas diferentes)?
 - **Human-in-the-loop** com `interrupt()`, o que exige um endpoint de `resume` na API?
-- **Logging de custo**: LangSmith, ou somar `usage_metadata` no state?
-- **Busca na web sem depender do faturamento do Gemini (D35)**: vincular o faturamento ao projeto da chave, trocar por uma API de busca dedicada (Tavily, Brave, Serper) ou ficar só com NewsAPI + histórico trimestral?
+- ~~**Logging de custo**~~: resolvido com o LangSmith (D36). Em aberto: levar o custo por etapa também para o dashboard?
+- **Busca na web independente do provedor do LLM**: hoje a busca está presa ao Gemini (D35), como antes estava presa à Anthropic (D16). Vale trocar por uma API de busca dedicada (Tavily, Brave, Serper) para que trocar de LLM não quebre a busca de novo?
+- **NewsAPI quase não acha nada**: no e2e as duas buscas do Analyzer na NewsAPI voltaram vazias e tudo caiu no fallback da web. Ajustar as queries, ou inverter a ordem (web primeiro)?
 - **Sanitização**: extrair `{ticker, intenção}` com regex + saída estruturada na entrada, e proteger contra prompt injection vinda do conteúdo da web?
 - **Paralelismo** com `Send` (dados primeiro, depois analista e pesquisa ao mesmo tempo)?
