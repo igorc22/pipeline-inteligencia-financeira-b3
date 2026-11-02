@@ -362,11 +362,11 @@ Uma fixture mocka o LLM em todos os testes de `test_supervisor.py`, e os testes 
 **Detalhe:** as receitas são comandos simples para funcionar tanto no Git Bash quanto no PowerShell; no Windows o `make` vem do pacote `ezwinports.make`.
 
 ### D43 — Rede bloqueada nos testes com `pytest-socket`
-O `pyproject.toml` liga `--disable-socket` em todo `pytest`: qualquer tentativa de abrir conexão durante um teste levanta `SocketBlockedError`. O `tests/test_rede_bloqueada.py` garante que o bloqueio continua ligado.
+O `pyproject.toml` liga `--disable-socket` em todo `pytest`: qualquer tentativa de abrir conexão durante um teste levanta `SocketBlockedError`. Só isso não bastava: as tools capturam qualquer `Exception` e devolvem `"Erro ao ..."`, então o erro seria engolido e o teste passaria. Por isso uma fixture `autouse` no `tests/conftest.py` confere o aviso que o pytest-socket emite junto com o erro e reprova o teste. O `tests/test_rede_bloqueada.py` garante as duas coisas.
 
 **Por quê:** a D30 (testes 100% mockados) era só convenção. Duas vezes um mock esquecido virou chamada real à API, gastando crédito sem ninguém perceber. Agora um mock esquecido derruba o teste.
 
-**Custo:** um teste que precise de rede de propósito tem de pedir com `@pytest.mark.enable_socket`.
+**Custo:** um teste que precise de rede de propósito tem de pedir com `@pytest.mark.enable_socket`; um que tente abrir socket de propósito para ser barrado leva `@pytest.mark.tenta_rede_de_proposito`.
 
 ---
 
