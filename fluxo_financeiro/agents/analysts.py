@@ -1,9 +1,8 @@
-from langchain_anthropic import ChatAnthropic
 from langchain.agents import create_agent
-from fluxo_financeiro.shared.config import MODEL
+from fluxo_financeiro.shared.llm import criar_llm
 from fluxo_financeiro.tools.news import buscar_noticias, buscar_noticias_web
 
-llm = ChatAnthropic(model=MODEL, temperature=0)
+llm = criar_llm()
 
 analyzer_agent = create_agent(
     model=llm,

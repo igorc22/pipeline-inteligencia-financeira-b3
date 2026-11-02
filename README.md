@@ -1,13 +1,13 @@
 # Pipeline de Inteligência Financeira — B3
 
-Sistema multi-agente com LLM para análise de ações da B3 usando LangGraph, yfinance e Claude.
+Sistema multi-agente com LLM para análise de ações da B3 usando LangGraph, yfinance e Gemini.
 
 ## Visão Geral
 
 Um **Supervisor** central orquestra três agentes:
 
 - **YFinance Agent**: coleta dados de mercado (preço, P/L, ROE, DY, histórico), métricas de risco (Sharpe, Sortino, Max Drawdown, VaR, Beta, Alpha) e Piotroski F-Score
-- **Analyzer Agent**: busca notícias (NewsAPI + Anthropic Web Search) em duas passagens, uma sobre a empresa e outra sobre o setor
+- **Analyzer Agent**: busca notícias (NewsAPI + Google Search via Gemini) em duas passagens, uma sobre a empresa e outra sobre o setor
 - **Investigator Agent** *(condicional)*: acionado só quando o Supervisor detecta uma anomalia; busca fatos relevantes e histórico trimestral para explicar a causa
 
 ```
@@ -21,13 +21,15 @@ Usuário → Supervisor → YFinance → Supervisor → Analyzer (empresa) → S
 uv sync
 ```
 
-Crie um arquivo `.env` na raiz:
+Copie `.env.example` para `.env` e preencha:
 
 ```
-ANTHROPIC_API_KEY=sk-ant-...   # obrigatório (LLM e Web Search)
+GEMINI_API_KEY=...            # obrigatório (LLM e busca na web)
 NEWS_API_KEY=...               # obrigatório para buscar_noticias
 LOG_LEVEL=INFO                 # opcional
 ```
+
+A busca na web (Google Search) exige faturamento ativo no projeto da chave do Gemini. Sem isso, as tools de busca devolvem erro e o fluxo segue só com a NewsAPI e os dados do yfinance.
 
 ## Como Usar
 
@@ -108,9 +110,9 @@ tests/         # espelha fluxo_financeiro/
 | Camada | Tecnologia |
 |--------|-----------|
 | Orquestração | LangGraph 1.x |
-| LLM | Claude Haiku 4.5 (langchain-anthropic) |
+| LLM | Gemini 3.5 Flash-Lite (langchain-google-genai) |
 | Dados de mercado | yfinance, API SGS do Banco Central |
-| Notícias | NewsAPI, Anthropic Web Search |
+| Notícias | NewsAPI, Google Search (Gemini) |
 | API | FastAPI + uvicorn (SSE) |
 | Testes | pytest |
 | Ambiente | uv, python-dotenv |

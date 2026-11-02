@@ -1,11 +1,10 @@
 from typing import Literal
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
-from fluxo_financeiro.shared.config import MODEL
+from fluxo_financeiro.shared.llm import criar_llm
 from fluxo_financeiro.shared.types import MessagesState, RouteDecision
 from fluxo_financeiro.shared.utils import logger
 
-llm = ChatAnthropic(model=MODEL, temperature=0)
+llm = criar_llm()
 
 
 def supervisor_node(state: MessagesState):

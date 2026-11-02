@@ -13,24 +13,24 @@ def yfinance_node(state: MessagesState):
     logger.info(f"[node] YFinance: invocando agente ({len(state['messages'])} msgs)")
     response = yfinance_agent.invoke({"messages": state["messages"]})
     last_message = response["messages"][-1]
-    logger.info(f"[node] YFinance: resposta recebida ({len(last_message.content)} chars)")
-    return {"messages": [HumanMessage(content=last_message.content, name="YFinance")]}
+    logger.info(f"[node] YFinance: resposta recebida ({len(last_message.text)} chars)")
+    return {"messages": [HumanMessage(content=last_message.text, name="YFinance")]}
 
 
 def analyzer_node(state: MessagesState):
     logger.info(f"[node] Analyzer: invocando agente ({len(state['messages'])} msgs)")
     response = analyzer_agent.invoke({"messages": state["messages"]})
     last_message = response["messages"][-1]
-    logger.info(f"[node] Analyzer: resposta recebida ({len(last_message.content)} chars)")
-    return {"messages": [HumanMessage(content=last_message.content, name="Analyzer")]}
+    logger.info(f"[node] Analyzer: resposta recebida ({len(last_message.text)} chars)")
+    return {"messages": [HumanMessage(content=last_message.text, name="Analyzer")]}
 
 
 def investigator_node(state: MessagesState):
     logger.info(f"[node] Investigator: invocando agente ({len(state['messages'])} msgs)")
     response = investigator_agent.invoke({"messages": state["messages"]})
     last_message = response["messages"][-1]
-    logger.info(f"[node] Investigator: resposta recebida ({len(last_message.content)} chars)")
-    return {"messages": [HumanMessage(content=last_message.content, name="Investigator")]}
+    logger.info(f"[node] Investigator: resposta recebida ({len(last_message.text)} chars)")
+    return {"messages": [HumanMessage(content=last_message.text, name="Investigator")]}
 
 
 workflow = StateGraph(MessagesState)

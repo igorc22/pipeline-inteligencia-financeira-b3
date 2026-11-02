@@ -33,6 +33,8 @@ No estudo 02, o Supervisor era um agente e os subagentes viravam `@tool`. No pro
 **Por quê:** cada camada pode ser testada sozinha, não existe import circular, e adicionar um agente novo nas próximas fases não mexe nas tools.
 
 ### D04 — Claude Haiku com temperatura 0 para tudo
+**Substituída por D33 e D34.**
+
 **Por quê:** é o modelo mais barato e rápido, e para coletar dados e rotear não preciso de um modelo grande. Temperatura 0 deixa o roteamento o mais previsível possível.
 
 **Custo:** a qualidade da síntese e do julgamento ("isso é uma anomalia?") fica limitada. Pode valer usar um modelo maior só nos pontos de decisão no futuro.
@@ -117,6 +119,8 @@ Busca em `pt`; se vierem menos de 2 artigos válidos, tenta em `en`. Artigos `[R
 **Por quê:** a cobertura em português de ações brasileiras na NewsAPI é pequena. O inglês preenche o buraco, principalmente para empresas grandes como Vale e Petrobras.
 
 ### D16 — Anthropic Web Search como complemento, não como substituto
+**A parte do provedor foi substituída por D35** (a busca agora é o Google Search do Gemini). A regra "NewsAPI primeiro, web como fallback" continua valendo.
+
 Testei no notebook `07_web_search_tool` e comparei com a NewsAPI.
 
 **Decisão:** NewsAPI como padrão e `buscar_noticias_web` como fallback, quando vier pouca coisa ou eu precisar de algo das últimas horas.
@@ -192,7 +196,9 @@ Na Etapa 4, o Supervisor se pergunta: *"Um investidor ficaria com dúvida de POR
 
 **Por quê:** investigar toda ação seria caro (várias buscas na web) e inútil para empresa estável. A decisão é **semântica** (LLM), porque "anomalia" depende de contexto e não cabe numa regra fixa tipo "queda > X%".
 
-**Risco:** depende do julgamento do Haiku; ainda preciso validar com um ticker com anomalia e outro estável.
+**Risco:** depende do julgamento do LLM.
+
+**Validado em 01/11/2026 (já com o Gemini, D33):** VALE3 ativou o Investigator (P/L de 74,7x com ROE de 0,3% e lucro caindo de 6,17 bi para 2,35 bi) e o diagnóstico saiu com as 4 seções em 5 loops; WEGE3 terminou na Etapa 4 sem investigação, em 4 loops.
 
 ### D26 — Três tools com papéis bem separados
 - `buscar_fatos_relevantes`: eventos corporativos formais (fato relevante na CVM, impairment, reestruturação). É a primeira busca porque é a "confissão oficial" da empresa.
@@ -207,6 +213,35 @@ Na Etapa 4, o Supervisor se pergunta: *"Um investidor ficaria com dúvida de POR
 
 ---
 
+## Parte 8 — Troca de provedor: Gemini
+
+### D33 — Gemini 3.5 Flash-Lite no lugar do Claude Haiku
+O LLM de todos os agentes e do Supervisor passou a ser o `gemini-3.5-flash-lite`, via `langchain-google-genai`. Substitui a escolha de modelo da D04.
+
+**Por quê:** eu tenho créditos no Gemini, então é mais fácil de usar. O Flash-Lite é o equivalente do Haiku no Google: o modelo barato e rápido da família ($0.30 / $2.50 por milhão de tokens).
+
+**Como ficou:** o modelo é criado num lugar só, `criar_llm()` em `shared/llm.py`, e o nome vem do `.env` (`LLM_MODEL`, padrão `gemini-3.5-flash-lite`). Trocar de modelo é mudar uma variável; trocar de provedor é mexer em um arquivo. A chave é `GEMINI_API_KEY` (aceita `GOOGLE_API_KEY` também).
+
+**Detalhe:** o `ChatGoogleGenerativeAI` exige a chave já na criação, e os agentes são criados na importação. Sem chave, os testes quebrariam; por isso a fábrica usa um placeholder e só avisa no log. O erro de verdade aparece na primeira chamada.
+
+**Validação:** os dois e2e passaram (ver D25), então os prompts escritos para o Haiku funcionaram no Gemini sem ajuste.
+
+### D34 — Não enviar temperatura
+Substitui a "temperatura 0" da D04.
+
+**Por quê:** o Google recomenda manter a temperatura padrão nos modelos Gemini 3+, porque valores baixos podem causar loops e piorar o raciocínio. E o `gemini-3.5-flash-lite` tem amostragem fixa: ignora o parâmetro e ainda emite um aviso a cada chamada. Mandar `temperature=None` deixa o modelo no padrão dele.
+
+**Custo:** perdi o "determinismo" da temperatura 0. Na prática, o que segura a previsibilidade do fluxo são os guards em código (D20) e o hard stop (D21), não a temperatura.
+
+### D35 — Busca na web via Google Search do Gemini, com fontes
+`buscar_noticias_web` e `buscar_fatos_relevantes` usavam a ferramenta de Web Search da Anthropic, que só existe no Claude. Agora as duas chamam um helper comum, `pesquisar_na_web()` em `tools/web_search.py`, que usa o Gemini com Google Search (grounding).
+
+**Por quê:** com a troca de provedor (D33) a busca da Anthropic deixou de ser uma opção. Juntar as duas tools num helper evita duplicar a chamada, e de quebra a resposta agora traz as **fontes** (título e link) que o Google usou, que viram evidência para o Investigator.
+
+**Problema em aberto:** a busca com Google Search nos modelos Gemini 3+ só funciona com faturamento ativo no projeto da chave (5.000 buscas grátis por mês, depois $14 a cada 1.000). Com a minha chave atual ela retorna 429 (cota zero). O `gemini-2.5-flash-lite`, que tinha busca no free tier, já foi desativado. Enquanto isso, as tools devolvem a mensagem de erro e o fluxo segue: o Analyzer usa a NewsAPI, e o Investigator se apoia no histórico trimestral (foi assim que ele acertou a causa no e2e da VALE3).
+
+---
+
 ## Jeito de trabalhar
 
 ### D29 — Notebook primeiro, pacote depois
@@ -215,7 +250,7 @@ Toda feature nasce num notebook em `notebooks/fluxo_financeiro/` (com os conceit
 **Por quê:** estou aprendendo finanças em paralelo. O notebook é onde eu entendo o conceito e vejo dados reais; o pacote é onde o código precisa ser limpo e testado.
 
 ### D30 — Testes 100% mockados
-yfinance, BCB, NewsAPI e Anthropic são sempre mockados nos testes unitários.
+yfinance, BCB, NewsAPI e o LLM/busca (antes Anthropic, hoje Gemini) são sempre mockados nos testes unitários.
 
 **Por quê:** os testes rodam em segundos, não gastam API e não quebram porque o mercado mudou ou a internet caiu.
 
@@ -243,7 +278,7 @@ Ainda não são decisões, mas são sinais de que algumas escolhas antigas estã
 - **Estado só com mensagens (D05).** Para paralelizar agentes ou consolidar, campos estruturados (`dados`, `noticias`, `diagnostico`, `erros`) seriam melhores que texto livre.
 - **Erros como string (D06).** O Supervisor não sabe que algo falhou, então não consegue reagir.
 - **Analyzer e Investigator se sobrepõem.** Os dois fazem pesquisa na web com focos diferentes.
-- **Custo invisível.** Não sei quanto custa cada análise, e as chamadas de web search pelo SDK direto nem aparecem no tracing do LangChain.
+- **Custo invisível.** Não sei quanto custa cada análise, e as chamadas de busca feitas pelo SDK do Google direto (fora do LangChain) nem aparecem no tracing.
 - **Documentação desatualiza rápido.** Os docs ainda falavam do MVP (hard stop 3, dois agentes) quando o código já estava em outra fase.
 
 ## Próximas decisões em aberto
@@ -254,6 +289,7 @@ Vindas do desenho de evolução no Excalidraw (coordenador, agente de dados, ana
 - Transformar o Analyzer de setor + Investigator num **subgrafo de pesquisa** (geração de perguntas → web → síntese → crítico)?
 - **Checkpointer** para sessão (`thread_id`) × **cache de dados frescos** por ticker (são problemas diferentes)?
 - **Human-in-the-loop** com `interrupt()`, o que exige um endpoint de `resume` na API?
-- **Logging de custo**: LangSmith + `wrap_anthropic`, ou somar `usage_metadata` no state?
+- **Logging de custo**: LangSmith, ou somar `usage_metadata` no state?
+- **Busca na web sem depender do faturamento do Gemini (D35)**: vincular o faturamento ao projeto da chave, trocar por uma API de busca dedicada (Tavily, Brave, Serper) ou ficar só com NewsAPI + histórico trimestral?
 - **Sanitização**: extrair `{ticker, intenção}` com regex + saída estruturada na entrada, e proteger contra prompt injection vinda do conteúdo da web?
 - **Paralelismo** com `Send` (dados primeiro, depois analista e pesquisa ao mesmo tempo)?

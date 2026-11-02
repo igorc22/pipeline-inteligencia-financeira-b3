@@ -69,39 +69,32 @@ def test_buscar_historico_trimestral_erro_yfinance(mock_ticker):
 # buscar_fatos_relevantes
 # ---------------------------------------------------------------------------
 
-@patch('fluxo_financeiro.tools.investigation.anthropic.Anthropic')
-def test_buscar_fatos_relevantes_retorna_conteudo(mock_anthropic_class):
-    """Test que retorna conteúdo quando web search encontra resultados."""
-    mock_client = MagicMock()
-    mock_anthropic_class.return_value = mock_client
-
-    mock_block = MagicMock()
-    mock_block.type = 'text'
-    mock_block.text = 'Vale registra impairment de R$4B em ativos de níquel.'
-    mock_client.messages.create.return_value.content = [mock_block]
+@patch('fluxo_financeiro.tools.investigation.pesquisar_na_web')
+def test_buscar_fatos_relevantes_retorna_conteudo(mock_pesquisa):
+    """Test que retorna conteúdo quando a busca na web encontra resultados."""
+    mock_pesquisa.return_value = 'Vale registra impairment de R$4B em ativos de níquel.\n\nFontes:\n- valor.com.br: https://exemplo'
 
     result = buscar_fatos_relevantes.invoke("VALE3")
 
-    assert isinstance(result, str)
     assert "Vale registra impairment" in result
+    assert "Fontes:" in result
+    assert "VALE3" in mock_pesquisa.call_args.args[0]  # ticker sem .SA no prompt
 
 
-@patch('fluxo_financeiro.tools.investigation.anthropic.Anthropic')
-def test_buscar_fatos_relevantes_sem_resultados(mock_anthropic_class):
-    """Test que retorna mensagem amigável quando web search não retorna texto."""
-    mock_client = MagicMock()
-    mock_anthropic_class.return_value = mock_client
-    mock_client.messages.create.return_value.content = []
+@patch('fluxo_financeiro.tools.investigation.pesquisar_na_web')
+def test_buscar_fatos_relevantes_sem_resultados(mock_pesquisa):
+    """Test que retorna mensagem amigável quando a busca não retorna texto."""
+    mock_pesquisa.return_value = ""
 
     result = buscar_fatos_relevantes.invoke("DESCONHECIDO")
 
-    assert "Nenhum" in result or "nenhum" in result
+    assert "Nenhum fato relevante" in result
 
 
-@patch('fluxo_financeiro.tools.investigation.anthropic.Anthropic')
-def test_buscar_fatos_relevantes_erro_api(mock_anthropic_class):
+@patch('fluxo_financeiro.tools.investigation.pesquisar_na_web')
+def test_buscar_fatos_relevantes_erro_api(mock_pesquisa):
     """Test que captura exceção e retorna string de erro."""
-    mock_anthropic_class.side_effect = Exception("API timeout")
+    mock_pesquisa.side_effect = Exception("API timeout")
 
     result = buscar_fatos_relevantes.invoke("VALE3")
 

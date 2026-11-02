@@ -1,13 +1,12 @@
-from langchain_anthropic import ChatAnthropic
 from langchain.agents import create_agent
-from fluxo_financeiro.shared.config import MODEL
+from fluxo_financeiro.shared.llm import criar_llm
 from fluxo_financeiro.tools.financial_data import (
     buscar_dados_acao_b3,
     calcular_metricas_risco,
     calcular_piotroski_score,
 )
 
-llm = ChatAnthropic(model=MODEL, temperature=0)
+llm = criar_llm()
 
 yfinance_agent = create_agent(
     model=llm,

@@ -1,10 +1,9 @@
-from langchain_anthropic import ChatAnthropic
 from langchain.agents import create_agent
-from fluxo_financeiro.shared.config import MODEL
+from fluxo_financeiro.shared.llm import criar_llm
 from fluxo_financeiro.tools.investigation import buscar_historico_trimestral, buscar_fatos_relevantes
 from fluxo_financeiro.tools.news import buscar_noticias_web
 
-llm = ChatAnthropic(model=MODEL, temperature=0)
+llm = criar_llm()
 
 INVESTIGATOR_PROMPT = """Você é um investigador financeiro especializado em diagnóstico causal.
 
