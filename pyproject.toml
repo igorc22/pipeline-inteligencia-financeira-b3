@@ -28,7 +28,7 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["fluxo_financeiro*", "api*"]
+include = ["fluxo_financeiro*", "api*", "dashboard*"]
 
 [tool.pytest.ini_options]
 addopts = "--disable-socket"
