@@ -13,6 +13,16 @@ class SinalAnomalia(BaseModel):
     descricao: str = Field(description="Frase com os números, pronta para virar tarefa do Investigator.")
 
 
+class RelatorioFinal(BaseModel):
+    """Resposta final da análise, montada pelo Consolidador a partir das respostas dos agentes."""
+    resumo: str = Field(description="2 a 3 frases dizendo o que os dados, as notícias e o diagnóstico (se houver) mostram juntos.")
+    indicadores: list[str] = Field(description="Números presentes nos insumos, um por item, no formato 'Nome: valor' (ex: 'P/L: 74,7x'). Nunca invente nem estime.")
+    contexto: str = Field(description="Resumo das notícias da empresa e do contexto do setor.")
+    riscos: list[str] = Field(description="Riscos apontados pelos dados ou pelas notícias, um por item.")
+    limitacoes: list[str] = Field(description="O que faltou ou falhou na coleta (dados ausentes, buscas sem resultado ou com erro).")
+    diagnostico: Optional[str] = Field(default=None, description="Preenchido pelo sistema com o texto do Investigator. Deixe nulo.")
+
+
 class MessagesState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
     next_agent: str
@@ -21,6 +31,8 @@ class MessagesState(TypedDict):
     # Preenchido pelo nó do YFinance; se não estiver vazio, o Supervisor manda para o Investigator
     # na Etapa 4 sem consultar o LLM (guard). Ausente/vazio = o LLM decide.
     sinais_anomalia: list[SinalAnomalia]
+    # Preenchido pelo Consolidador no fim do fluxo; None se o LLM dele falhou (fallback em texto).
+    relatorio: Optional[RelatorioFinal]
 
 
 class RouteDecision(BaseModel):
