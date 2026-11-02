@@ -118,7 +118,7 @@ Busca em `pt`; se vierem menos de 2 artigos válidos, tenta em `en`. Artigos `[R
 
 **Por quê:** a cobertura em português de ações brasileiras na NewsAPI é pequena. O inglês preenche o buraco, principalmente para empresas grandes como Vale e Petrobras.
 
-### D16 — Anthropic Web Search como complemento, não como substituto
+### D16 — Anthropic Web Search como complemento, não como substituto (substituída por D35 e D44)
 **A parte do provedor foi substituída por D35** (a busca agora é o Google Search do Gemini). A ordem foi invertida pela D44 (web primeiro, NewsAPI como reserva).
 
 Testei no notebook `07_web_search_tool` e comparei com a NewsAPI.

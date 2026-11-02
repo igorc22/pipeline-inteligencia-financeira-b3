@@ -51,8 +51,8 @@ def registrar_falha_busca(contexto: str, erro: Exception) -> None:
     O erro do SDK do Google traz o JSON inteiro da resposta, e o logger.exception imprimia
     dezenas de linhas a cada busca que falhava. Para a linha, basta o tipo e o status.
     """
-    linhas = str(erro).splitlines()
-    resumo = linhas[0][:MAX_ERRO_LOG] if linhas else ""
+    primeira = next((linha.strip() for linha in str(erro).splitlines() if linha.strip()), "")
+    resumo = primeira[:MAX_ERRO_LOG]
     logger.error(f"{contexto}: {type(erro).__name__}: {resumo}")
     logger.debug(f"{contexto}: traceback", exc_info=erro)
 

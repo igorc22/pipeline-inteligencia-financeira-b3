@@ -92,10 +92,10 @@ def main() -> int:
     if resultado["loops"] > HARD_STOP:
         falhas.append(f"loop_count {resultado['loops']} passou do hard stop")
     if ativou:
-        diag = resultado["mensagens"]["Investigator"]
-        faltando = [s for s in SECOES_DIAGNOSTICO if s.lower() not in diag.lower()]
-        print(f"Diagnóstico:   {'formato completo' if not faltando else 'faltando ' + ', '.join(faltando)}")
-        falhas += conferir_diagnostico(diag, resultado["mensagens"].get("Consolidador", ""))
+        problemas = conferir_diagnostico(resultado["mensagens"]["Investigator"],
+                                         resultado["mensagens"].get("Consolidador", ""))
+        print(f"Diagnóstico:   {'completo e copiado na íntegra' if not problemas else '; '.join(problemas)}")
+        falhas += problemas
     if args.espera_investigator and not ativou:
         falhas.append("esperava o Investigator e ele não foi ativado")
     if args.espera_sem_investigator and ativou:

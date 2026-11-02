@@ -153,3 +153,15 @@ def test_falha_da_busca_tem_traceback_em_debug(mock_pesquisa, caplog):
     buscar_noticias_web.invoke("WEGE3")
 
     assert any(r.exc_info for r in caplog.records if r.levelname == "DEBUG")
+
+
+@patch('fluxo_financeiro.tools.news.pesquisar_na_web')
+def test_falha_da_busca_pula_linhas_vazias_no_resumo(mock_pesquisa, caplog):
+    """Test que um erro cuja mensagem começa com quebra de linha não gera um resumo vazio."""
+    caplog.set_level(logging.INFO, logger="fluxo_financeiro")
+    mock_pesquisa.side_effect = Exception("\n  \n429 RESOURCE_EXHAUSTED.")
+
+    buscar_noticias_web.invoke("WEGE3")
+
+    msg = [r for r in caplog.records if r.levelname == "ERROR"][0].getMessage()
+    assert msg.endswith("Exception: 429 RESOURCE_EXHAUSTED.")
