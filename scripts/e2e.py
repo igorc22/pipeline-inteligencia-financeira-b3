@@ -21,6 +21,7 @@ HARD_STOP = 6
 def rodar(ticker: str) -> dict:
     caminho: list[str] = []
     mensagens: dict[str, str] = {}
+    relatorio = None
     loops = 0
 
     initial = {"messages": [HumanMessage(content=f"Analise a ação {ticker.upper()}")]}
@@ -40,9 +41,11 @@ def rodar(ticker: str) -> dict:
                 caminho.append(node)
                 conteudo = update["messages"][-1].content if update.get("messages") else ""
                 mensagens[node] = conteudo
+                if node == "Consolidador":
+                    relatorio = update.get("relatorio")
                 print(f"\n[{node}] ({len(conteudo)} chars)\n{conteudo[:600]}{'...' if len(conteudo) > 600 else ''}")
 
-    return {"caminho": caminho, "mensagens": mensagens, "loops": loops}
+    return {"caminho": caminho, "mensagens": mensagens, "relatorio": relatorio, "loops": loops}
 
 
 def main() -> int:
@@ -63,6 +66,14 @@ def main() -> int:
     print(f"Investigator:  {'ATIVADO' if ativou else 'não ativado'}")
 
     falhas = []
+    relatorio = resultado["relatorio"]
+    if not resultado["caminho"] or resultado["caminho"][-1] != "Consolidador":
+        falhas.append("o fluxo não terminou no Consolidador")
+    if relatorio is None:
+        falhas.append("relatório estruturado ausente (o LLM do Consolidador falhou e entrou o fallback; veja o log)")
+    else:
+        print(f"Relatório:     {len(relatorio.indicadores)} indicadores, {len(relatorio.riscos)} riscos, "
+              f"{len(relatorio.limitacoes)} limitações")
     if resultado["loops"] > HARD_STOP:
         falhas.append(f"loop_count {resultado['loops']} passou do hard stop")
     if ativou:
@@ -71,6 +82,10 @@ def main() -> int:
         print(f"Diagnóstico:   {'formato completo' if not faltando else 'faltando ' + ', '.join(faltando)}")
         if faltando:
             falhas.append(f"diagnóstico sem as seções: {', '.join(faltando)}")
+        final = resultado["mensagens"].get("Consolidador", "")
+        perdidas = [s for s in SECOES_DIAGNOSTICO if s.lower() not in final.lower()]
+        if perdidas:
+            falhas.append(f"o relatório final perdeu as seções do diagnóstico: {', '.join(perdidas)}")
     if args.espera_investigator and not ativou:
         falhas.append("esperava o Investigator e ele não foi ativado")
     if args.espera_sem_investigator and ativou:
