@@ -4,8 +4,10 @@ from google.genai import types
 from langsmith import wrappers
 
 from fluxo_financeiro.shared.config import GEMINI_API_KEY, MODEL
+from fluxo_financeiro.shared.utils import logger
 
 MAX_FONTES = 5
+MAX_ERRO_LOG = 300
 
 
 def _criar_cliente() -> genai.Client:
@@ -41,6 +43,18 @@ def pesquisar_na_web(prompt: str) -> str:
     if fontes:
         texto += "\n\nFontes: " + ", ".join(fontes)
     return texto
+
+
+def registrar_falha_busca(contexto: str, erro: Exception) -> None:
+    """Loga a falha da busca numa linha só; o traceback completo fica para LOG_LEVEL=DEBUG.
+
+    O erro do SDK do Google traz o JSON inteiro da resposta, e o logger.exception imprimia
+    dezenas de linhas a cada busca que falhava. Para a linha, basta o tipo e o status.
+    """
+    primeira = next((linha.strip() for linha in str(erro).splitlines() if linha.strip()), "")
+    resumo = primeira[:MAX_ERRO_LOG]
+    logger.error(f"{contexto}: {type(erro).__name__}: {resumo}")
+    logger.debug(f"{contexto}: traceback", exc_info=erro)
 
 
 def _extrair_fontes(response) -> list[str]:

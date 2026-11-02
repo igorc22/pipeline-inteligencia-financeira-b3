@@ -24,7 +24,14 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=8.0",
+    "pytest-socket>=0.8.1",
 ]
 
 [tool.setuptools.packages.find]
 include = ["fluxo_financeiro*", "api*"]
+
+[tool.pytest.ini_options]
+addopts = "--disable-socket"
+markers = [
+    "tenta_rede_de_proposito: o teste abre socket de propósito; o conftest não o reprova por isso",
+]

@@ -19,7 +19,7 @@ flowchart TD
     S -->|"Etapa 1: sem dados"| Y
     S -->|"Etapas 2 e 3: notícias da empresa, depois do setor"| A
     S -->|"Etapa 4: anomalia"| I
-    S -->|"FINISH (aresta fixa)"| C
+    S -->|"FINISH"| C
 
     subgraph Y["YFinance (coletor)"]
         direction TB
@@ -29,7 +29,7 @@ flowchart TD
     end
 
     subgraph A["Analyzer (analista)"]
-        A1["analyzer_agent<br/>NewsAPI, depois busca na web"]
+        A1["analyzer_agent<br/>busca na web, NewsAPI como reserva"]
     end
 
     subgraph I["Investigator (condicional)"]
@@ -40,7 +40,7 @@ flowchart TD
         C1["consolidar()<br/>LLM com saída estruturada<br/>RelatorioFinal, sem tools"]
     end
 
-    C -->|"relatório em markdown + relatorio no state"| F(["Fim"])
+    C -->|"aresta fixa: relatório em markdown + relatorio no state"| F(["Fim"])
 
     Y -->|"dados + sinais_anomalia"| S
     A -->|"análise"| S
@@ -51,12 +51,12 @@ flowchart TD
 |---|---|---|---|
 | 1 | Ainda não há dados do YFinance | YFinance | LLM |
 | 2 | YFinance coletou, Analyzer ainda não rodou | Analyzer (notícias da empresa) | Guard |
-| 3 | Uma passagem do Analyzer | Analyzer (contexto do setor) | LLM |
+| 3 | Uma passagem do Analyzer | Analyzer (contexto do setor) | Guard (D45) |
 | 4 | Duas passagens do Analyzer **e** sinais de anomalia | Investigator | Guard (D40) |
 | 4 | Duas passagens do Analyzer, **sem** sinais | Investigator ou FINISH | LLM (D25) |
 | — | Investigator já respondeu | FINISH | Guard (D28) |
 | — | `loop_count >= 6` | FINISH | Hard stop (D21) |
-| — | Qualquer FINISH | Consolidador → fim | Aresta fixa no router (D41) |
+| — | Qualquer FINISH | Consolidador → fim | Router: FINISH sempre vai ao Consolidador (D41) |
 
 ---
 
@@ -72,14 +72,16 @@ flowchart TD
     G1 -->|sim| AN(["Analyzer + tarefa: notícias da empresa"])
     G1 -->|não| G2{"Investigator já respondeu?"}
     G2 -->|sim| FIN2(["FINISH"])
-    G2 -->|não| G3{"Analyzer rodou 2x e há<br/>sinais_anomalia?"}
+    G2 -->|não| G4{"Analyzer rodou<br/>só 1x?"}
+    G4 -->|sim| SET(["Analyzer + tarefa: contexto do setor"])
+    G4 -->|não| G3{"Analyzer rodou 2x e há<br/>sinais_anomalia?"}
     G3 -->|sim| INV(["Investigator + tarefa montada com os números"])
     G3 -->|não| LLM["LLM com saída estruturada<br/>RouteDecision: reasoning, next_agent, task_for_agent"]
     LLM --> D(["Decisão do LLM; task_for_agent vira<br/>mensagem name='Supervisor' no histórico"])
 
     classDef guard fill:#e8f5e9,stroke:#2e7d32
     classDef llm fill:#e3f2fd,stroke:#1565c0
-    class H,G1,G2,G3 guard
+    class H,G1,G2,G4,G3 guard
     class LLM llm
 ```
 
@@ -117,9 +119,9 @@ sequenceDiagram
     D-->>Y: queda_lucro: lucro caiu 35% contra o ano anterior
     Y-->>S: dados + SINAIS DE ANOMALIA
     S->>A: (guard) busque notícias da empresa
-    A->>W: NewsAPI vazia, então busca na web
+    A->>W: busca na web (NewsAPI só se falhar)
     A-->>S: notícias
-    S->>A: (LLM) busque o contexto do setor de mineração
+    S->>A: (guard) busque o contexto do setor
     A-->>S: contexto setorial
     S->>I: (guard) investigue a queda de 35%
     I->>W: fatos relevantes

@@ -107,7 +107,7 @@ Commit `5fafc26`. *(motivo a confirmar: provavelmente as faixas antigas classifi
 
 **Por quê:** se aceitasse qualquer inteiro, o LLM poderia inventar um código de série que não existe. O enum restringe às séries que eu sei que fazem sentido.
 
-**Estado:** a tool existe e tem teste, mas ainda não está registrada em nenhum agente.
+**Estado:** a tool existe e tem teste, mas nenhum agente a usa. A SELIC que o projeto usa vem de dentro do `calcular_metricas_risco` (D11). **Preciso revisar (02/11/2026):** registrar no YFinance, para a SELIC e o IPCA aparecerem no relatório, ou apagar a tool.
 
 ---
 
@@ -118,8 +118,8 @@ Busca em `pt`; se vierem menos de 2 artigos válidos, tenta em `en`. Artigos `[R
 
 **Por quê:** a cobertura em português de ações brasileiras na NewsAPI é pequena. O inglês preenche o buraco, principalmente para empresas grandes como Vale e Petrobras.
 
-### D16 — Anthropic Web Search como complemento, não como substituto
-**A parte do provedor foi substituída por D35** (a busca agora é o Google Search do Gemini). A regra "NewsAPI primeiro, web como fallback" continua valendo.
+### D16 — Anthropic Web Search como complemento, não como substituto (substituída por D35 e D44)
+**A parte do provedor foi substituída por D35** (a busca agora é o Google Search do Gemini). A ordem foi invertida pela D44 (web primeiro, NewsAPI como reserva).
 
 Testei no notebook `07_web_search_tool` e comparei com a NewsAPI.
 
@@ -128,6 +128,13 @@ Testei no notebook `07_web_search_tool` e comparei com a NewsAPI.
 **Por quê:** é um trade-off entre **custo, atualidade e controle**:
 - NewsAPI é barata, rápida e com fontes conhecidas, mas só cobre até 30 dias (plano grátis) e demora para indexar.
 - Web Search é em tempo real e o Claude já filtra e sintetiza, mas custa tokens a mais, tem mais latência e eu não controlo as queries.
+
+### D44 — Analyzer busca na web primeiro, NewsAPI vira reserva
+Inverte a ordem da D16: o prompt do Analyzer manda usar `buscar_noticias_web` primeiro, e `buscar_noticias` (NewsAPI) só entra se a busca na web der erro ou não trouxer nada relevante.
+
+**Por quê:** no e2e, a NewsAPI voltou vazia nas duas passagens do Analyzer e tudo caiu no fallback da web. A primeira busca de cada análise era desperdiçada.
+
+**Custo:** quase nenhum. A busca na web já rodava em quase toda análise como fallback, então o consumo das 5.000 buscas grátis do mês praticamente não muda. Sem faturamento no projeto da chave (D35), a web falha e a NewsAPI segura as notícias.
 
 ---
 
@@ -158,6 +165,13 @@ Deixei a ordem "rígida" no prompt porque, com o LLM decidindo livre, o fluxo fi
 O primeiro guard: se o YFinance já coletou e o Analyzer ainda não rodou, vai para o Analyzer **sem chamar o Claude**.
 
 **Por quê:** quando a regra é objetiva, não faz sentido pagar uma chamada de LLM e correr o risco de ele errar. Código decide o óbvio; o LLM decide o que exige julgamento.
+
+### D45 — Guard também para a Etapa 3 (contexto do setor)
+Com exatamente uma passagem do Analyzer, o Supervisor manda o Analyzer de novo para o setor **sem chamar o LLM**. A tarefa é montada em código: ticker tirado do pedido do usuário e setor deixado para o Analyzer ler na indústria que o YFinance trouxe. Some do prompt do Supervisor o mapa ticker → setor.
+
+**Por quê:** no e2e da VALE3 de 02/11/2026, depois de uma única passagem do Analyzer, o LLM foi direto ao Investigator dizendo que "as duas etapas de análise já foram concluídas", mesmo com o prompt mandando contar as mensagens do Analyzer. A Etapa 3 era a única passagem obrigatória que ainda dependia do LLM; é uma regra objetiva, então vai para código, como a D20 e a D40.
+
+**Custo:** a tarefa da Etapa 3 fica genérica (não cita o setor pelo nome), e o LLM do Supervisor agora só decide a Etapa 1 e a Etapa 4 sem sinais. Economiza uma chamada por análise.
 
 ### D21 — Hard stop de 3 para 6
 **Por quê:** com o Analyzer rodando duas vezes (D19), o fluxo normal usa exatamente 3 decisões (YFinance, Analyzer, Analyzer setor) e o FINISH só saía porque batia no hard stop. Não sobrava espaço para nenhuma nova tentativa (por exemplo, voltar ao YFinance depois de uma falha). Com 6, o fluxo completo cabe com folga; com o Investigator (D25), o fluxo passou a usar 5 passagens. *(motivo a confirmar)*
@@ -354,6 +368,13 @@ Uma fixture mocka o LLM em todos os testes de `test_supervisor.py`, e os testes 
 
 **Detalhe:** as receitas são comandos simples para funcionar tanto no Git Bash quanto no PowerShell; no Windows o `make` vem do pacote `ezwinports.make`.
 
+### D43 — Rede bloqueada nos testes com `pytest-socket`
+O `pyproject.toml` liga `--disable-socket` em todo `pytest`: qualquer tentativa de abrir conexão durante um teste levanta `SocketBlockedError`. Só isso não bastava: as tools capturam qualquer `Exception` e devolvem `"Erro ao ..."`, então o erro seria engolido e o teste passaria. Por isso uma fixture `autouse` no `tests/conftest.py` confere o aviso que o pytest-socket emite junto com o erro e reprova o teste. O `tests/test_rede_bloqueada.py` garante as duas coisas.
+
+**Por quê:** a D30 (testes 100% mockados) era só convenção. Duas vezes um mock esquecido virou chamada real à API, gastando crédito sem ninguém perceber. Agora um mock esquecido derruba o teste.
+
+**Custo:** um teste que precise de rede de propósito tem de pedir com `@pytest.mark.enable_socket`; um que tente abrir socket de propósito para ser barrado leva `@pytest.mark.tenta_rede_de_proposito`.
+
 ---
 
 ## Tensões que já estão aparecendo
@@ -377,6 +398,6 @@ Vindas do desenho de evolução no Excalidraw (coordenador, agente de dados, ana
 - **Human-in-the-loop** com `interrupt()`, o que exige um endpoint de `resume` na API?
 - ~~**Logging de custo**~~: resolvido com o LangSmith (D36). Em aberto: levar o custo por etapa também para o dashboard?
 - **Busca na web independente do provedor do LLM**: hoje a busca está presa ao Gemini (D35), como antes estava presa à Anthropic (D16). Vale trocar por uma API de busca dedicada (Tavily, Brave, Serper) para que trocar de LLM não quebre a busca de novo?
-- **NewsAPI quase não acha nada**: no e2e as duas buscas do Analyzer na NewsAPI voltaram vazias e tudo caiu no fallback da web. Ajustar as queries, ou inverter a ordem (web primeiro)?
+- ~~**NewsAPI quase não acha nada**~~: feito (D44), a web virou a busca padrão e a NewsAPI ficou de reserva.
 - **Sanitização**: extrair `{ticker, intenção}` com regex + saída estruturada na entrada, e proteger contra prompt injection vinda do conteúdo da web?
 - **Paralelismo** com `Send` (dados primeiro, depois analista e pesquisa ao mesmo tempo)?

@@ -18,6 +18,21 @@ SECOES_DIAGNOSTICO = ["Causa", "Natureza", "Evidências", "Impacto"]
 HARD_STOP = 6
 
 
+def conferir_diagnostico(diag: str, final: str) -> list[str]:
+    """Falhas do diagnóstico: seções faltando no texto do Investigator, ou o texto dele fora do relatório final.
+
+    O Consolidador copia o diagnóstico literalmente (D41); procurar só as quatro palavras deixaria
+    passar um relatório que resumiu ou reescreveu o diagnóstico.
+    """
+    falhas = []
+    faltando = [s for s in SECOES_DIAGNOSTICO if s.lower() not in diag.lower()]
+    if faltando:
+        falhas.append(f"diagnóstico sem as seções: {', '.join(faltando)}")
+    if diag.strip() not in final:
+        falhas.append("o relatório final não traz o diagnóstico do Investigator na íntegra")
+    return falhas
+
+
 def rodar(ticker: str) -> dict:
     caminho: list[str] = []
     mensagens: dict[str, str] = {}
@@ -77,15 +92,10 @@ def main() -> int:
     if resultado["loops"] > HARD_STOP:
         falhas.append(f"loop_count {resultado['loops']} passou do hard stop")
     if ativou:
-        diag = resultado["mensagens"]["Investigator"]
-        faltando = [s for s in SECOES_DIAGNOSTICO if s.lower() not in diag.lower()]
-        print(f"Diagnóstico:   {'formato completo' if not faltando else 'faltando ' + ', '.join(faltando)}")
-        if faltando:
-            falhas.append(f"diagnóstico sem as seções: {', '.join(faltando)}")
-        final = resultado["mensagens"].get("Consolidador", "")
-        perdidas = [s for s in SECOES_DIAGNOSTICO if s.lower() not in final.lower()]
-        if perdidas:
-            falhas.append(f"o relatório final perdeu as seções do diagnóstico: {', '.join(perdidas)}")
+        problemas = conferir_diagnostico(resultado["mensagens"]["Investigator"],
+                                         resultado["mensagens"].get("Consolidador", ""))
+        print(f"Diagnóstico:   {'completo e copiado na íntegra' if not problemas else '; '.join(problemas)}")
+        falhas += problemas
     if args.espera_investigator and not ativou:
         falhas.append("esperava o Investigator e ele não foi ativado")
     if args.espera_sem_investigator and ativou:

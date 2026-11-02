@@ -1,3 +1,4 @@
+import logging
 from unittest.mock import MagicMock, patch
 
 from fluxo_financeiro.tools.news import buscar_noticias_web
@@ -121,3 +122,46 @@ def test_buscar_noticias_web_erro_vira_string(mock_pesquisa):
     resultado = buscar_noticias_web.invoke("WEGE3")
 
     assert resultado.startswith("Erro ao buscar notícias via web search")
+
+
+# Erro no formato do SDK do Google: status na primeira linha e o JSON inteiro depois
+ERRO_GOOGLE = Exception("429 RESOURCE_EXHAUSTED.\n{'error': {'code': 429, 'details': [" + "x" * 2000 + "]}}")
+
+
+@patch('fluxo_financeiro.tools.news.pesquisar_na_web')
+def test_falha_da_busca_loga_uma_linha_curta(mock_pesquisa, caplog):
+    """Test que a falha da busca vira uma linha de ERROR, sem traceback e sem o JSON do SDK."""
+    caplog.set_level(logging.INFO, logger="fluxo_financeiro")
+    mock_pesquisa.side_effect = ERRO_GOOGLE
+
+    buscar_noticias_web.invoke("WEGE3")
+
+    erros = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert len(erros) == 1
+    msg = erros[0].getMessage()
+    assert "buscar_noticias_web" in msg and "Exception: 429 RESOURCE_EXHAUSTED." in msg
+    assert chr(10) not in msg and len(msg) < 400
+    assert all(r.exc_info is None for r in caplog.records)
+
+
+@patch('fluxo_financeiro.tools.news.pesquisar_na_web')
+def test_falha_da_busca_tem_traceback_em_debug(mock_pesquisa, caplog):
+    """Test que, com LOG_LEVEL=DEBUG, o traceback completo continua no log."""
+    caplog.set_level(logging.DEBUG, logger="fluxo_financeiro")
+    mock_pesquisa.side_effect = ERRO_GOOGLE
+
+    buscar_noticias_web.invoke("WEGE3")
+
+    assert any(r.exc_info for r in caplog.records if r.levelname == "DEBUG")
+
+
+@patch('fluxo_financeiro.tools.news.pesquisar_na_web')
+def test_falha_da_busca_pula_linhas_vazias_no_resumo(mock_pesquisa, caplog):
+    """Test que um erro cuja mensagem começa com quebra de linha não gera um resumo vazio."""
+    caplog.set_level(logging.INFO, logger="fluxo_financeiro")
+    mock_pesquisa.side_effect = Exception("\n  \n429 RESOURCE_EXHAUSTED.")
+
+    buscar_noticias_web.invoke("WEGE3")
+
+    msg = [r for r in caplog.records if r.levelname == "ERROR"][0].getMessage()
+    assert msg.endswith("Exception: 429 RESOURCE_EXHAUSTED.")

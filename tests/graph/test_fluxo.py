@@ -66,7 +66,6 @@ def test_sinal_em_codigo_aciona_investigator_sem_llm(grafo_mockado):
     grafo_mockado["sinais"].return_value = [queda]
     grafo_mockado["decisoes"].side_effect = [
         _decisao("YFinance", "Colete os dados da VALE3"),
-        _decisao("Analyzer", "Busque informações sobre o setor de mineração"),
     ]
 
     resultado = _rodar()
@@ -75,8 +74,8 @@ def test_sinal_em_codigo_aciona_investigator_sem_llm(grafo_mockado):
     assert resultado["messages"][-1].name == "Consolidador"
     assert resultado["loop_count"] == 5
     grafo_mockado["sinais"].assert_called_once_with("VALE3")  # ticker extraído do pedido
-    # Etapas 2 e 4 e o FINISH final são guards: o LLM só decide as etapas 1 e 3
-    assert grafo_mockado["decisoes"].call_count == 2
+    # Etapas 2, 3 e 4 e o FINISH final são guards: o LLM só decide a etapa 1
+    assert grafo_mockado["decisoes"].call_count == 1
     # O sinal aparece na mensagem do YFinance e vira a tarefa do Investigator
     msg_yfinance = next(m for m in resultado["messages"] if m.name == "YFinance")
     assert "SINAIS DE ANOMALIA" in msg_yfinance.content
@@ -89,7 +88,6 @@ def test_llm_pode_acionar_investigator_mesmo_sem_sinal(grafo_mockado):
     """Sem sinal calculado, o LLM ainda pode julgar que há algo a investigar (Etapa 4 pelo LLM)."""
     grafo_mockado["decisoes"].side_effect = [
         _decisao("YFinance", "Colete os dados da VALE3"),
-        _decisao("Analyzer", "Busque informações sobre o setor de mineração"),
         _decisao("Investigator", "Investigue o ROE de 0,3% da VALE3"),
     ]
 
@@ -101,8 +99,8 @@ def test_llm_pode_acionar_investigator_mesmo_sem_sinal(grafo_mockado):
     assert "- Causa identificada: prejuízo no 4T25" in final.content  # diagnóstico copiado
     assert resultado["relatorio"].diagnostico == "- Causa identificada: prejuízo no 4T25"
     assert resultado["loop_count"] == 5
-    # Só 3 decisões passam pelo LLM: a etapa 2 e o FINISH final são guards em código
-    assert grafo_mockado["decisoes"].call_count == 3
+    # Só 2 decisões passam pelo LLM (etapas 1 e 4): as etapas 2 e 3 e o FINISH final são guards
+    assert grafo_mockado["decisoes"].call_count == 2
     # O Investigator recebe a tarefa do Supervisor como última mensagem do histórico
     historico = grafo_mockado["Investigator"].invoke.call_args.args[0]["messages"]
     assert historico[-1].name == "Supervisor"
@@ -113,7 +111,6 @@ def test_fluxo_sem_anomalia_nao_chama_o_investigator(grafo_mockado):
     """Sem anomalia, a etapa 4 vai direto para FINISH."""
     grafo_mockado["decisoes"].side_effect = [
         _decisao("YFinance", "Colete os dados da WEGE3"),
-        _decisao("Analyzer", "Busque informações sobre o setor de automação"),
         _decisao("FINISH"),
     ]
 
@@ -141,13 +138,13 @@ def test_falha_do_consolidador_nao_perde_a_analise(grafo_mockado):
     """Erro no LLM do Consolidador: a resposta final vira a junção das respostas dos agentes."""
     grafo_mockado["decisoes"].side_effect = [
         _decisao("YFinance", "Colete os dados da VALE3"),
-        _decisao("Analyzer", "Busque informações sobre o setor de mineração"),
         _decisao("FINISH"),
     ]
     grafo_mockado["consolidador"].with_structured_output.return_value.invoke.side_effect = Exception("429")
 
     resultado = _rodar()
 
+    assert _quem_falou(resultado) == ["YFinance", "Analyzer", "Analyzer"]
     final = resultado["messages"][-1]
     assert final.name == "Consolidador"
     assert "análise de notícias" in final.content and "P/L 74.7x" in final.content

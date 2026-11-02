@@ -1,3 +1,4 @@
+import logging
 from unittest.mock import patch, MagicMock
 import pandas as pd
 from fluxo_financeiro.tools.investigation import buscar_historico_trimestral, buscar_fatos_relevantes
@@ -99,3 +100,22 @@ def test_buscar_fatos_relevantes_erro_api(mock_pesquisa):
     result = buscar_fatos_relevantes.invoke("VALE3")
 
     assert "Erro" in result
+
+
+ERRO_GOOGLE = Exception("429 RESOURCE_EXHAUSTED.\n{'error': {'code': 429, 'details': [" + "x" * 2000 + "]}}")
+
+
+@patch('fluxo_financeiro.tools.investigation.pesquisar_na_web')
+def test_buscar_fatos_relevantes_erro_loga_uma_linha(mock_pesquisa, caplog):
+    """Test que a falha da busca vira uma linha de ERROR, sem traceback e sem o JSON do SDK."""
+    caplog.set_level(logging.INFO, logger="fluxo_financeiro")
+    mock_pesquisa.side_effect = ERRO_GOOGLE
+
+    buscar_fatos_relevantes.invoke("VALE3")
+
+    erros = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert len(erros) == 1
+    msg = erros[0].getMessage()
+    assert "buscar_fatos_relevantes" in msg and "Exception: 429 RESOURCE_EXHAUSTED." in msg
+    assert chr(10) not in msg and len(msg) < 400
+    assert all(r.exc_info is None for r in caplog.records)
