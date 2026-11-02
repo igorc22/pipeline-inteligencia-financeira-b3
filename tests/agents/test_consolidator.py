@@ -1,6 +1,16 @@
+from unittest.mock import patch
+
+import pytest
 from langchain_core.messages import HumanMessage
 
-from fluxo_financeiro.agents.consolidator import formatar_relatorio, relatorio_de_emergencia
+from fluxo_financeiro.agents.consolidator import (
+    CONSOLIDADOR_PROMPT,
+    LIMITACAO_SEM_DADOS,
+    LIMITACAO_SEM_NOTICIAS,
+    consolidar,
+    formatar_relatorio,
+    relatorio_de_emergencia,
+)
 from fluxo_financeiro.shared.types import RelatorioFinal
 
 REL = RelatorioFinal(
@@ -69,3 +79,78 @@ def test_relatorio_de_emergencia_junta_so_os_agentes():
     assert "dados X" in texto and "notícias Y" in texto
     assert "Busque notícias" not in texto
     assert "Analise VALE3" not in texto
+
+
+# ---------------------------------------------------------------------------
+# consolidar (LLM mockado; o pós-processamento em código é o que se testa)
+# ---------------------------------------------------------------------------
+
+HIST = [
+    HumanMessage("Analise VALE3"),
+    HumanMessage("P/L 74,7x", name="YFinance"),
+    HumanMessage("Busque notícias", name="Supervisor"),
+    HumanMessage("Minério caiu", name="Analyzer"),
+    HumanMessage("Busque o setor", name="Supervisor"),
+    HumanMessage("Setor fraco", name="Analyzer"),
+]
+DIAG = "- Causa identificada: impairment de níquel\n- Natureza do evento: pontual"
+
+
+@pytest.fixture
+def mock_llm():
+    """LLM do Consolidador mockado: devolve uma cópia de REL (que vem com diagnóstico preenchido)."""
+    with patch("fluxo_financeiro.agents.consolidator.llm") as llm:
+        llm.with_structured_output.return_value.invoke.side_effect = lambda _msgs: REL.model_copy()
+        yield llm
+
+
+def _enviado(mock_llm):
+    """(system prompt, insumos) que foram mandados ao LLM."""
+    enviadas = mock_llm.with_structured_output.return_value.invoke.call_args.args[0]
+    return enviadas[0].content, enviadas[-1].content
+
+
+def test_consolidar_envia_so_respostas_dos_agentes(mock_llm):
+    """Test que o LLM recebe o prompt e as respostas dos workers, sem as tarefas do Supervisor."""
+    consolidar(HIST)
+
+    mock_llm.with_structured_output.assert_called_once_with(RelatorioFinal)
+    system, insumos = _enviado(mock_llm)
+    assert system == CONSOLIDADOR_PROMPT
+    assert "P/L 74,7x" in insumos and "Setor fraco" in insumos
+    assert "Busque notícias" not in insumos and "Busque o setor" not in insumos
+
+
+def test_consolidar_copia_diagnostico_do_investigator_literalmente(mock_llm):
+    """Test que o diagnóstico é o texto do Investigator, mesmo se o LLM escrever outro."""
+    mock_llm.with_structured_output.return_value.invoke.side_effect = (
+        lambda _msgs: REL.model_copy(update={"diagnostico": "resumo inventado"})
+    )
+
+    relatorio = consolidar(HIST + [HumanMessage(DIAG, name="Investigator")])
+
+    assert relatorio.diagnostico == DIAG
+
+
+def test_consolidar_sem_investigator_zera_diagnostico(mock_llm):
+    """Test que, sem Investigator no histórico, o diagnóstico fica nulo."""
+    assert consolidar(HIST).diagnostico is None
+
+
+def test_consolidar_aponta_etapas_que_faltaram(mock_llm):
+    """Test que etapas ausentes (hard stop, falha) viram limitações escritas em código."""
+    sem_nada = consolidar([HumanMessage("Analise VALE3")])
+    assert LIMITACAO_SEM_DADOS in sem_nada.limitacoes
+    assert LIMITACAO_SEM_NOTICIAS in sem_nada.limitacoes
+
+    completo = consolidar(HIST)
+    assert LIMITACAO_SEM_DADOS not in completo.limitacoes
+    assert LIMITACAO_SEM_NOTICIAS not in completo.limitacoes
+
+
+def test_consolidar_erro_do_llm_sobe(mock_llm):
+    """Test que erro do LLM sobe: quem decide o fallback é o nó do grafo."""
+    mock_llm.with_structured_output.return_value.invoke.side_effect = Exception("429")
+
+    with pytest.raises(Exception, match="429"):
+        consolidar(HIST)
