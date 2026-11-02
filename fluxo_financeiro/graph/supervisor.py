@@ -27,18 +27,31 @@ def supervisor_node(state: MessagesState):
             "messages": [HumanMessage(content=primeira_tarefa, name="Supervisor")],
         }
 
+    # Guard determinístico: se Investigator já concluiu → FINISH
+    has_investigator = any(
+        isinstance(m, HumanMessage) and getattr(m, "name", "") == "Investigator"
+        for m in state.get("messages", [])
+    )
+    if has_investigator:
+        logger.info("[supervisor] guard: Investigator concluiu → FINISH")
+        return {"next_agent": "FINISH", "loop_count": 1}
+
     system_prompt = """Você é um coordenador de pesquisa financeira. Você orquestra agentes em múltiplas passagens, cada uma com uma tarefa específica.
 
     COMO LER O HISTÓRICO:
     - Mensagens com name='YFinance': dados financeiros coletados (preço, histórico, métricas)
     - Mensagens com name='Analyzer': pesquisas já realizadas pelo analista
     - Mensagens com name='Supervisor': tarefas que você mesmo já atribuiu em turnos anteriores
+    - Mensagens com name='Investigator': diagnóstico causal já produzido (se presente, pipeline encerrou)
 
     PIPELINE DE PESQUISA — siga esta ordem rigorosamente:
     Etapa 1 — Dados financeiros: Se não há mensagem do YFinance → rotear para 'YFinance'.
     Etapa 2 — Notícias da empresa: Se há YFinance mas nenhuma mensagem do Analyzer → rotear para 'Analyzer' (já tratado automaticamente pelo guard).
     Etapa 3 — Contexto do setor: Se há exatamente 1 mensagem do Analyzer E nenhuma mensagem do Supervisor menciona "setor" → rotear para 'Analyzer' com task_for_agent focado no setor da empresa identificada nos dados.
-    Etapa 4 — Conclusão: Se já há 2 ou mais mensagens do Analyzer → rotear para 'FINISH'.
+    Etapa 4 — Investigação condicional: Se já há 2 ou mais mensagens do Analyzer:
+        Leia o contexto completo e pergunte: "Um investidor ficaria com dúvida de POR QUE esse número aconteceu?"
+        Se SIM → next_agent: 'Investigator', task_for_agent: descrição precisa da anomalia e o que investigar
+        Se NÃO → next_agent: 'FINISH'
 
     COMO CONTAR MENSAGENS DO ANALYZER:
     Conte quantas mensagens têm name='Analyzer' no histórico. Se for 1, a etapa 3 (contexto setorial) ainda não foi feita.
@@ -46,6 +59,10 @@ def supervisor_node(state: MessagesState):
     COMO FORMULAR task_for_agent NA ETAPA 3:
     - Identifique o setor da empresa pelo ticker (ex: VALE3 → mineração/commodities, WEGE3 → automação industrial, PETR4 → petróleo e gás, ITUB4 → bancário)
     - Formule: 'Busque informações sobre o setor de [SETOR] e o posicionamento da [EMPRESA] ([TICKER]) nesse setor. Foque em tendências, concorrentes principais e fatores macroeconômicos relevantes.'
+
+    COMO FORMULAR task_for_agent NA ETAPA 4 (Investigator):
+    - Identifique a anomalia mais grave nos dados (maior queda de lucro, maior aumento de dívida, score baixo)
+    - Formule: 'Investigue a seguinte anomalia identificada na análise de [TICKER]: [descreva a anomalia com números]. Determine se é evento pontual (impairment, one-off) ou deterioração estrutural.'
 
     PREVENÇÃO DE LOOP (CRÍTICO):
     - Se o Analyzer não consegue dados após 2 tentativas, escolha 'FINISH'.
@@ -69,7 +86,7 @@ def supervisor_node(state: MessagesState):
     return result
 
 
-def router(state: MessagesState) -> Literal["YFinance", "Analyzer", "__end__"]:
+def router(state: MessagesState) -> Literal["YFinance", "Analyzer", "Investigator", "__end__"]:
     next_step = state.get("next_agent", "YFinance")
     destino = "__end__" if next_step == "FINISH" else next_step
     logger.debug(f"[router] {next_step} → {destino}")
