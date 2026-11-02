@@ -186,7 +186,7 @@ flowchart LR
     subgraph entrada["Como rodar"]
         CLI["main.py<br/>CLI"]
         API["api/server.py<br/>FastAPI, SSE"]
-        DASH["dashboard/index.html<br/>grafo animado + cards"]
+        DASH["dashboard/app.py<br/>Streamlit"]
         E2E["scripts/e2e.py<br/>teste real"]
     end
 
@@ -203,8 +203,8 @@ flowchart LR
 
     CLI --> APP
     E2E --> APP
-    DASH <-->|"GET /analyze?ticker= (eventos SSE)"| API
-    API --> APP
+    DASH --> APP
+    API -->|"GET /analyze?ticker= (eventos SSE)"| APP
 
     APP --> GEM
     APP --> GS
@@ -224,6 +224,7 @@ flowchart LR
 | `next_agent` | Sobrescreve | Decisão do Supervisor: `YFinance`, `Analyzer`, `Investigator` ou `FINISH` (o router troca FINISH pelo Consolidador) |
 | `loop_count` | `operator.add` (soma) | Cada passagem do Supervisor soma 1; hard stop em 6 |
 | `supervisor_reasoning` | Sobrescreve | Justificativa da última decisão (vai para o dashboard) |
+| `decidido_por` | Sobrescreve | Quem decidiu a última passagem do Supervisor: `guard`, `llm` ou `hard_stop` (o dashboard desenha nas setas, D46) |
 | `sinais_anomalia` | Sobrescreve | Sinais calculados em código pelo nó do YFinance; alimentam o guard da Etapa 4 |
 | `relatorio` | Sobrescreve | `RelatorioFinal` do Consolidador (resumo, indicadores, contexto, riscos, limitações, diagnóstico copiado do Investigator); `None` se o LLM dele falhou (D42) |
 
@@ -234,5 +235,5 @@ flowchart LR
 Próximos passos (ver "Próximas decisões em aberto" em [`decisoes.md`](decisoes.md)):
 
 - **Estado estruturado completo**: `sinais_anomalia` e `relatorio` são os campos além das mensagens (D42); dados, notícias e diagnóstico ainda trafegam como texto entre os agentes, e o Supervisor lê o histórico.
-- **Relatório estruturado no dashboard**: o SSE manda o relatório como markdown; o `relatorio` em JSON ainda não sai da API.
+- **Relatório em JSON pela API**: o dashboard Streamlit já lê o `relatorio` estruturado (D46), mas o SSE da API ainda manda só o markdown.
 - **Human-in-the-loop, checkpointer e cache de dados**: vindos do desenho de evolução no Excalidraw.

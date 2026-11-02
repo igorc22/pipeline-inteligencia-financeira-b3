@@ -128,6 +128,7 @@ def test_hard_stop_segura_llm_que_nunca_encerra(grafo_mockado):
     grafo_mockado["decisoes"].return_value = _decisao("Analyzer", "Busque mais notícias")
 
     resultado = _rodar()
+    assert resultado["decidido_por"] == "hard_stop"
 
     assert resultado["loop_count"] == 7  # 6 passagens + a do hard stop
     assert len(_quem_falou(resultado)) == 6

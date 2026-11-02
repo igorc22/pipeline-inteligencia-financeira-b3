@@ -189,10 +189,21 @@ O prompt também pede FINISH em `loop_count >= 5` como camada "suave", mas a gar
 
 **Detalhe técnico:** o grafo é síncrono, então ele roda numa thread (`ThreadPoolExecutor`) e os eventos passam para o endpoint async por uma `asyncio.Queue`.
 
-### D23 — Dashboard em HTML puro no lugar do Streamlit planejado
+### D23 — Dashboard em HTML puro no lugar do Streamlit planejado (substituída por D46)
 O roadmap original previa Streamlit na Fase 4. Fiz um `dashboard/index.html` único, servido pela própria API, com o grafo animado, os "pills" de roteamento com o reasoning e um card por agente (com markdown renderizado).
 
 **Por quê:** queria ver o **grafo** se movendo (qual nó está ativo, para onde o Supervisor mandou), e isso é muito mais natural com SVG/JS do que com Streamlit. *(motivo a confirmar)*
+
+### D46 — Dashboard em Streamlit no lugar do HTML
+`dashboard/app.py` (Streamlit) substitui o `dashboard/index.html`. Abas **Relatório** (abre primeiro: resumo, indicadores em quadros, riscos, limitações, notícias e diagnóstico), **Como foi feito** (o grafo desenhado com graphviz e o Supervisor no centro: cada ida a um agente é uma seta numerada com quem decidiu e o raciocínio no tooltip; a volta ao Supervisor é tracejada; abaixo, um card por passo com o raciocínio do Supervisor, a entrada e a saída, terminando no Consolidador) e **State (JSON)**. O app chama o grafo direto, sem passar pela API. Design: `docs/superpowers/specs/2026-11-02-dashboard-streamlit-design.md`.
+
+**Por quê:** no HTML, os cards começavam recolhidos com altura fixa e o texto sumia (o YFinance cortava no ROE/DY), e o grafo animado, com o Supervisor no centro e setas cruzadas, não deixava ver de relance qual caminho a análise fez. O state já tem o relatório estruturado (D42), e quadros, abas e expansores vêm prontos no Streamlit. Para o desenho, o caminho percorrido em linha se lê melhor que o grafo inteiro animado.
+
+**Junto:** o Supervisor passou a gravar `decidido_por` (`guard`, `llm` ou `hard_stop`) no state, para o desenho mostrar quem decidiu cada passo. Inferir pelo texto do raciocínio não dava: o guard do Investigator e o hard stop nem escrevem raciocínio.
+
+**O que ficou:** a rota `GET /analyze` (SSE) e o `serve.py`, sem tela consumindo, como base para levar o `relatorio` em JSON pela API. Saiu a rota `GET /`.
+
+**Custo:** perdi a animação do grafo em tempo real (no lugar dela, um `st.status` lista cada passo ao terminar) e a exportação em PDF (ficou só o `.md`).
 
 ---
 
@@ -392,7 +403,7 @@ Ainda não são decisões, mas são sinais de que algumas escolhas antigas estã
 
 Vindas do desenho de evolução no Excalidraw (coordenador, agente de dados, analista, subgrafo de pesquisa, consolidador e human-in-the-loop). **Nada disso está decidido ainda:**
 
-- ~~Criar um **Consolidador**~~: feito (D41). Em aberto: migrar o resto do **estado estruturado**, e levar o `relatorio` como JSON para o SSE e para o dashboard (cards por seção)?
+- ~~Criar um **Consolidador**~~: feito (D41). Em aberto: migrar o resto do **estado estruturado**, e levar o `relatorio` como JSON para o SSE? (No dashboard, feito: D46.)
 - Transformar o Analyzer de setor + Investigator num **subgrafo de pesquisa** (geração de perguntas → web → síntese → crítico)?
 - **Checkpointer** para sessão (`thread_id`) × **cache de dados frescos** por ticker (são problemas diferentes)?
 - **Human-in-the-loop** com `interrupt()`, o que exige um endpoint de `resume` na API?

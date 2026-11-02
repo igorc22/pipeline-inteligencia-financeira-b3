@@ -12,7 +12,7 @@ def supervisor_node(state: MessagesState):
     logger.info(f"[supervisor] inicio — loop_count={current_loops}")
     if current_loops >= 6:
         logger.warning(f"[supervisor] hard stop — loop_count={current_loops} >= 6")
-        return {"next_agent": "FINISH", "loop_count": 1}
+        return {"next_agent": "FINISH", "loop_count": 1, "decidido_por": "hard_stop"}
 
     # Guard determinístico: se YFinance coletou mas Analyzer ainda não rodou, vai para Analyzer
     agent_names = {m.name for m in state.get("messages", []) if hasattr(m, "name") and m.name}
@@ -22,6 +22,7 @@ def supervisor_node(state: MessagesState):
         return {
             "next_agent": "Analyzer",
             "loop_count": 1,
+            "decidido_por": "guard",
             "supervisor_reasoning": "YFinance coletou os dados — passando obrigatoriamente para Analyzer (etapa 1: notícias da empresa).",
             "messages": [HumanMessage(content=primeira_tarefa, name="Supervisor")],
         }
@@ -33,7 +34,7 @@ def supervisor_node(state: MessagesState):
     )
     if has_investigator:
         logger.info("[supervisor] guard: Investigator concluiu → FINISH")
-        return {"next_agent": "FINISH", "loop_count": 1}
+        return {"next_agent": "FINISH", "loop_count": 1, "decidido_por": "guard"}
 
     # Guard determinístico (Etapa 3): uma passagem do Analyzer (empresa) → falta o contexto do setor.
     # Antes era o LLM quem decidia, e ele chegou a pular a etapa achando que ela já tinha sido feita (D45).
@@ -43,6 +44,7 @@ def supervisor_node(state: MessagesState):
         return {
             "next_agent": "Analyzer",
             "loop_count": 1,
+            "decidido_por": "guard",
             "supervisor_reasoning": "Analyzer trouxe as notícias da empresa — passando obrigatoriamente para o contexto do setor (etapa 3).",
             "messages": [HumanMessage(content=_tarefa_setor(state.get("messages", [])), name="Supervisor")],
         }
@@ -61,6 +63,7 @@ def supervisor_node(state: MessagesState):
         return {
             "next_agent": "Investigator",
             "loop_count": 1,
+            "decidido_por": "guard",
             "supervisor_reasoning": f"Sinais de anomalia calculados em código ({tipos}) — Investigator acionado sem consultar o LLM.",
             "messages": [HumanMessage(content=tarefa, name="Supervisor")],
         }
@@ -103,6 +106,7 @@ def supervisor_node(state: MessagesState):
     result = {
         "next_agent": decision.next_agent,
         "loop_count": 1,
+        "decidido_por": "llm",
         "supervisor_reasoning": decision.reasoning,
     }
     if decision.task_for_agent and decision.next_agent != "FINISH":
