@@ -106,10 +106,10 @@ def supervisor_node(state: MessagesState):
     return result
 
 
-def router(state: MessagesState) -> Literal["YFinance", "Analyzer", "Investigator", "__end__"]:
+def router(state: MessagesState) -> Literal["YFinance", "Analyzer", "Investigator", "Consolidador"]:
+    # FINISH (inclusive o do hard stop) sempre passa pelo Consolidador, que segue para o END
+    # numa aresta fixa: o LLM não escolhe o Consolidador, então não consegue chamá-lo antes da hora.
     next_step = state.get("next_agent", "YFinance")
-    destino = "__end__" if next_step == "FINISH" else next_step
+    destino = "Consolidador" if next_step == "FINISH" else next_step
     logger.debug(f"[router] {next_step} → {destino}")
-    if next_step == "FINISH":
-        return "__end__"
-    return next_step
+    return destino

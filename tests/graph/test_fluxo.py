@@ -9,9 +9,11 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
 from fluxo_financeiro.graph.graph import app
-from fluxo_financeiro.shared.types import RouteDecision, SinalAnomalia
+from fluxo_financeiro.shared.types import RelatorioFinal, RouteDecision, SinalAnomalia
 
 WORKERS = {"YFinance", "Analyzer", "Investigator"}
+RELATORIO = RelatorioFinal(resumo="Resumo da análise.", indicadores=["P/L: 74,7x"], contexto="notícias",
+                           riscos=["minério"], limitacoes=[])
 
 
 def _agente(texto):
@@ -30,6 +32,8 @@ def grafo_mockado():
 
     O detector por padrão não acha nada (o LLM decide a Etapa 4); cada teste pode trocar o
     return_value de mocks["sinais"]. Sem esse mock, o nó do YFinance iria ao yfinance de verdade.
+    O LLM do Consolidador também é mockado (mocks["consolidador"]): sem ele, todo teste daqui
+    chamaria o Gemini de verdade no fim do fluxo.
     """
     mocks = {
         "YFinance": _agente("Dados para VALE3.SA: P/L 74.7x, ROE 0.3%"),
@@ -40,7 +44,9 @@ def grafo_mockado():
          patch("fluxo_financeiro.graph.graph.analyzer_agent", mocks["Analyzer"]), \
          patch("fluxo_financeiro.graph.graph.investigator_agent", mocks["Investigator"]), \
          patch("fluxo_financeiro.graph.graph.detectar_sinais_anomalia", return_value=[]) as sinais, \
-         patch("fluxo_financeiro.graph.supervisor.llm") as llm:
+         patch("fluxo_financeiro.graph.supervisor.llm") as llm,          patch("fluxo_financeiro.agents.consolidator.llm") as llm_consolidador:
+        llm_consolidador.with_structured_output.return_value.invoke.return_value = RELATORIO
+        mocks["consolidador"] = llm_consolidador
         mocks["sinais"] = sinais
         mocks["decisoes"] = llm.with_structured_output.return_value.invoke
         yield mocks
@@ -66,6 +72,8 @@ def test_sinal_em_codigo_aciona_investigator_sem_llm(grafo_mockado):
     resultado = _rodar()
 
     assert _quem_falou(resultado) == ["YFinance", "Analyzer", "Analyzer", "Investigator"]
+    assert resultado["messages"][-1].name == "Consolidador"
+    assert resultado["loop_count"] == 5
     grafo_mockado["sinais"].assert_called_once_with("VALE3")  # ticker extraído do pedido
     # Etapas 2 e 4 e o FINISH final são guards: o LLM só decide as etapas 1 e 3
     assert grafo_mockado["decisoes"].call_count == 2
@@ -88,7 +96,10 @@ def test_llm_pode_acionar_investigator_mesmo_sem_sinal(grafo_mockado):
     resultado = _rodar()
 
     assert _quem_falou(resultado) == ["YFinance", "Analyzer", "Analyzer", "Investigator"]
-    assert resultado["messages"][-1].content == "- Causa identificada: prejuízo no 4T25"
+    final = resultado["messages"][-1]
+    assert final.name == "Consolidador"
+    assert "- Causa identificada: prejuízo no 4T25" in final.content  # diagnóstico copiado
+    assert resultado["relatorio"].diagnostico == "- Causa identificada: prejuízo no 4T25"
     assert resultado["loop_count"] == 5
     # Só 3 decisões passam pelo LLM: a etapa 2 e o FINISH final são guards em código
     assert grafo_mockado["decisoes"].call_count == 3
@@ -109,6 +120,8 @@ def test_fluxo_sem_anomalia_nao_chama_o_investigator(grafo_mockado):
     resultado = _rodar()
 
     assert _quem_falou(resultado) == ["YFinance", "Analyzer", "Analyzer"]
+    assert resultado["messages"][-1].name == "Consolidador"
+    assert resultado["relatorio"].diagnostico is None
     assert resultado["loop_count"] == 4
     grafo_mockado["Investigator"].invoke.assert_not_called()
 
@@ -121,3 +134,21 @@ def test_hard_stop_segura_llm_que_nunca_encerra(grafo_mockado):
 
     assert resultado["loop_count"] == 7  # 6 passagens + a do hard stop
     assert len(_quem_falou(resultado)) == 6
+    assert resultado["messages"][-1].name == "Consolidador"  # o hard stop também consolida
+
+
+def test_falha_do_consolidador_nao_perde_a_analise(grafo_mockado):
+    """Erro no LLM do Consolidador: a resposta final vira a junção das respostas dos agentes."""
+    grafo_mockado["decisoes"].side_effect = [
+        _decisao("YFinance", "Colete os dados da VALE3"),
+        _decisao("Analyzer", "Busque informações sobre o setor de mineração"),
+        _decisao("FINISH"),
+    ]
+    grafo_mockado["consolidador"].with_structured_output.return_value.invoke.side_effect = Exception("429")
+
+    resultado = _rodar()
+
+    final = resultado["messages"][-1]
+    assert final.name == "Consolidador"
+    assert "análise de notícias" in final.content and "P/L 74.7x" in final.content
+    assert resultado["relatorio"] is None

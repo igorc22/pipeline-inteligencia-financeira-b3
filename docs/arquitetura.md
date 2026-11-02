@@ -8,7 +8,7 @@ Os diagramas são [Mermaid](https://mermaid.js.org/): o GitHub e o VS Code (com 
 
 ## 1. Fluxo do grafo
 
-Um **Supervisor** decide quem trabalha; três **workers** executam e sempre devolvem o controle a ele. Só o Supervisor encerra.
+Um **Supervisor** decide quem trabalha; três **workers** executam e sempre devolvem o controle a ele. Só o Supervisor encerra, e todo encerramento (inclusive o hard stop) passa pelo **Consolidador**, que monta o relatório final (D41).
 
 ```mermaid
 flowchart TD
@@ -19,7 +19,7 @@ flowchart TD
     S -->|"Etapa 1: sem dados"| Y
     S -->|"Etapas 2 e 3: notícias da empresa, depois do setor"| A
     S -->|"Etapa 4: anomalia"| I
-    S -->|"FINISH"| F(["Fim: última mensagem"])
+    S -->|"FINISH (aresta fixa)"| C
 
     subgraph Y["YFinance (coletor)"]
         direction TB
@@ -36,6 +36,12 @@ flowchart TD
         I1["investigator_agent<br/>fatos relevantes, histórico trimestral, web<br/>máx. 4 buscas"]
     end
 
+    subgraph C["Consolidador (sempre no fim)"]
+        C1["consolidar()<br/>LLM com saída estruturada<br/>RelatorioFinal, sem tools"]
+    end
+
+    C -->|"relatório em markdown + relatorio no state"| F(["Fim"])
+
     Y -->|"dados + sinais_anomalia"| S
     A -->|"análise"| S
     I -->|"diagnóstico: Causa, Natureza, Evidências, Impacto"| S
@@ -50,6 +56,7 @@ flowchart TD
 | 4 | Duas passagens do Analyzer, **sem** sinais | Investigator ou FINISH | LLM (D25) |
 | — | Investigator já respondeu | FINISH | Guard (D28) |
 | — | `loop_count >= 6` | FINISH | Hard stop (D21) |
+| — | Qualquer FINISH | Consolidador → fim | Aresta fixa no router (D41) |
 
 ---
 
@@ -90,7 +97,7 @@ Dado faltando no yfinance → a regra é pulada, nunca acusa.
 
 ## 3. Uma análise com anomalia, passo a passo
 
-Exemplo real (VALE3, 02/11/2026): ~25 s, ~30 mil tokens, ~US$ 0,016.
+Exemplo real (VALE3, 02/11/2026): ~25 s, ~30 mil tokens, ~US$ 0,016 antes do Consolidador, que acrescenta uma chamada ao LLM.
 
 ```mermaid
 sequenceDiagram
@@ -102,6 +109,7 @@ sequenceDiagram
     participant A as Analyzer
     participant I as Investigator
     participant W as Google Search
+    participant C as Consolidador
 
     U->>S: Analise a ação VALE3
     S->>Y: (LLM) colete os dados
@@ -117,7 +125,8 @@ sequenceDiagram
     I->>W: fatos relevantes
     I->>I: histórico trimestral
     I-->>S: Causa, Natureza, Evidências, Impacto
-    S-->>U: (guard) FINISH
+    S->>C: (guard) FINISH
+    C-->>U: relatório: resumo, indicadores, notícias, diagnóstico, riscos
 ```
 
 ---
@@ -131,7 +140,7 @@ flowchart BT
     subgraph C_SHARED["shared/"]
         CFG["config.py<br/>.env, MODEL, chaves"]
         LLMF["llm.py<br/>criar_llm()"]
-        TYP["types.py<br/>MessagesState, RouteDecision, SinalAnomalia"]
+        TYP["types.py<br/>MessagesState, RouteDecision,<br/>SinalAnomalia, RelatorioFinal"]
         UTL["utils.py<br/>logger, extrair_ticker()"]
     end
 
@@ -147,6 +156,7 @@ flowchart BT
         COL["collectors.py"]
         ANL["analysts.py"]
         INVA["investigators.py"]
+        CONS["consolidator.py"]
     end
 
     subgraph C_GRAPH["graph/"]
@@ -209,10 +219,11 @@ flowchart LR
 | Campo | Como acumula | Para que serve |
 |---|---|---|
 | `messages` | `add_messages` (concatena) | Histórico inteiro. Mensagens de agentes são `HumanMessage` com `name` = quem falou (`YFinance`, `Analyzer`, `Investigator`, `Supervisor`) |
-| `next_agent` | Sobrescreve | Decisão do Supervisor: `YFinance`, `Analyzer`, `Investigator` ou `FINISH` |
+| `next_agent` | Sobrescreve | Decisão do Supervisor: `YFinance`, `Analyzer`, `Investigator` ou `FINISH` (o router troca FINISH pelo Consolidador) |
 | `loop_count` | `operator.add` (soma) | Cada passagem do Supervisor soma 1; hard stop em 6 |
 | `supervisor_reasoning` | Sobrescreve | Justificativa da última decisão (vai para o dashboard) |
 | `sinais_anomalia` | Sobrescreve | Sinais calculados em código pelo nó do YFinance; alimentam o guard da Etapa 4 |
+| `relatorio` | Sobrescreve | `RelatorioFinal` do Consolidador (resumo, indicadores, contexto, riscos, limitações, diagnóstico copiado do Investigator); `None` se o LLM dele falhou (D42) |
 
 ---
 
@@ -220,6 +231,6 @@ flowchart LR
 
 Próximos passos (ver "Próximas decisões em aberto" em [`decisoes.md`](decisoes.md)):
 
-- **Consolidador**: hoje a resposta final é só a última mensagem (o diagnóstico, quando o Investigator roda). Falta um nó que junte dados, notícias, setor e diagnóstico num relatório.
-- **Estado estruturado**: `sinais_anomalia` foi o primeiro campo além das mensagens; dados, notícias e diagnóstico ainda trafegam como texto.
+- **Estado estruturado completo**: `sinais_anomalia` e `relatorio` são os campos além das mensagens (D42); dados, notícias e diagnóstico ainda trafegam como texto entre os agentes, e o Supervisor lê o histórico.
+- **Relatório estruturado no dashboard**: o SSE manda o relatório como markdown; o `relatorio` em JSON ainda não sai da API.
 - **Human-in-the-loop, checkpointer e cache de dados**: vindos do desenho de evolução no Excalidraw.

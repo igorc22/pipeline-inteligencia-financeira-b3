@@ -717,6 +717,7 @@ const LABELS = {
   YFinance:     'YFinance Agent',
   Analyzer:     'Analyzer Agent',
   Investigator: 'Investigator Agent',
+  Consolidador: 'Consolidador',
   FINISH:       'Análise Concluída',
 };
 
@@ -725,6 +726,7 @@ const CLS = {
   YFinance:     'yfi',
   Analyzer:     'ana',
   Investigator: 'inv',
+  Consolidador: 'fin',
   FINISH:       'fin',
 };
 
@@ -1010,6 +1012,14 @@ function handleEvent(data) {
   if (data.error) { addErrCard(data.error); stopAnalysis(false); return; }
 
   const node = data.node;
+
+  // O Consolidador roda depois do FINISH: o relatório dele vira o card final "Análise Concluída"
+  // (criado no evento done). Sem card próprio, para não duplicar, e sem mexer no grafo já encerrado.
+  if (node === 'Consolidador') {
+    if (data.messages?.length) lastMsg = data.messages[data.messages.length - 1].content;
+    return;
+  }
+
   activateNode(node);
 
   if (node === 'Supervisor') {
@@ -1021,6 +1031,7 @@ function handleEvent(data) {
       if (data.next_agent === 'FINISH') {
         addRoutingPill('FINISH', accumLoops);
         setTimeout(finishGraph, 350);
+        setStatus('running', 'Consolidando relatório');
       } else {
         addRoutingPill(data.next_agent, accumLoops);
       }
