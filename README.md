@@ -15,6 +15,8 @@ Usuário → Supervisor → YFinance → Supervisor → Analyzer (empresa) → S
         → Analyzer (setor) → Supervisor → [Investigator → Supervisor] → FINISH
 ```
 
+Desenhos completos (fluxo, decisões do Supervisor, camadas e serviços) em [`docs/arquitetura.md`](docs/arquitetura.md); o porquê de cada escolha em [`docs/decisoes.md`](docs/decisoes.md).
+
 ## Instalação
 
 ```bash
@@ -27,6 +29,12 @@ Copie `.env.example` para `.env` e preencha:
 GEMINI_API_KEY=...            # obrigatório (LLM e busca na web)
 NEWS_API_KEY=...               # obrigatório para buscar_noticias
 LOG_LEVEL=INFO                 # opcional
+
+# opcional: tracing no LangSmith
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=lsv2_...
+LANGSMITH_AGENT_ID=pipeline-b3      # não use junto com LANGSMITH_PROJECT
+LANGSMITH_AGENT_ENVIRONMENT=local    # local, development, staging ou production
 ```
 
 A busca na web (Google Search) exige faturamento ativo no projeto da chave do Gemini. Sem isso, as tools de busca devolvem erro e o fluxo segue só com a NewsAPI e os dados do yfinance.
@@ -114,5 +122,6 @@ tests/         # espelha fluxo_financeiro/
 | Dados de mercado | yfinance, API SGS do Banco Central |
 | Notícias | NewsAPI, Google Search (Gemini) |
 | API | FastAPI + uvicorn (SSE) |
+| Observabilidade | LangSmith (tracing de agentes, tools e buscas) |
 | Testes | pytest |
 | Ambiente | uv, python-dotenv |

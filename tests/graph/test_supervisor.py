@@ -4,7 +4,7 @@ import pytest
 from langchain_core.messages import HumanMessage
 
 from fluxo_financeiro.graph.supervisor import supervisor_node, router
-from fluxo_financeiro.shared.types import MessagesState, RouteDecision
+from fluxo_financeiro.shared.types import MessagesState, RouteDecision, SinalAnomalia
 
 
 def _state(messages, loop_count=0, next_agent="YFinance") -> MessagesState:
@@ -73,6 +73,35 @@ def test_supervisor_guard_investigator_retorna_finish(mock_llm):
     result = supervisor_node(state)
     assert result["next_agent"] == "FINISH"
     mock_llm.with_structured_output.assert_not_called()
+
+
+QUEDA = SinalAnomalia(tipo="queda_lucro", descricao="Lucro de VALE3.SA caiu 35% contra o ano anterior.")
+
+
+def test_supervisor_guard_sinais_forca_investigator(mock_llm):
+    """Test que, com análise completa e sinal calculado em código, vai ao Investigator sem LLM."""
+    state = _state(HISTORICO_ETAPA_4, loop_count=3)
+    state["sinais_anomalia"] = [QUEDA]
+
+    result = supervisor_node(state)
+
+    assert result["next_agent"] == "Investigator"
+    assert result["messages"][0].name == "Supervisor"
+    assert QUEDA.descricao in result["messages"][0].content
+    assert "queda_lucro" in result["supervisor_reasoning"]
+    mock_llm.with_structured_output.assert_not_called()
+
+
+def test_supervisor_guard_sinais_espera_as_duas_passagens_do_analyzer(mock_llm):
+    """Test que o sinal não pula a Etapa 3: com 1 passagem do Analyzer, quem decide é o LLM."""
+    _llm_decide(mock_llm, RouteDecision(reasoning="falta o setor", next_agent="Analyzer", task_for_agent="setor"))
+    state = _state(HISTORICO_ETAPA_4[:4], loop_count=2)  # só 1 mensagem do Analyzer
+    state["sinais_anomalia"] = [QUEDA]
+
+    result = supervisor_node(state)
+
+    assert result["next_agent"] == "Analyzer"
+    mock_llm.with_structured_output.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

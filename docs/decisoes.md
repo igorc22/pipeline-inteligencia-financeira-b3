@@ -192,6 +192,8 @@ Plano completo: `docs/superpowers/plans/2026-05-11-investigator-condicional.md`.
 **Decisão:** criar o `investigator_agent`, focado em diagnóstico causal: causa, natureza (pontual / estrutural / cíclica), evidências e impacto no investimento.
 
 ### D25 — Condicional: só roda quando há anomalia
+**Complementada por D40** (sinais calculados em código acionam o Investigator por guard; o LLM decide quando não há sinal).
+
 Na Etapa 4, o Supervisor se pergunta: *"Um investidor ficaria com dúvida de POR QUE esse número aconteceu?"* Se sim, manda para o Investigator com a anomalia descrita na `task_for_agent`; se não, FINISH.
 
 **Por quê:** investigar toda ação seria caro (várias buscas na web) e inútil para empresa estável. A decisão é **semântica** (LLM), porque "anomalia" depende de contexto e não cabe numa regra fixa tipo "queda > X%".
@@ -207,6 +209,8 @@ Na Etapa 4, o Supervisor se pergunta: *"Um investidor ficaria com dúvida de POR
 
 ### D27 — Multi-hop com limite de 4 buscas e formato de saída fixo
 **Por quê:** a investigação precisa encadear buscas (o resultado de uma orienta a próxima), mas sem limite pode ficar buscando para sempre. O formato fixo (Causa / Natureza / Evidências / Impacto) torna a resposta comparável entre empresas e mais fácil de consolidar depois. Se não achar a causa, o prompt manda admitir.
+
+**Atualização (D37):** o limite deixou de depender só do prompt e passou a ser garantido em código.
 
 ### D28 — Depois do Investigator, sempre FINISH (guard)
 **Por quê:** o diagnóstico é o ponto final do pipeline. Um guard em código garante que o Supervisor não reabra o ciclo.
@@ -238,7 +242,59 @@ Substitui a "temperatura 0" da D04.
 
 **Por quê:** com a troca de provedor (D33) a busca da Anthropic deixou de ser uma opção. Juntar as duas tools num helper evita duplicar a chamada, e de quebra a resposta agora traz as **fontes** (título e link) que o Google usou, que viram evidência para o Investigator.
 
-**Problema em aberto:** a busca com Google Search nos modelos Gemini 3+ só funciona com faturamento ativo no projeto da chave (5.000 buscas grátis por mês, depois $14 a cada 1.000). Com a minha chave atual ela retorna 429 (cota zero). O `gemini-2.5-flash-lite`, que tinha busca no free tier, já foi desativado. Enquanto isso, as tools devolvem a mensagem de erro e o fluxo segue: o Analyzer usa a NewsAPI, e o Investigator se apoia no histórico trimestral (foi assim que ele acertou a causa no e2e da VALE3).
+**Cota:** a busca com Google Search nos modelos Gemini 3+ só funciona com faturamento ativo no projeto da chave (5.000 buscas grátis por mês, depois $14 a cada 1.000). No free tier ela retornava 429 (cota zero), e o `gemini-2.5-flash-lite`, que tinha busca grátis, já foi desativado. Enquanto isso, as tools devolviam o erro e o fluxo seguia com NewsAPI + histórico trimestral (foi assim que o Investigator acertou a causa no primeiro e2e da VALE3).
+
+**Resolvido em 02/11/2026:** ativei o faturamento com R$ 20 pré-pagos no AI Studio. Atenção: o crédito de boas-vindas e o Free Trial do Google Cloud não pagam a API do Gemini; só crédito comprado no AI Studio Billing. Com a busca ligada, o e2e da VALE3 usou as 3 tools do Investigator (fatos relevantes, depois histórico trimestral) e o Analyzer caiu no fallback da web nas duas passagens, porque a NewsAPI não achou artigos para as queries. Os dois e2e continuam passando.
+
+### D36 — Tracing no LangSmith, inclusive das buscas no Google
+Liguei o LangSmith pelo `.env` (`LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_AGENT_ID=pipeline-b3`, `LANGSMITH_AGENT_ENVIRONMENT=local`). O LangChain e o LangGraph mandam os traces sozinhos; o único código novo foi envolver o cliente do Google com `wrap_gemini` em `tools/web_search.py`.
+
+**Por quê:** era o "logging de custo por etapa" do meu desenho. Agora cada análise mostra o caminho do grafo, o tempo e os tokens de cada agente e tool. A busca precisa do `wrap_gemini` porque chama o SDK do Google direto, fora do LangChain; sem ele, os tokens dessa chamada sumiriam do trace.
+
+**O que o primeiro trace mostrou (VALE3, 02/11/2026):** 25 s, ~29,5 mil tokens, ~US$ 0,016 por análise. O Investigator é a etapa mais cara (~10 mil tokens, um terço do total). As passagens do Supervisor resolvidas por guard aparecem com 0 tokens, ou seja, a D20 economiza chamadas de verdade. O custo do LangSmith não inclui a taxa por busca do Google Search.
+
+**Agente, não projeto:** comecei com `LANGSMITH_PROJECT`, e os traces chegaram, mas não apareciam na interface. O LangSmith Cloud agora organiza tudo por **agente + ambiente** (`local`, `development`, `staging`, `production`), e a forma antiga manda para um projeto que a navegação por agentes não mostra. Troquei pelas variáveis de agente. Não dá para usar as duas formas juntas: com `LANGSMITH_PROJECT` e `LANGSMITH_AGENT_*` ao mesmo tempo, o SDK não envia nada. Por enquanto uso `local`; `production` fica para quando o projeto rodar de verdade.
+
+**Cuidado:** com o tracing ligado no `.env`, os testes também mandariam traces. O `tests/conftest.py` desliga o tracing antes de qualquer import, e conferi que o `pytest` não cria nada no LangSmith.
+
+## Parte 9 — Fechando o Investigator
+
+### D37 — Limite de buscas do Investigator garantido em código
+O Investigator ganhou um `ToolCallLimitMiddleware(run_limit=4, exit_behavior="continue")`. O "máximo 4 buscas" da D27 era só uma instrução no prompt; um modelo teimoso podia ignorar.
+
+**Por quê `continue` e não `end`:** com `continue`, a 5ª chamada volta para o modelo como erro ("Tool call limit exceeded") e ele escreve a conclusão com o que já tem, no formato de 4 seções. Com `end`, a execução pararia na hora e o diagnóstico podia sair sem formato. O prompt avisa o modelo dessa mensagem.
+
+**Como testei:** um modelo falso que insiste em buscar até 20 vezes. A busca real rodou exatamente 4 vezes e o agente ainda fechou com a conclusão. Para isso, a criação do agente virou uma função (`criar_investigator_agent(modelo)`), que o teste chama com o modelo falso.
+
+### D38 — Fontes da busca só com o nome do site
+As fontes saíam como `- site: <link>`, e o link é um redirecionamento do Google com ~200 caracteres. Agora saem como `Fontes: seudinheiro.com, kinvo.com.br`.
+
+**Por quê:** o link não ajuda o agente a analisar nada, mas vai para o contexto e é reenviado em cada chamada seguinte do modelo. Medido no LangSmith: o bloco de fontes caiu de ~1.300–1.500 para ~200 caracteres por busca (~85%, uns 300 tokens a menos por busca). Como o Investigator faz várias buscas e reenvia o histórico a cada passo, é ali que a economia mais aparece.
+
+**Lição de medição:** comparar o total de tokens de duas execuções não serve, porque o agente nem sempre faz o mesmo número de buscas (uma execução fez 2, a outra 3, e o total subiu mesmo com a economia). Tem que comparar a mesma peça (a resposta de cada busca).
+
+### D39 — Teste do grafo inteiro com tudo mockado
+`tests/graph/test_fluxo.py` roda o app compilado do START ao END com os 3 agentes e o LLM do Supervisor mockados, em três cenários: com anomalia (Investigator roda, 5 loops, 3 decisões pelo LLM), sem anomalia (Investigator não é chamado, 4 loops) e LLM que nunca escolhe FINISH (o hard stop encerra).
+
+**Por quê:** os testes do supervisor olhavam uma decisão por vez. Este pega o que só aparece com as peças juntas: o router, as arestas, os guards em sequência e a tarefa do Supervisor chegando ao Investigator. É a versão sem custo do `scripts/e2e.py`.
+
+### D40 — Guard de anomalia calculado em código
+Antes, a Etapa 4 dependia só do Gemini julgar se P/L, ROE e Piotroski eram "anômalos". Agora o nó do YFinance chama `detectar_sinais_anomalia()` (`tools/anomalias.py`), que calcula três sinais com números, sem LLM:
+- **queda_lucro**: lucro líquido do último trimestre mais de 30% abaixo do **mesmo trimestre do ano anterior**. Comparar com o mesmo trimestre, e não com o anterior, evita confundir sazonalidade com problema.
+- **prejuizo**: último trimestre com lucro líquido negativo.
+- **piotroski_fraco**: Piotroski ≤ 3.
+
+Se houver sinal, o Supervisor manda para o Investigator na Etapa 4 **por guard**, com a tarefa montada a partir dos números. Sem sinal, o LLM continua decidindo, e pode investigar mesmo assim.
+
+**Por quê:** prefiro uma regra que eu entendo e consigo testar a um julgamento que muda de uma execução para outra. O LLM continua útil para o que a regra não pega.
+
+**Calibração (02/11/2026):** VALE3 −35% (acusa queda), MGLU3 com prejuízo (acusa), BBAS3 −14%, WEGE3 +5%, ITUB4 +8% e PETR4 +120% (não acusam). Quando o yfinance não traz o dado (ABEV3 com NaN no ano anterior, AZUL4 sem trimestrais), a regra é pulada, nunca acusa. O e2e confirmou: na VALE3 o Investigator entrou pelo guard ("Sinais de anomalia calculados em código (queda_lucro)"), e na WEGE3 o LLM fechou em FINISH.
+
+**Exceção à regra de camadas (D03):** o `graph/` passou a importar direto de `tools/` (o detector). A dependência continua num sentido só, mas pula a camada `agents`. Faz sentido porque o detector é cálculo, não agente; criar um "agente" só para repassar a chamada seria cerimônia.
+
+**Detalhes:** o ticker vem do pedido do usuário por regex (`extrair_ticker` em `shared/utils.py`: 4 letras + 1 ou 2 dígitos). Os sinais também entram no texto da mensagem do YFinance ("SINAIS DE ANOMALIA"), então o Analyzer e o dashboard os veem. Custo: o detector consulta o yfinance de novo (trimestrais + anuais), ~1 s a mais por análise.
+
+**Lição:** o primeiro teste do grafo depois da mudança foi ao yfinance de verdade, porque o nó do YFinance passou a chamar o detector real. O teste falhou (bom), e o detector entrou no mock da fixture. É a pendência "testes não bloqueiam rede" se mostrando na prática.
 
 ---
 
@@ -278,7 +334,7 @@ Ainda não são decisões, mas são sinais de que algumas escolhas antigas estã
 - **Estado só com mensagens (D05).** Para paralelizar agentes ou consolidar, campos estruturados (`dados`, `noticias`, `diagnostico`, `erros`) seriam melhores que texto livre.
 - **Erros como string (D06).** O Supervisor não sabe que algo falhou, então não consegue reagir.
 - **Analyzer e Investigator se sobrepõem.** Os dois fazem pesquisa na web com focos diferentes.
-- **Custo invisível.** Não sei quanto custa cada análise, e as chamadas de busca feitas pelo SDK do Google direto (fora do LangChain) nem aparecem no tracing.
+- ~~**Custo invisível.**~~ Resolvido com o LangSmith (D36): cada análise mostra tokens e custo por etapa.
 - **Documentação desatualiza rápido.** Os docs ainda falavam do MVP (hard stop 3, dois agentes) quando o código já estava em outra fase.
 
 ## Próximas decisões em aberto
@@ -289,7 +345,8 @@ Vindas do desenho de evolução no Excalidraw (coordenador, agente de dados, ana
 - Transformar o Analyzer de setor + Investigator num **subgrafo de pesquisa** (geração de perguntas → web → síntese → crítico)?
 - **Checkpointer** para sessão (`thread_id`) × **cache de dados frescos** por ticker (são problemas diferentes)?
 - **Human-in-the-loop** com `interrupt()`, o que exige um endpoint de `resume` na API?
-- **Logging de custo**: LangSmith, ou somar `usage_metadata` no state?
-- **Busca na web sem depender do faturamento do Gemini (D35)**: vincular o faturamento ao projeto da chave, trocar por uma API de busca dedicada (Tavily, Brave, Serper) ou ficar só com NewsAPI + histórico trimestral?
+- ~~**Logging de custo**~~: resolvido com o LangSmith (D36). Em aberto: levar o custo por etapa também para o dashboard?
+- **Busca na web independente do provedor do LLM**: hoje a busca está presa ao Gemini (D35), como antes estava presa à Anthropic (D16). Vale trocar por uma API de busca dedicada (Tavily, Brave, Serper) para que trocar de LLM não quebre a busca de novo?
+- **NewsAPI quase não acha nada**: no e2e as duas buscas do Analyzer na NewsAPI voltaram vazias e tudo caiu no fallback da web. Ajustar as queries, ou inverter a ordem (web primeiro)?
 - **Sanitização**: extrair `{ticker, intenção}` com regex + saída estruturada na entrada, e proteger contra prompt injection vinda do conteúdo da web?
 - **Paralelismo** com `Send` (dados primeiro, depois analista e pesquisa ao mesmo tempo)?

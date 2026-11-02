@@ -72,7 +72,7 @@ def test_buscar_historico_trimestral_erro_yfinance(mock_ticker):
 @patch('fluxo_financeiro.tools.investigation.pesquisar_na_web')
 def test_buscar_fatos_relevantes_retorna_conteudo(mock_pesquisa):
     """Test que retorna conteúdo quando a busca na web encontra resultados."""
-    mock_pesquisa.return_value = 'Vale registra impairment de R$4B em ativos de níquel.\n\nFontes:\n- valor.com.br: https://exemplo'
+    mock_pesquisa.return_value = 'Vale registra impairment de R$4B em ativos de níquel.\n\nFontes: valor.com.br'
 
     result = buscar_fatos_relevantes.invoke("VALE3")
 

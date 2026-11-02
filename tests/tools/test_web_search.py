@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 from fluxo_financeiro.tools.news import buscar_noticias_web
-from fluxo_financeiro.tools.web_search import MAX_FONTES, pesquisar_na_web
+from fluxo_financeiro.tools.web_search import MAX_FONTES, _criar_cliente, pesquisar_na_web
 
 
 def _chunk(titulo, url):
@@ -24,7 +24,17 @@ def _resposta_gemini(texto, chunks=None):
 # pesquisar_na_web (helper com o SDK do Google mockado)
 # ---------------------------------------------------------------------------
 
+@patch('fluxo_financeiro.tools.web_search.wrappers.wrap_gemini')
 @patch('fluxo_financeiro.tools.web_search.genai.Client')
+def test_cliente_e_instrumentado_para_o_langsmith(mock_client_cls, mock_wrap):
+    """Test que o cliente do Google passa pelo wrap_gemini (senão a busca some do trace)."""
+    cliente = _criar_cliente()
+
+    mock_wrap.assert_called_once_with(mock_client_cls.return_value, chat_name="busca_google")
+    assert cliente is mock_wrap.return_value
+
+
+@patch('fluxo_financeiro.tools.web_search._criar_cliente')
 def test_pesquisar_na_web_usa_google_search(mock_client_cls):
     """Test que a chamada ao Gemini liga a tool de Google Search."""
     mock_client_cls.return_value.models.generate_content.return_value = _resposta_gemini("resumo")
@@ -36,32 +46,43 @@ def test_pesquisar_na_web_usa_google_search(mock_client_cls):
     assert kwargs["config"].tools[0].google_search is not None
 
 
-@patch('fluxo_financeiro.tools.web_search.genai.Client')
+@patch('fluxo_financeiro.tools.web_search._criar_cliente')
 def test_pesquisar_na_web_lista_fontes_sem_repetir(mock_client_cls):
-    """Test que as fontes do grounding aparecem no fim, sem URLs duplicadas."""
-    chunks = [_chunk("valor.com.br", "https://a"), _chunk("valor.com.br", "https://a"), _chunk("infomoney.com.br", "https://b")]
+    """Test que as fontes aparecem no fim só com o nome do site, sem repetir o mesmo site."""
+    chunks = [_chunk("valor.com.br", "https://a"), _chunk("valor.com.br", "https://c"), _chunk("infomoney.com.br", "https://b")]
     mock_client_cls.return_value.models.generate_content.return_value = _resposta_gemini("Vale caiu 5%.", chunks)
 
     resultado = pesquisar_na_web("x")
 
-    assert resultado.startswith("Vale caiu 5%.")
-    assert "Fontes:" in resultado
-    assert resultado.count("https://a") == 1
-    assert "infomoney.com.br: https://b" in resultado
+    assert resultado == "Vale caiu 5%.\n\nFontes: valor.com.br, infomoney.com.br"
 
 
-@patch('fluxo_financeiro.tools.web_search.genai.Client')
+@patch('fluxo_financeiro.tools.web_search._criar_cliente')
+def test_pesquisar_na_web_nao_inclui_links(mock_client_cls):
+    """Test que os links de redirecionamento do Google (longos) não entram no texto dos agentes."""
+    redirect = "https://vertexaisearch.cloud.google.com/grounding-api-redirect/" + "A" * 180
+    mock_client_cls.return_value.models.generate_content.return_value = _resposta_gemini(
+        "texto", [_chunk("seudinheiro.com", redirect)]
+    )
+
+    resultado = pesquisar_na_web("x")
+
+    assert "http" not in resultado
+    assert "seudinheiro.com" in resultado
+
+
+@patch('fluxo_financeiro.tools.web_search._criar_cliente')
 def test_pesquisar_na_web_limita_fontes(mock_client_cls):
     """Test que no máximo MAX_FONTES fontes são listadas."""
-    chunks = [_chunk(f"site{i}", f"https://{i}") for i in range(MAX_FONTES + 3)]
+    chunks = [_chunk(f"site{i}.com", f"https://{i}") for i in range(MAX_FONTES + 3)]
     mock_client_cls.return_value.models.generate_content.return_value = _resposta_gemini("texto", chunks)
 
     resultado = pesquisar_na_web("x")
 
-    assert resultado.count("https://") == MAX_FONTES
+    assert resultado.split("Fontes: ")[1].count(",") == MAX_FONTES - 1
 
 
-@patch('fluxo_financeiro.tools.web_search.genai.Client')
+@patch('fluxo_financeiro.tools.web_search._criar_cliente')
 def test_pesquisar_na_web_sem_texto_retorna_vazio(mock_client_cls):
     """Test que resposta sem texto vira string vazia (a tool decide a mensagem)."""
     mock_client_cls.return_value.models.generate_content.return_value = _resposta_gemini(None)
@@ -76,7 +97,7 @@ def test_pesquisar_na_web_sem_texto_retorna_vazio(mock_client_cls):
 @patch('fluxo_financeiro.tools.news.pesquisar_na_web')
 def test_buscar_noticias_web_retorna_resultado(mock_pesquisa):
     """Test que a tool repassa o resumo com fontes."""
-    mock_pesquisa.return_value = "Resumo.\n\nFontes:\n- site: https://x"
+    mock_pesquisa.return_value = "Resumo.\n\nFontes: site.com"
 
     resultado = buscar_noticias_web.invoke("WEGE3")
 

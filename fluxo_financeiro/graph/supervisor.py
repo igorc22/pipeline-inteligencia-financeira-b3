@@ -35,6 +35,25 @@ def supervisor_node(state: MessagesState):
         logger.info("[supervisor] guard: Investigator concluiu → FINISH")
         return {"next_agent": "FINISH", "loop_count": 1}
 
+    # Guard determinístico (Etapa 4): análise completa + sinais de anomalia calculados em código
+    # → Investigator, sem consultar o LLM. Sem sinais, quem decide a Etapa 4 continua sendo o LLM.
+    passagens_analyzer = sum(1 for m in state.get("messages", []) if getattr(m, "name", None) == "Analyzer")
+    sinais = state.get("sinais_anomalia") or []
+    if passagens_analyzer >= 2 and sinais:
+        tipos = ", ".join(s.tipo for s in sinais)
+        logger.info(f"[supervisor] guard: sinais de anomalia ({tipos}) → forcando Investigator")
+        tarefa = (
+            "Investigue as anomalias detectadas nos números da empresa:\n"
+            + "\n".join(f"- {s.descricao}" for s in sinais)
+            + "\nDetermine se cada uma é evento pontual (impairment, one-off), estrutural ou cíclica."
+        )
+        return {
+            "next_agent": "Investigator",
+            "loop_count": 1,
+            "supervisor_reasoning": f"Sinais de anomalia calculados em código ({tipos}) — Investigator acionado sem consultar o LLM.",
+            "messages": [HumanMessage(content=tarefa, name="Supervisor")],
+        }
+
     system_prompt = """Você é um coordenador de pesquisa financeira. Você orquestra agentes em múltiplas passagens, cada uma com uma tarefa específica.
 
     COMO LER O HISTÓRICO:
@@ -48,6 +67,8 @@ def supervisor_node(state: MessagesState):
     Etapa 2 — Notícias da empresa: Se há YFinance mas nenhuma mensagem do Analyzer → rotear para 'Analyzer' (já tratado automaticamente pelo guard).
     Etapa 3 — Contexto do setor: Se há exatamente 1 mensagem do Analyzer E nenhuma mensagem do Supervisor menciona "setor" → rotear para 'Analyzer' com task_for_agent focado no setor da empresa identificada nos dados.
     Etapa 4 — Investigação condicional: Se já há 2 ou mais mensagens do Analyzer:
+        (Se a mensagem do YFinance trouxer "SINAIS DE ANOMALIA", essa etapa já é tratada automaticamente pelo guard.
+        Você só decide aqui quando não há sinais calculados; mesmo assim pode haver algo que mereça investigação.)
         Leia o contexto completo e pergunte: "Um investidor ficaria com dúvida de POR QUE esse número aconteceu?"
         Se SIM → next_agent: 'Investigator', task_for_agent: descrição precisa da anomalia e o que investigar
         Se NÃO → next_agent: 'FINISH'
