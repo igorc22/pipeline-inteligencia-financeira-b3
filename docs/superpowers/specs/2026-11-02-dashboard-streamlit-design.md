@@ -82,7 +82,7 @@ O usuário escolheu, entre dois mockups, a opção **"relatório primeiro, fluxo
 
 - `dashboard/visao.py` com testes em `tests/dashboard/`: separação dos indicadores (com e sem `": "`, valor com `:` dentro, como horário), montagem dos passos a partir dos eventos (entrada certa para cada worker, duas passagens do Analyzer rotuladas empresa/setor, Investigator presente ou ausente, hard stop), DOT do caminho (nós na ordem, rótulos de decisão, Investigator tracejado quando não rodou), serialização do state para o JSON.
 - Supervisor: cada guard, o hard stop e o caminho do LLM devolvem o `decidido_por` certo.
-- Sem rede (o `pytest-socket` já bloqueia). O app Streamlit em si não ganha teste unitário; validação final rodando `make streamlit` com uma análise real (gasta ~US$ 0,02, pedir antes).
+- Sem rede (o `pytest-socket` já bloqueia). O app ganha testes de fumaça com `AppTest` e um grafo falso (sem rede); validação final rodando `make streamlit` com uma análise real (gasta ~US$ 0,02, pedir antes).
 
 ## O que fica para quem implementa
 
