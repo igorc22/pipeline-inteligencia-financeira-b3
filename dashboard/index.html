@@ -25,6 +25,7 @@
       --yfi:   #f0a648;  --yfi-g:  rgba(240,166,72,0.14);
       --ana:   #2dd4a4;  --ana-g:  rgba(45,212,164,0.14);
       --fin:   #a78bfa;  --fin-g:  rgba(167,139,250,0.14);
+      --inv:   #fb7185;  --inv-g:  rgba(251,113,133,0.14);
 
       --txt:     #c9d1d9;
       --txt-hi:  #f0f6fc;
@@ -166,7 +167,7 @@
       min-height: 0; overflow: hidden;
     }
 
-    .graph-wrap { width: 260px; height: 400px; position: relative; flex-shrink: 0; }
+    .graph-wrap { width: 260px; height: 460px; position: relative; flex-shrink: 0; }
 
     .graph-svg {
       position: absolute; inset: 0; width: 100%; height: 100%;
@@ -212,11 +213,17 @@
       border: 1.5px solid var(--ana); color: var(--ana);
       background: rgba(45,212,164,0.05);
     }
+    #gn-Investigator {
+      width: 64px; height: 64px;
+      border: 1.5px solid var(--inv); color: var(--inv);
+      background: rgba(251,113,133,0.05);
+    }
     .gnode.active { z-index: 5; }
-    #gn-Supervisor.active { box-shadow: 0 0 20px var(--sup-g); }
-    #gn-YFinance.active   { box-shadow: 0 0 16px var(--yfi-g); }
-    #gn-Analyzer.active   { box-shadow: 0 0 16px var(--ana-g); }
-    #gn-FINISH.active     { box-shadow: 0 0 14px var(--fin-g); }
+    #gn-Supervisor.active   { box-shadow: 0 0 20px var(--sup-g); }
+    #gn-YFinance.active     { box-shadow: 0 0 16px var(--yfi-g); }
+    #gn-Analyzer.active     { box-shadow: 0 0 16px var(--ana-g); }
+    #gn-Investigator.active { box-shadow: 0 0 16px var(--inv-g); }
+    #gn-FINISH.active       { box-shadow: 0 0 14px var(--fin-g); }
     .gnode.done { opacity: 0.3; }
     .gnode.done::after { display: none; }
 
@@ -329,6 +336,11 @@
     .card.ana .agent-badge { color: var(--ana); }
     .card.ana .agent-dot { background: var(--ana); }
 
+    .card.inv { border-color: rgba(251,113,133,0.18); }
+    .card.inv .card-head { background: rgba(251,113,133,0.05); border-bottom: 1px solid rgba(251,113,133,0.1); }
+    .card.inv .agent-badge { color: var(--inv); }
+    .card.inv .agent-dot { background: var(--inv); }
+
     .card.fin {
       border-color: rgba(167,139,250,0.28);
       background: var(--bg-card-alt);
@@ -431,6 +443,7 @@
     .rpill .dest  { font-weight: 700; }
     .rpill .dest.yfi { color: var(--yfi); }
     .rpill .dest.ana { color: var(--ana); }
+    .rpill .dest.inv { color: var(--inv); }
     .rpill .dest.fin { color: var(--fin); }
 
     /* ── Error card ── */
@@ -485,12 +498,13 @@
 
     <div class="graph-area">
       <div class="graph-wrap" id="gwrap">
-        <svg class="graph-svg" id="gsvg" viewBox="0 0 260 400"></svg>
-        <div class="gnode" id="gn-START"      style="left:130px;top:28px">START</div>
-        <div class="gnode" id="gn-Supervisor" style="left:130px;top:128px">SUPER<br>VISOR</div>
-        <div class="gnode" id="gn-YFinance"   style="left:52px;top:254px">YFIN<br>ANCE</div>
-        <div class="gnode" id="gn-Analyzer"   style="left:208px;top:254px">ANALY<br>ZER</div>
-        <div class="gnode" id="gn-FINISH"     style="left:130px;top:364px">FINISH</div>
+        <svg class="graph-svg" id="gsvg" viewBox="0 0 260 460"></svg>
+        <div class="gnode" id="gn-START"        style="left:130px;top:28px">START</div>
+        <div class="gnode" id="gn-Supervisor"   style="left:130px;top:118px">SUPER<br>VISOR</div>
+        <div class="gnode" id="gn-YFinance"     style="left:46px;top:238px">YFIN<br>ANCE</div>
+        <div class="gnode" id="gn-Analyzer"     style="left:214px;top:238px">ANALY<br>ZER</div>
+        <div class="gnode" id="gn-Investigator" style="left:130px;top:336px">INVEST<br>IGATOR</div>
+        <div class="gnode" id="gn-FINISH"       style="left:130px;top:430px">FINISH</div>
       </div>
     </div>
 
@@ -534,11 +548,12 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const N = {
-  START:      { x: 130, y: 28,  r: 19,  col: '#484f58' },
-  Supervisor: { x: 130, y: 128, r: 38,  col: '#5b8def' },
-  YFinance:   { x: 52,  y: 254, r: 30,  col: '#f0a648' },
-  Analyzer:   { x: 208, y: 254, r: 30,  col: '#2dd4a4' },
-  FINISH:     { x: 130, y: 364, r: 19,  col: '#a78bfa' },
+  START:        { x: 130, y: 28,  r: 19,  col: '#484f58' },
+  Supervisor:   { x: 130, y: 118, r: 38,  col: '#5b8def' },
+  YFinance:     { x: 46,  y: 238, r: 30,  col: '#f0a648' },
+  Analyzer:     { x: 214, y: 238, r: 30,  col: '#2dd4a4' },
+  Investigator: { x: 130, y: 336, r: 32,  col: '#fb7185' },
+  FINISH:       { x: 130, y: 430, r: 19,  col: '#a78bfa' },
 };
 
 function ptOn(cx, cy, r, tx, ty) {
@@ -589,10 +604,23 @@ function initGraph() {
     const e = ptOn(N.Analyzer.x,N.Analyzer.y,N.Analyzer.r,N.Supervisor.x,N.Supervisor.y);
     svg.appendChild(makePath(`M${f(s.x)},${f(s.y)} L${f(e.x)},${f(e.y)}`,'rgba(255,255,255,0.1)',1.5,null,'ah','ep-Supervisor-Analyzer')); }
 
+  // Supervisor → Investigator (dashed)
+  { const s = ptOn(N.Supervisor.x,N.Supervisor.y,N.Supervisor.r,N.Investigator.x,N.Investigator.y);
+    const e = ptOn(N.Investigator.x,N.Investigator.y,N.Investigator.r,N.Supervisor.x,N.Supervisor.y);
+    svg.appendChild(makePath(`M${f(s.x)},${f(s.y)} L${f(e.x)},${f(e.y)}`,'rgba(251,113,133,0.25)',1.5,'4,4','ah','ep-Supervisor-Investigator')); }
+
   // Supervisor → FINISH (dashed)
   { const s = ptOn(N.Supervisor.x,N.Supervisor.y,N.Supervisor.r,N.FINISH.x,N.FINISH.y);
     const e = ptOn(N.FINISH.x,N.FINISH.y,N.FINISH.r,N.Supervisor.x,N.Supervisor.y);
-    svg.appendChild(makePath(`M${f(s.x)},${f(s.y)} L${f(e.x)},${f(e.y)}`,'rgba(167,139,250,0.28)',1.5,'5,4','ah-fin','ep-Supervisor-FINISH')); }
+    svg.appendChild(makePath(`M${f(s.x)},${f(s.y)} L${f(e.x)},${f(e.y)}`,'rgba(167,139,250,0.20)',1.5,'5,4','ah-fin','ep-Supervisor-FINISH')); }
+
+  // Investigator → Supervisor (curved — retorno)
+  { const sx=N.Investigator.x-20, sy=N.Investigator.y-20, ex=N.Supervisor.x-30, ey=N.Supervisor.y+20;
+    const s=ptOn(N.Investigator.x,N.Investigator.y,N.Investigator.r,sx,sy);
+    const e=ptOn(N.Supervisor.x,N.Supervisor.y,N.Supervisor.r,ex,ey);
+    svg.appendChild(makePath(
+      `M${f(s.x)},${f(s.y)} C${f(N.Investigator.x-70)},${f(N.Investigator.y-30)} ${f(N.Supervisor.x-72)},${f(N.Supervisor.y+36)} ${f(e.x)},${f(e.y)}`,
+      'rgba(255,255,255,0.07)',1.5,null,'ah-r','ep-Investigator-Supervisor')); }
 
   // YFinance → Supervisor (curved)
   { const sx=N.YFinance.x-22, sy=N.YFinance.y-14, ex=N.Supervisor.x-30, ey=N.Supervisor.y+14;
@@ -685,17 +713,19 @@ function ts() {
 }
 
 const LABELS = {
-  Supervisor: 'Supervisor',
-  YFinance:   'YFinance Agent',
-  Analyzer:   'Analyzer Agent',
-  FINISH:     'Análise Concluída',
+  Supervisor:   'Supervisor',
+  YFinance:     'YFinance Agent',
+  Analyzer:     'Analyzer Agent',
+  Investigator: 'Investigator Agent',
+  FINISH:       'Análise Concluída',
 };
 
 const CLS = {
-  Supervisor: 'sup',
-  YFinance:   'yfi',
-  Analyzer:   'ana',
-  FINISH:     'fin',
+  Supervisor:   'sup',
+  YFinance:     'yfi',
+  Analyzer:     'ana',
+  Investigator: 'inv',
+  FINISH:       'fin',
 };
 
 function esc(s) {
@@ -745,7 +775,8 @@ function addThinkingCard(reasoning) {
 }
 
 function addRoutingPill(nextAgent, iter) {
-  const dest = nextAgent.toLowerCase().replace('finish','fin');
+  const destMap = { YFinance:'yfi', Analyzer:'ana', Investigator:'inv', FINISH:'fin' };
+  const dest = destMap[nextAgent] || nextAgent.toLowerCase();
   const pill = document.createElement('div');
   pill.className = 'rpill';
   pill.innerHTML = `<span class="arrow">→</span> Supervisor roteou para
@@ -947,7 +978,7 @@ function startAnalysis(ticker) {
   currentTicker = ticker;
   t0          = Date.now();
 
-  document.getElementById('s-loops').textContent = '0 / 3';
+  document.getElementById('s-loops').textContent = '0 / 6';
   document.getElementById('s-dur').textContent   = '0.0s';
   document.getElementById('s-next').textContent  = '...';
   document.getElementById('phase-badge').textContent = 'executando';
@@ -985,7 +1016,7 @@ function handleEvent(data) {
     if (data.loop_count !== undefined) accumLoops += data.loop_count;
     if (data.reasoning)  addThinkingCard(data.reasoning);
     if (data.next_agent) {
-      document.getElementById('s-loops').textContent = `${accumLoops} / 3`;
+      document.getElementById('s-loops').textContent = `${accumLoops} / 6`;
       document.getElementById('s-next').textContent  = data.next_agent;
       if (data.next_agent === 'FINISH') {
         addRoutingPill('FINISH', accumLoops);
