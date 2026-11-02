@@ -46,7 +46,8 @@ Os atalhos principais estão no `Makefile` (`make help` lista todos). No Windows
 
 ```bash
 make test          # testes unitários (mockados)
-make serve         # API + dashboard
+make streamlit     # dashboard em http://localhost:8501 (cada análise gasta créditos)
+make serve         # API (SSE)
 make e2e TICKER=X  # roda o grafo real para um ticker (gasta créditos)
 ```
 
@@ -56,13 +57,16 @@ Sem make:
 # CLI interativa
 uv run python main.py
 
-# API + dashboard em tempo real → http://127.0.0.1:8000
+# Dashboard → http://localhost:8501
+uv run streamlit run dashboard/app.py
+
+# API → http://127.0.0.1:8000/analyze?ticker=WEGE3
 uv run python serve.py
 ```
 
-A API expõe:
-- `GET /`: dashboard com o grafo animado, o raciocínio do Supervisor e um card por agente
-- `GET /analyze?ticker=WEGE3`: stream SSE com cada passo do grafo
+O dashboard tem três abas: **Relatório** (resumo, indicadores em quadros, riscos, limitações, notícias e diagnóstico), **Como foi feito** (o caminho da análise desenhado, quem decidiu cada passo e a entrada/saída de cada agente) e **State (JSON)**. Só o botão **Analisar** roda o grafo.
+
+A API expõe `GET /analyze?ticker=WEGE3`: stream SSE com cada passo do grafo.
 
 Via código:
 
@@ -110,7 +114,7 @@ fluxo_financeiro/
 └── graph/     # supervisor (guards + LLM) e StateGraph
 api/           # FastAPI com streaming SSE
 scripts/       # e2e.py (teste end-to-end com chamadas reais)
-dashboard/     # index.html do dashboard
+dashboard/     # app.py (Streamlit) e visao.py (state → o que a tela mostra)
 tests/         # espelha fluxo_financeiro/
 ```
 
@@ -122,6 +126,7 @@ tests/         # espelha fluxo_financeiro/
 | LLM | Gemini 3.5 Flash-Lite (langchain-google-genai) |
 | Dados de mercado | yfinance, API SGS do Banco Central |
 | Notícias | NewsAPI, Google Search (Gemini) |
+| Dashboard | Streamlit (graphviz para o caminho da análise) |
 | API | FastAPI + uvicorn (SSE) |
 | Observabilidade | LangSmith (tracing de agentes, tools e buscas) |
 | Testes | pytest |

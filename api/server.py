@@ -1,11 +1,10 @@
 import asyncio
 import json
-import pathlib
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, HTMLResponse
+from fastapi.responses import StreamingResponse
 from langchain_core.messages import BaseMessage, HumanMessage
 
 from fluxo_financeiro import app as langgraph_app
@@ -21,9 +20,6 @@ api.add_middleware(
 
 _executor = ThreadPoolExecutor(max_workers=4)
 
-DASHBOARD = pathlib.Path(__file__).parent.parent / "dashboard" / "index.html"
-
-
 def _serialize_message(msg: BaseMessage) -> dict:
     content = msg.content
     if isinstance(content, list):
@@ -38,11 +34,6 @@ def _serialize_message(msg: BaseMessage) -> dict:
         "content": str(content),
         "name": getattr(msg, "name", None),
     }
-
-
-@api.get("/")
-async def serve_dashboard():
-    return HTMLResponse(DASHBOARD.read_text(encoding="utf-8"))
 
 
 @api.get("/analyze")

@@ -15,7 +15,7 @@ help:
 	@echo   make test-graph      - testes so do supervisor/router
 	@echo   make check           - confere imports e lista os nos do grafo
 	@echo   make run             - CLI interativa (main.py)
-	@echo   make serve           - sobe API + dashboard em http://127.0.0.1:8000
+	@echo   make serve           - sobe a API (SSE) em http://127.0.0.1:8000/analyze?ticker=X
 	@echo   make streamlit       - abre o dashboard em http://localhost:8501 (cada analise GASTA CREDITOS)
 	@echo   make e2e TICKER=X    - roda o grafo real para um ticker (GASTA CREDITOS)
 	@echo   make e2e-anomalia    - e2e com VALE3, espera o Investigator ativado
