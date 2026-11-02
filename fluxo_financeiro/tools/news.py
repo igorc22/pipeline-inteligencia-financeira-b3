@@ -4,7 +4,7 @@ from langchain_core.tools import tool
 
 from fluxo_financeiro.shared.config import NEWS_API_KEY
 from fluxo_financeiro.shared.utils import logger
-from fluxo_financeiro.tools.web_search import pesquisar_na_web
+from fluxo_financeiro.tools.web_search import pesquisar_na_web, registrar_falha_busca
 
 
 @tool
@@ -92,5 +92,5 @@ def buscar_noticias_web(query: str) -> str:
         logger.info(f"[tool] buscar_noticias_web: ok ({len(resultado)} chars)")
         return resultado
     except Exception as e:
-        logger.exception(f"[tool] buscar_noticias_web falhou para '{query}'")
+        registrar_falha_busca(f"[tool] buscar_noticias_web falhou para '{query}'", e)
         return f'Erro ao buscar notícias via web search: {e}'

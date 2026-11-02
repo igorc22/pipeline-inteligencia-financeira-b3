@@ -3,7 +3,7 @@ import yfinance as yf
 from langchain_core.tools import tool
 
 from fluxo_financeiro.shared.utils import logger
-from fluxo_financeiro.tools.web_search import pesquisar_na_web
+from fluxo_financeiro.tools.web_search import pesquisar_na_web, registrar_falha_busca
 
 
 @tool
@@ -87,5 +87,5 @@ def buscar_fatos_relevantes(ticker: str) -> str:
         return f'Fatos relevantes e eventos corporativos de {ticker_base}:\n\n' + resultado
 
     except Exception as e:
-        logger.exception(f"[tool] buscar_fatos_relevantes falhou para {ticker_base}")
+        registrar_falha_busca(f"[tool] buscar_fatos_relevantes falhou para {ticker_base}", e)
         return f"Erro ao buscar fatos relevantes para {ticker_base}: {e}"
