@@ -33,9 +33,9 @@ calcular_metricas_risco: Use quando o pedido mencionar risco, Sharpe, Sortino, d
 calcular_piotroski_score: Use quando o pedido mencionar fundamentos, solidez financeira, Piotroski ou F-Score.
     Avalia 9 critérios em 3 dimensões: lucratividade (Net Income, OCF, crescimento),
     alavancagem (dívida, liquidez corrente) e eficiência (diluição de ações, margem bruta).
-    Score 8-9 = excelente; 6-7 = bom; 0-5 = fraco.
+    Score 7-9 = excelente; 4-6 = bom; 0-3 = fraco.
     Exemplo:
     Input: "A WEGE3 tem bons fundamentos?"
-    Output: "Piotroski F-Score para WEGE3.SA: 7/9 — Bom (6-7) - Empresa competente, algumas fraquezas\n\nCritérios:\n  [OK] Net Income positivo..."
+    Output: "Piotroski F-Score para WEGE3.SA: 7/9 — Excelente (7-9) - Empresa com fundamentals muito solidos\n\nCritérios:\n  [OK] Net Income positivo..."
 """,
 )

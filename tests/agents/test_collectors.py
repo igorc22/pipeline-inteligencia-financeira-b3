@@ -26,18 +26,21 @@ def test_yfinance_agent_tools_tem_nomes_corretos():
     assert calcular_piotroski_score.name == 'calcular_piotroski_score'
 
 
+def _tools_registradas(agent) -> dict:
+    """Extrai o dict nome→tool do ToolNode interno do agent (PregelNode → ToolNode)."""
+    tool_node = agent.nodes.get('tools')
+    assert tool_node is not None, "Nó 'tools' não encontrado — agent pode estar mal configurado"
+    return tool_node.node.steps[0].tools_by_name
+
+
 def test_yfinance_agent_tem_3_tools():
     """Test que exatamente 3 tools estão registradas no nó tools do grafo."""
-    tool_node = yfinance_agent.nodes.get('tools')
-    assert tool_node is not None, "Nó 'tools' não encontrado — agent pode estar mal configurado"
-    assert len(tool_node.tools_by_name) == 3
+    assert len(_tools_registradas(yfinance_agent)) == 3
 
 
 def test_yfinance_agent_tools_registradas_por_nome():
     """Test que as tools corretas estão vinculadas ao agent pelo nome exato."""
-    tool_node = yfinance_agent.nodes['tools']
-    nomes = set(tool_node.tools_by_name.keys())
-    assert nomes == TOOLS_ESPERADAS
+    assert set(_tools_registradas(yfinance_agent)) == TOOLS_ESPERADAS
 
 
 # ---------------------------------------------------------------------------
