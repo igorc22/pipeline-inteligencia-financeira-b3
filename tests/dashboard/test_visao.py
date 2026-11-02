@@ -4,7 +4,9 @@ from langchain_core.messages import HumanMessage
 
 from dashboard.visao import (
     decisao_do_fim,
+    dividir_indicadores,
     dot_do_caminho,
+    escapar_markdown,
     montar_passos,
     parou_no_hard_stop,
     separar_indicador,
@@ -132,3 +134,29 @@ def test_state_para_json():
     assert resultado["relatorio"]["resumo"] == "Lucro caiu."
     assert resultado["sinais_anomalia"][0]["tipo"] == "prejuizo"
     assert resultado["loop_count"] == 4
+
+
+def test_escapar_markdown_protege_cifrao():
+    """Test que o $ dos valores em reais não vira fórmula no markdown do Streamlit."""
+    assert escapar_markdown("R$ 3,2 bi contra R$ 5,0 bi") == "R\\$ 3,2 bi contra R\\$ 5,0 bi"
+    assert escapar_markdown("sem cifrão") == "sem cifrão"
+
+
+def test_dot_do_caminho_interrompido_nao_desenha_consolidador():
+    """Test que, quando a análise falhou antes do fim, o desenho termina em 'Interrompido'."""
+    passos = montar_passos(FLUXO_NORMAL[:2])  # só o YFinance rodou
+
+    dot = dot_do_caminho(passos, None, consolidou=False)
+
+    assert "Consolidador" not in dot
+    assert "Interrompido" in dot
+    assert "não rodou" not in dot
+
+
+def test_dividir_indicadores_manda_texto_longo_para_lista():
+    """Test que só valores curtos viram quadro; longos e sem ': ' viram linha de texto inteira."""
+    longo = "Lucro líquido: R$ 3,2 bi (queda de 45% contra o 2T25)"
+    quadros, linhas = dividir_indicadores(["P/L: 5.0x", longo, "Lucro em alta"])
+
+    assert quadros == [("P/L", "5.0x")]
+    assert linhas == [longo, "Lucro em alta"]

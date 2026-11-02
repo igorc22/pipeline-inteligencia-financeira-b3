@@ -12,6 +12,9 @@ ROTULO_DECISAO = {"guard": "guard", "llm": "LLM", "hard_stop": "hard stop"}
 COR_DECISAO = {"guard": "#2e7d32", "llm": "#1565c0", "hard_stop": "#c62828"}
 COR_AGENTE = {"YFinance": "#e0a030", "Analyzer": "#3fb37f", "Investigator": "#e05555", "Consolidador": "#9b7bff"}
 ROTULO_ANALYZER = {1: "Analyzer (empresa)", 2: "Analyzer (setor)"}
+# O st.metric corta com reticências o que não cabe no quadro: acima disso, o indicador vai para a lista
+MAX_NOME_QUADRO = 28
+MAX_VALOR_QUADRO = 18
 
 
 @dataclass
@@ -30,6 +33,24 @@ def separar_indicador(texto: str) -> tuple[str, Optional[str]]:
     """'P/L: 5.0x' → ('P/L', '5.0x'). Separa no primeiro ': '; sem ele, o valor é None."""
     nome, separador, valor = texto.partition(": ")
     return (nome, valor) if separador else (texto, None)
+
+
+def dividir_indicadores(indicadores: list[str]) -> tuple[list[tuple[str, str]], list[str]]:
+    """(quadros, linhas): 'Nome: valor' curtos viram quadro; longos ou sem valor viram linha inteira."""
+    quadros: list[tuple[str, str]] = []
+    linhas: list[str] = []
+    for texto in indicadores:
+        nome, valor = separar_indicador(texto)
+        if valor is not None and len(nome) <= MAX_NOME_QUADRO and len(valor) <= MAX_VALOR_QUADRO:
+            quadros.append((nome, valor))
+        else:
+            linhas.append(texto)
+    return quadros, linhas
+
+
+def escapar_markdown(texto: str) -> str:
+    """Escapa o $: o markdown do Streamlit lê '$...$' como fórmula e estraga 'R$ 3,2 bi contra R$ 5,0 bi'."""
+    return texto.replace("$", "\\$")
 
 
 def _conteudo(mensagem) -> str:
@@ -89,8 +110,12 @@ def _no(nome: str, rotulo: str, cor: str) -> str:
     return f'  {nome} [label="{rotulo}", color="{cor}", fontcolor="{cor}"];'
 
 
-def dot_do_caminho(passos: list[Passo], decisao_fim: Optional[str]) -> str:
-    """DOT do caminho percorrido, da esquerda para a direita, com quem decidiu cada passo."""
+def dot_do_caminho(passos: list[Passo], decisao_fim: Optional[str], consolidou: bool = True) -> str:
+    """DOT do caminho percorrido, da esquerda para a direita, com quem decidiu cada passo.
+
+    consolidou=False (a análise falhou antes do fim): o caminho termina num nó "Interrompido",
+    e o Investigator tracejado não aparece (não dá para dizer que ele "não rodou" por escolha).
+    """
     linhas = [
         "digraph caminho {",
         "  rankdir=LR;",
@@ -105,6 +130,12 @@ def dot_do_caminho(passos: list[Passo], decisao_fim: Optional[str]) -> str:
         linhas.append(_no(nome, passo.rotulo, COR_AGENTE[passo.agente]))
         linhas.append(_aresta(anterior, nome, passo.decidido_por))
         anterior = nome
+    if not consolidou:
+        linhas.append('  interrompido [label="Interrompido", style="rounded,dashed", '
+                      'color="#c62828", fontcolor="#c62828"];')
+        linhas.append(f'  {anterior} -> interrompido [style=dashed, color="#c62828"];')
+        linhas.append("}")
+        return "\n".join(linhas)
     linhas.append(_no("consolidador", "Consolidador", COR_AGENTE["Consolidador"]))
     linhas.append(_aresta(anterior, "consolidador", decisao_fim))
     if not any(p.agente == "Investigator" for p in passos):

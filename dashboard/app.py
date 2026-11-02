@@ -3,7 +3,8 @@
 Rodar: make streamlit  (ou: uv run streamlit run dashboard/app.py)
 
 Só o botão Analisar roda o grafo (gasta créditos). O resultado fica em st.session_state, então
-trocar de aba ou abrir um expansor não roda nada de novo.
+trocar de aba ou abrir um expansor não roda nada de novo. Enquanto a análise roda, o campo e o
+botão ficam travados: um clique no meio reiniciaria o script e jogaria fora a análise já paga.
 """
 from typing import Optional
 
@@ -13,13 +14,15 @@ from langchain_core.messages import HumanMessage
 from dashboard.visao import (
     ROTULO_DECISAO,
     decisao_do_fim,
+    dividir_indicadores,
     dot_do_caminho,
+    escapar_markdown,
     montar_passos,
     parou_no_hard_stop,
-    separar_indicador,
     state_para_json,
 )
 from fluxo_financeiro import app as grafo
+from fluxo_financeiro.shared.utils import logger
 
 COLUNAS_INDICADORES = 4
 TAMANHO_PREVIA = 90
@@ -35,6 +38,12 @@ def _linha_status(no: str, passagens_analyzer: int) -> Optional[str]:
     if no == "Analyzer":
         return STATUS_ANALYZER.get(passagens_analyzer, f"Analyzer: passagem {passagens_analyzer}")
     return STATUS_FIXO.get(no)
+
+
+def _descrever_erro(exc: Exception) -> str:
+    """Tipo + mensagem: algumas exceções (ex: TimeoutError()) não têm texto nenhum."""
+    texto = str(exc).strip()
+    return f"{type(exc).__name__}: {texto}" if texto else type(exc).__name__
 
 
 def rodar_analise(ticker: str) -> dict:
@@ -58,7 +67,8 @@ def rodar_analise(ticker: str) -> dict:
                         status.write(linha)
             status.update(label=f"Análise de {ticker} concluída", state="complete", expanded=False)
         except Exception as exc:  # o erro aparece na tela; o que já chegou continua visível
-            erro = str(exc)
+            logger.exception(f"[dashboard] análise de {ticker} falhou")
+            erro = _descrever_erro(exc)
             status.update(label=f"A análise de {ticker} falhou", state="error", expanded=False)
     return {"ticker": ticker, "eventos": eventos, "state": state, "erro": erro}
 
@@ -71,10 +81,12 @@ def _mensagem_final(resultado: dict) -> Optional[str]:
     return None
 
 
-def _lista(titulo: str, itens: list[str]) -> None:
-    if itens:
-        st.markdown(f"#### {titulo}")
-        st.markdown("\n".join(f"- {item}" for item in itens))
+def _md(texto: str) -> None:
+    st.markdown(escapar_markdown(texto))
+
+
+def _lista_md(itens: list[str]) -> str:
+    return "\n".join(f"- {escapar_markdown(item)}" for item in itens)
 
 
 def aba_relatorio(resultado: dict) -> None:
@@ -88,39 +100,38 @@ def aba_relatorio(resultado: dict) -> None:
         if final:
             st.warning("O relatório estruturado não foi gerado (o LLM do Consolidador falhou). "
                        "Abaixo, o texto que o sistema montou com as respostas dos agentes.")
-            st.markdown(final)
+            _md(final)
         else:
             st.info("Sem relatório: a análise não chegou ao fim. Veja a aba **Como foi feito**.")
         return
 
-    st.markdown(relatorio.resumo)
+    _md(relatorio.resumo)
 
     sinais = state.get("sinais_anomalia") or []
     if sinais:
-        st.warning("**Sinais de anomalia calculados em código:**\n"
-                   + "\n".join(f"- {s.descricao}" for s in sinais))
+        st.warning("**Sinais de anomalia calculados em código:**\n" + _lista_md([s.descricao for s in sinais]))
 
     if relatorio.indicadores:
         st.markdown("#### Indicadores")
-        separados = [separar_indicador(i) for i in relatorio.indicadores]
-        quadros = [(nome, valor) for nome, valor in separados if valor is not None]
+        quadros, linhas = dividir_indicadores(relatorio.indicadores)
         for inicio in range(0, len(quadros), COLUNAS_INDICADORES):
             colunas = st.columns(COLUNAS_INDICADORES)
             for coluna, (nome, valor) in zip(colunas, quadros[inicio:inicio + COLUNAS_INDICADORES]):
-                coluna.metric(nome, valor)
-        soltos = [nome for nome, valor in separados if valor is None]
-        if soltos:
-            st.markdown("\n".join(f"- {s}" for s in soltos))
+                coluna.metric(escapar_markdown(nome), valor)
+        if linhas:
+            st.markdown(_lista_md(linhas))
 
-    _lista("Riscos", relatorio.riscos)
+    if relatorio.riscos:
+        st.markdown("#### Riscos")
+        st.markdown(_lista_md(relatorio.riscos))
     if relatorio.limitacoes:
-        st.warning("**Limitações da análise:**\n" + "\n".join(f"- {l}" for l in relatorio.limitacoes))
+        st.warning("**Limitações da análise:**\n" + _lista_md(relatorio.limitacoes))
     if relatorio.contexto:
         st.markdown("#### Notícias e setor")
-        st.markdown(relatorio.contexto)
+        _md(relatorio.contexto)
     if relatorio.diagnostico:
         st.markdown("#### Diagnóstico da anomalia")
-        st.markdown(relatorio.diagnostico)
+        _md(relatorio.diagnostico)
 
     if final:
         st.download_button("Baixar relatório (.md)", data=final, file_name=f"relatorio_{ticker}.md",
@@ -141,7 +152,8 @@ def aba_como_foi_feito(resultado: dict) -> None:
     if parou_no_hard_stop(eventos):
         st.warning("O fluxo parou pelo limite de 6 passagens do Supervisor (hard stop).")
 
-    st.graphviz_chart(dot_do_caminho(passos, decisao_do_fim(eventos)))
+    consolidou = any(no == "Consolidador" for no, _ in eventos)
+    st.graphviz_chart(dot_do_caminho(passos, decisao_do_fim(eventos), consolidou=consolidou))
     st.caption("Cada seta diz quem decidiu o passo: **guard** (regra em código), **LLM** (o Supervisor "
                "consultou o modelo) ou **hard stop** (limite de passagens).")
 
@@ -150,18 +162,18 @@ def aba_como_foi_feito(resultado: dict) -> None:
             decisao = ROTULO_DECISAO.get(passo.decidido_por or "")
             st.markdown(f"**{passo.numero} · {passo.rotulo}**" + (f" · decidido por *{decisao}*" if decisao else ""))
             if passo.raciocinio:
-                st.caption(f"Raciocínio do Supervisor: {passo.raciocinio}")
+                st.caption(escapar_markdown(f"Raciocínio do Supervisor: {passo.raciocinio}"))
             entrada, saida = st.columns([1, 2])
             with entrada:
                 st.markdown("**Entrada (tarefa recebida)**")
-                st.markdown(passo.entrada or "_sem tarefa registrada_")
+                _md(passo.entrada) if passo.entrada else st.markdown("_sem tarefa registrada_")
             with saida:
                 st.markdown("**Saída**")
-                with st.expander(_previa(passo.saida) or "(vazia)"):
+                with st.expander(escapar_markdown(_previa(passo.saida)) or "(vazia)"):
                     if passo.agente == "YFinance":  # texto alinhado por espaços: monoespaçado
                         st.code(passo.saida, language=None, wrap_lines=True)
                     else:
-                        st.markdown(passo.saida)
+                        _md(passo.saida)
 
 
 def aba_state(resultado: dict) -> None:
@@ -171,23 +183,45 @@ def aba_state(resultado: dict) -> None:
     st.json(state_para_json(resultado["state"]), expanded=1)
 
 
+def _pedir_analise() -> None:
+    """Callback do botão: roda antes do script, então o botão já aparece travado nesta execução.
+
+    Guarda o ticker aqui: quando o campo muda de travado para destravado, o Streamlit o trata
+    como outro widget e zera o valor.
+    """
+    ticker = st.session_state.get("ticker", "").strip().upper()
+    if ticker:
+        st.session_state["ticker_pedido"] = ticker
+        st.session_state["rodando"] = True
+    else:
+        st.session_state["aviso_ticker_vazio"] = True
+
+
 st.set_page_config(page_title="Pipeline B3", layout="wide")
 st.title("Pipeline de Inteligência Financeira")
 st.caption("Análise de ações da B3 por agentes: dados, notícias, setor e investigação de anomalias.")
 
+rodando = st.session_state.get("rodando", False)
+if not st.session_state.get("ticker") and st.session_state.get("ticker_pedido"):
+    st.session_state["ticker"] = st.session_state["ticker_pedido"]  # devolve o que foi analisado
 campo, botao = st.columns([4, 1], vertical_alignment="bottom")
-ticker_digitado = campo.text_input("Ticker da B3", key="ticker", placeholder="ex: PETR4, VALE3, WEGE3")
-if botao.button("Analisar", type="primary", use_container_width=True):
-    ticker = ticker_digitado.strip().upper()
-    if not ticker:
-        st.warning("Digite um ticker antes de analisar.")
-    else:
-        st.session_state["resultado"] = rodar_analise(ticker)
+campo.text_input("Ticker da B3", key="ticker", placeholder="ex: PETR4, VALE3, WEGE3", disabled=rodando)
+botao.button("Analisar", type="primary", use_container_width=True, on_click=_pedir_analise, disabled=rodando)
+
+if st.session_state.pop("aviso_ticker_vazio", False):
+    st.warning("Digite um ticker antes de analisar.")
+
+if rodando:
+    try:
+        st.session_state["resultado"] = rodar_analise(st.session_state["ticker_pedido"])
+    finally:
+        st.session_state["rodando"] = False
+    st.rerun()  # redesenha com o campo e o botão destravados
 
 resultado = st.session_state.get("resultado")
 if resultado:
     if resultado["erro"]:
-        st.error(f"A análise falhou: {resultado['erro']}")
+        st.error(f"A análise falhou: {escapar_markdown(resultado['erro'])}")
     relatorio_tab, fluxo_tab, state_tab = st.tabs(["Relatório", "Como foi feito", "State (JSON)"])
     with relatorio_tab:
         aba_relatorio(resultado)

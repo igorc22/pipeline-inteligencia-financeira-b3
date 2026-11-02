@@ -15,7 +15,7 @@ APP = str(Path(__file__).resolve().parents[2] / "dashboard" / "app.py")
 RELATORIO = RelatorioFinal(
     resumo="A Petrobras apresenta fundamentos sólidos.",
     indicadores=["Preço Atual: R$ 52.71", "P/L: 5.0x", "ROE: 30.3%", "Lucro em alta"],
-    contexto="Recorde de produção no pré-sal.",
+    contexto="Lucro de R$ 3,2 bi contra R$ 5,0 bi.",
     riscos=["Risco político pós-eleitoral"],
     limitacoes=[],
 )
@@ -100,10 +100,11 @@ def test_app_mostra_relatorio(grafo):
 
 def test_app_normaliza_ticker(grafo):
     """Test que espaços e minúsculas viram o ticker em maiúsculas no pedido ao grafo."""
-    _rodar(" petr4 ")
+    at = _rodar(" petr4 ")
 
     pedido = grafo.stream.call_args.args[0]["messages"][0]
     assert pedido.content == "Analise a ação PETR4"
+    assert at.text_input(key="ticker").value == "PETR4"  # o campo não fica vazio depois da análise
 
 
 def test_app_ticker_vazio_nao_roda(grafo):
@@ -146,3 +147,46 @@ def test_app_erro_no_grafo_mantem_passos(grafo):
 
     assert any("429" in e.value for e in at.error)
     assert "Preço Atual: R$ 52.71" in _textos(at)
+
+
+def test_app_escapa_cifrao(grafo):
+    """Test que o R$ do texto chega ao markdown escapado (senão o Streamlit desenha como fórmula)."""
+    at = _rodar("PETR4")
+
+    assert "Lucro de R\\$ 3,2 bi contra R\\$ 5,0 bi." in _textos(at)
+
+
+def test_app_erro_sem_texto_mostra_o_tipo(grafo):
+    """Test que uma exceção sem mensagem ainda diz o que falhou."""
+    def _quebra(*a, **k):
+        yield from _analise()[:2]
+        raise TimeoutError()
+
+    grafo.stream.side_effect = _quebra
+
+    at = _rodar("PETR4")
+
+    assert any("TimeoutError" in e.value for e in at.error)
+
+
+def test_app_trava_campos_durante_a_analise(grafo):
+    """Test que o botão e o campo ficam travados enquanto o grafo roda e voltam ao fim.
+
+    Sem isso, clicar de novo durante a análise reinicia o script: a análise em andamento
+    (já paga) se perde e outra começa.
+    """
+    import streamlit as st
+
+    vistos = []
+
+    def _stream(*a, **k):
+        vistos.append(st.session_state.get("rodando"))
+        return iter(_analise())
+
+    grafo.stream.side_effect = _stream
+
+    at = _rodar("PETR4")
+
+    assert vistos == [True]
+    assert at.button[0].disabled is False
+    assert grafo.stream.call_count == 1
