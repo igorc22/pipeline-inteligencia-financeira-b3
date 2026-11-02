@@ -10,8 +10,8 @@ from fluxo_financeiro.tools.web_search import pesquisar_na_web, registrar_falha_
 @tool
 def buscar_noticias(query: str) -> str:
     """
-    Busca as notícias mais recentes sobre uma empresa ou tópico.
-    Use esta ferramenta para entender o contexto atual ou motivos de oscilação de mercado.
+    Busca notícias dos últimos 30 dias sobre uma empresa ou tópico na NewsAPI.
+    Use como alternativa quando buscar_noticias_web der erro ou não trouxer nada relevante.
     """
     logger.info(f"[tool] buscar_noticias: query='{query}'")
     if not NEWS_API_KEY:
@@ -75,8 +75,8 @@ def buscar_noticias(query: str) -> str:
 def buscar_noticias_web(query: str) -> str:
     """
     Busca notícias em tempo real sobre uma empresa ou ação via Google Search (Gemini).
-    Use esta ferramenta quando buscar_noticias retornar poucos resultados ou quando
-    precisar de notícias das últimas horas (eventos corporativos recentes, resultados, M&A).
+    É a busca padrão de notícias: use primeiro, para a empresa ou para o setor. Cobre
+    também as últimas horas (eventos corporativos recentes, resultados, M&A).
     A resposta termina com a lista de fontes consultadas.
     """
     logger.info(f"[tool] buscar_noticias_web: query='{query}'")

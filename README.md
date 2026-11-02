@@ -7,7 +7,7 @@ Sistema multi-agente com LLM para análise de ações da B3 usando LangGraph, yf
 Um **Supervisor** central orquestra três agentes, e um **Consolidador** fecha toda análise com um relatório:
 
 - **YFinance Agent**: coleta dados de mercado (preço, P/L, ROE, DY, histórico), métricas de risco (Sharpe, Sortino, Max Drawdown, VaR, Beta, Alpha) e Piotroski F-Score
-- **Analyzer Agent**: busca notícias (NewsAPI + Google Search via Gemini) em duas passagens, uma sobre a empresa e outra sobre o setor
+- **Analyzer Agent**: busca notícias (Google Search via Gemini, com a NewsAPI de reserva) em duas passagens, uma sobre a empresa e outra sobre o setor
 - **Investigator Agent** *(condicional)*: acionado só quando o Supervisor detecta uma anomalia; busca fatos relevantes e histórico trimestral para explicar a causa
 - **Consolidador** *(sempre no fim)*: junta dados, notícias, setor e diagnóstico num relatório (resumo, indicadores, riscos e limitações), sem recomendação de compra ou venda
 

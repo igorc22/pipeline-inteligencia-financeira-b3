@@ -29,7 +29,7 @@ flowchart TD
     end
 
     subgraph A["Analyzer (analista)"]
-        A1["analyzer_agent<br/>NewsAPI, depois busca na web"]
+        A1["analyzer_agent<br/>busca na web, NewsAPI como reserva"]
     end
 
     subgraph I["Investigator (condicional)"]
@@ -117,7 +117,7 @@ sequenceDiagram
     D-->>Y: queda_lucro: lucro caiu 35% contra o ano anterior
     Y-->>S: dados + SINAIS DE ANOMALIA
     S->>A: (guard) busque notícias da empresa
-    A->>W: NewsAPI vazia, então busca na web
+    A->>W: busca na web (NewsAPI só se falhar)
     A-->>S: notícias
     S->>A: (LLM) busque o contexto do setor de mineração
     A-->>S: contexto setorial

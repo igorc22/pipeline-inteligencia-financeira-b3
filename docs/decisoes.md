@@ -119,7 +119,7 @@ Busca em `pt`; se vierem menos de 2 artigos válidos, tenta em `en`. Artigos `[R
 **Por quê:** a cobertura em português de ações brasileiras na NewsAPI é pequena. O inglês preenche o buraco, principalmente para empresas grandes como Vale e Petrobras.
 
 ### D16 — Anthropic Web Search como complemento, não como substituto
-**A parte do provedor foi substituída por D35** (a busca agora é o Google Search do Gemini). A regra "NewsAPI primeiro, web como fallback" continua valendo.
+**A parte do provedor foi substituída por D35** (a busca agora é o Google Search do Gemini). A ordem foi invertida pela D44 (web primeiro, NewsAPI como reserva).
 
 Testei no notebook `07_web_search_tool` e comparei com a NewsAPI.
 
@@ -128,6 +128,13 @@ Testei no notebook `07_web_search_tool` e comparei com a NewsAPI.
 **Por quê:** é um trade-off entre **custo, atualidade e controle**:
 - NewsAPI é barata, rápida e com fontes conhecidas, mas só cobre até 30 dias (plano grátis) e demora para indexar.
 - Web Search é em tempo real e o Claude já filtra e sintetiza, mas custa tokens a mais, tem mais latência e eu não controlo as queries.
+
+### D44 — Analyzer busca na web primeiro, NewsAPI vira reserva
+Inverte a ordem da D16: o prompt do Analyzer manda usar `buscar_noticias_web` primeiro, e `buscar_noticias` (NewsAPI) só entra se a busca na web der erro ou não trouxer nada relevante.
+
+**Por quê:** no e2e, a NewsAPI voltou vazia nas duas passagens do Analyzer e tudo caiu no fallback da web. A primeira busca de cada análise era desperdiçada.
+
+**Custo:** quase nenhum. A busca na web já rodava em quase toda análise como fallback, então o consumo das 5.000 buscas grátis do mês praticamente não muda. Sem faturamento no projeto da chave (D35), a web falha e a NewsAPI segura as notícias.
 
 ---
 
@@ -384,6 +391,6 @@ Vindas do desenho de evolução no Excalidraw (coordenador, agente de dados, ana
 - **Human-in-the-loop** com `interrupt()`, o que exige um endpoint de `resume` na API?
 - ~~**Logging de custo**~~: resolvido com o LangSmith (D36). Em aberto: levar o custo por etapa também para o dashboard?
 - **Busca na web independente do provedor do LLM**: hoje a busca está presa ao Gemini (D35), como antes estava presa à Anthropic (D16). Vale trocar por uma API de busca dedicada (Tavily, Brave, Serper) para que trocar de LLM não quebre a busca de novo?
-- **NewsAPI quase não acha nada**: no e2e as duas buscas do Analyzer na NewsAPI voltaram vazias e tudo caiu no fallback da web. Ajustar as queries, ou inverter a ordem (web primeiro)?
+- ~~**NewsAPI quase não acha nada**~~: feito (D44), a web virou a busca padrão e a NewsAPI ficou de reserva.
 - **Sanitização**: extrair `{ticker, intenção}` com regex + saída estruturada na entrada, e proteger contra prompt injection vinda do conteúdo da web?
 - **Paralelismo** com `Send` (dados primeiro, depois analista e pesquisa ao mesmo tempo)?
