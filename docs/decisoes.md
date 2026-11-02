@@ -208,6 +208,8 @@ Na Etapa 4, o Supervisor se pergunta: *"Um investidor ficaria com dúvida de POR
 ### D27 — Multi-hop com limite de 4 buscas e formato de saída fixo
 **Por quê:** a investigação precisa encadear buscas (o resultado de uma orienta a próxima), mas sem limite pode ficar buscando para sempre. O formato fixo (Causa / Natureza / Evidências / Impacto) torna a resposta comparável entre empresas e mais fácil de consolidar depois. Se não achar a causa, o prompt manda admitir.
 
+**Atualização (D37):** o limite deixou de depender só do prompt e passou a ser garantido em código.
+
 ### D28 — Depois do Investigator, sempre FINISH (guard)
 **Por quê:** o diagnóstico é o ponto final do pipeline. Um guard em código garante que o Supervisor não reabra o ciclo.
 
@@ -252,6 +254,27 @@ Liguei o LangSmith pelo `.env` (`LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGS
 **Agente, não projeto:** comecei com `LANGSMITH_PROJECT`, e os traces chegaram, mas não apareciam na interface. O LangSmith Cloud agora organiza tudo por **agente + ambiente** (`local`, `development`, `staging`, `production`), e a forma antiga manda para um projeto que a navegação por agentes não mostra. Troquei pelas variáveis de agente. Não dá para usar as duas formas juntas: com `LANGSMITH_PROJECT` e `LANGSMITH_AGENT_*` ao mesmo tempo, o SDK não envia nada. Por enquanto uso `local`; `production` fica para quando o projeto rodar de verdade.
 
 **Cuidado:** com o tracing ligado no `.env`, os testes também mandariam traces. O `tests/conftest.py` desliga o tracing antes de qualquer import, e conferi que o `pytest` não cria nada no LangSmith.
+
+## Parte 9 — Fechando o Investigator
+
+### D37 — Limite de buscas do Investigator garantido em código
+O Investigator ganhou um `ToolCallLimitMiddleware(run_limit=4, exit_behavior="continue")`. O "máximo 4 buscas" da D27 era só uma instrução no prompt; um modelo teimoso podia ignorar.
+
+**Por quê `continue` e não `end`:** com `continue`, a 5ª chamada volta para o modelo como erro ("Tool call limit exceeded") e ele escreve a conclusão com o que já tem, no formato de 4 seções. Com `end`, a execução pararia na hora e o diagnóstico podia sair sem formato. O prompt avisa o modelo dessa mensagem.
+
+**Como testei:** um modelo falso que insiste em buscar até 20 vezes. A busca real rodou exatamente 4 vezes e o agente ainda fechou com a conclusão. Para isso, a criação do agente virou uma função (`criar_investigator_agent(modelo)`), que o teste chama com o modelo falso.
+
+### D38 — Fontes da busca só com o nome do site
+As fontes saíam como `- site: <link>`, e o link é um redirecionamento do Google com ~200 caracteres. Agora saem como `Fontes: seudinheiro.com, kinvo.com.br`.
+
+**Por quê:** o link não ajuda o agente a analisar nada, mas vai para o contexto e é reenviado em cada chamada seguinte do modelo. Medido no LangSmith: o bloco de fontes caiu de ~1.300–1.500 para ~200 caracteres por busca (~85%, uns 300 tokens a menos por busca). Como o Investigator faz várias buscas e reenvia o histórico a cada passo, é ali que a economia mais aparece.
+
+**Lição de medição:** comparar o total de tokens de duas execuções não serve, porque o agente nem sempre faz o mesmo número de buscas (uma execução fez 2, a outra 3, e o total subiu mesmo com a economia). Tem que comparar a mesma peça (a resposta de cada busca).
+
+### D39 — Teste do grafo inteiro com tudo mockado
+`tests/graph/test_fluxo.py` roda o app compilado do START ao END com os 3 agentes e o LLM do Supervisor mockados, em três cenários: com anomalia (Investigator roda, 5 loops, 3 decisões pelo LLM), sem anomalia (Investigator não é chamado, 4 loops) e LLM que nunca escolhe FINISH (o hard stop encerra).
+
+**Por quê:** os testes do supervisor olhavam uma decisão por vez. Este pega o que só aparece com as peças juntas: o router, as arestas, os guards em sequência e a tarefa do Supervisor chegando ao Investigator. É a versão sem custo do `scripts/e2e.py`.
 
 ---
 

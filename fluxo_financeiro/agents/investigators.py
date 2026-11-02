@@ -1,11 +1,17 @@
 from langchain.agents import create_agent
+from langchain.agents.middleware import ToolCallLimitMiddleware
 from fluxo_financeiro.shared.llm import criar_llm
 from fluxo_financeiro.tools.investigation import buscar_historico_trimestral, buscar_fatos_relevantes
 from fluxo_financeiro.tools.news import buscar_noticias_web
 
 llm = criar_llm()
 
-INVESTIGATOR_PROMPT = """Você é um investigador financeiro especializado em diagnóstico causal.
+# Teto de chamadas de tool por investigação. O prompt pede o mesmo limite, mas quem garante é o
+# middleware: a chamada que passar do teto volta como erro para o modelo, que então conclui com o
+# que já tem (exit_behavior="continue"). Com "end" a conclusão sairia sem o formato de 4 seções.
+MAX_BUSCAS = 4
+
+INVESTIGATOR_PROMPT = f"""Você é um investigador financeiro especializado em diagnóstico causal.
 
 Você receberá no histórico uma tarefa específica descrevendo a anomalia a investigar
 (ex: "Investigue a queda de 62% no lucro da WEGE3 no último trimestre").
@@ -34,10 +40,19 @@ FORMATO DA CONCLUSÃO:
 - Evidências: [fonte 1, fonte 2...]
 - Impacto no investimento: [o que isso muda na análise]
 
-Máximo 4 buscas. Se não encontrar causa clara, relate isso honestamente."""
+Máximo {MAX_BUSCAS} buscas. Se uma ferramenta responder "Tool call limit exceeded", o limite foi
+atingido: pare de buscar e escreva a conclusão com o que já encontrou.
+Se não encontrar causa clara, relate isso honestamente."""
 
-investigator_agent = create_agent(
-    model=llm,
-    tools=[buscar_historico_trimestral, buscar_fatos_relevantes, buscar_noticias_web],
-    system_prompt=INVESTIGATOR_PROMPT,
-)
+
+def criar_investigator_agent(modelo):
+    """Monta o Investigator com um modelo qualquer (o real em produção, um falso nos testes)."""
+    return create_agent(
+        model=modelo,
+        tools=[buscar_historico_trimestral, buscar_fatos_relevantes, buscar_noticias_web],
+        system_prompt=INVESTIGATOR_PROMPT,
+        middleware=[ToolCallLimitMiddleware(run_limit=MAX_BUSCAS, exit_behavior="continue")],
+    )
+
+
+investigator_agent = criar_investigator_agent(llm)

@@ -48,27 +48,38 @@ def test_pesquisar_na_web_usa_google_search(mock_client_cls):
 
 @patch('fluxo_financeiro.tools.web_search._criar_cliente')
 def test_pesquisar_na_web_lista_fontes_sem_repetir(mock_client_cls):
-    """Test que as fontes do grounding aparecem no fim, sem URLs duplicadas."""
-    chunks = [_chunk("valor.com.br", "https://a"), _chunk("valor.com.br", "https://a"), _chunk("infomoney.com.br", "https://b")]
+    """Test que as fontes aparecem no fim só com o nome do site, sem repetir o mesmo site."""
+    chunks = [_chunk("valor.com.br", "https://a"), _chunk("valor.com.br", "https://c"), _chunk("infomoney.com.br", "https://b")]
     mock_client_cls.return_value.models.generate_content.return_value = _resposta_gemini("Vale caiu 5%.", chunks)
 
     resultado = pesquisar_na_web("x")
 
-    assert resultado.startswith("Vale caiu 5%.")
-    assert "Fontes:" in resultado
-    assert resultado.count("https://a") == 1
-    assert "infomoney.com.br: https://b" in resultado
+    assert resultado == "Vale caiu 5%.\n\nFontes: valor.com.br, infomoney.com.br"
+
+
+@patch('fluxo_financeiro.tools.web_search._criar_cliente')
+def test_pesquisar_na_web_nao_inclui_links(mock_client_cls):
+    """Test que os links de redirecionamento do Google (longos) não entram no texto dos agentes."""
+    redirect = "https://vertexaisearch.cloud.google.com/grounding-api-redirect/" + "A" * 180
+    mock_client_cls.return_value.models.generate_content.return_value = _resposta_gemini(
+        "texto", [_chunk("seudinheiro.com", redirect)]
+    )
+
+    resultado = pesquisar_na_web("x")
+
+    assert "http" not in resultado
+    assert "seudinheiro.com" in resultado
 
 
 @patch('fluxo_financeiro.tools.web_search._criar_cliente')
 def test_pesquisar_na_web_limita_fontes(mock_client_cls):
     """Test que no máximo MAX_FONTES fontes são listadas."""
-    chunks = [_chunk(f"site{i}", f"https://{i}") for i in range(MAX_FONTES + 3)]
+    chunks = [_chunk(f"site{i}.com", f"https://{i}") for i in range(MAX_FONTES + 3)]
     mock_client_cls.return_value.models.generate_content.return_value = _resposta_gemini("texto", chunks)
 
     resultado = pesquisar_na_web("x")
 
-    assert resultado.count("https://") == MAX_FONTES
+    assert resultado.split("Fontes: ")[1].count(",") == MAX_FONTES - 1
 
 
 @patch('fluxo_financeiro.tools.web_search._criar_cliente')
@@ -86,7 +97,7 @@ def test_pesquisar_na_web_sem_texto_retorna_vazio(mock_client_cls):
 @patch('fluxo_financeiro.tools.news.pesquisar_na_web')
 def test_buscar_noticias_web_retorna_resultado(mock_pesquisa):
     """Test que a tool repassa o resumo com fontes."""
-    mock_pesquisa.return_value = "Resumo.\n\nFontes:\n- site: https://x"
+    mock_pesquisa.return_value = "Resumo.\n\nFontes: site.com"
 
     resultado = buscar_noticias_web.invoke("WEGE3")
 

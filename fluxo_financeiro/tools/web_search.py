@@ -39,23 +39,26 @@ def pesquisar_na_web(prompt: str) -> str:
 
     fontes = _extrair_fontes(response)
     if fontes:
-        texto += "\n\nFontes:\n" + "\n".join(f"- {titulo}: {url}" for titulo, url in fontes)
+        texto += "\n\nFontes: " + ", ".join(fontes)
     return texto
 
 
-def _extrair_fontes(response) -> list[tuple[str, str]]:
-    """Lista (título, url) das páginas que o Google Search usou, sem repetição."""
+def _extrair_fontes(response) -> list[str]:
+    """Nomes dos sites (ex: seudinheiro.com) que o Google Search usou, sem repetição.
+
+    Só o nome, sem o link: o Google devolve links de redirecionamento com ~200 caracteres
+    cada, que gastariam tokens no contexto de todos os agentes seguintes sem ajudar a análise.
+    """
     if not response.candidates:
         return []
     metadata = response.candidates[0].grounding_metadata
     if not metadata or not metadata.grounding_chunks:
         return []
 
-    fontes, vistas = [], set()
+    fontes = []
     for chunk in metadata.grounding_chunks:
         web = chunk.web
-        if not web or not web.uri or web.uri in vistas:
-            continue
-        vistas.add(web.uri)
-        fontes.append((web.title or web.domain or "fonte", web.uri))
+        nome = (web.title or web.domain) if web else None
+        if nome and nome not in fontes:
+            fontes.append(nome)
     return fontes[:MAX_FONTES]
