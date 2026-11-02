@@ -192,6 +192,8 @@ Plano completo: `docs/superpowers/plans/2026-05-11-investigator-condicional.md`.
 **Decisão:** criar o `investigator_agent`, focado em diagnóstico causal: causa, natureza (pontual / estrutural / cíclica), evidências e impacto no investimento.
 
 ### D25 — Condicional: só roda quando há anomalia
+**Complementada por D40** (sinais calculados em código acionam o Investigator por guard; o LLM decide quando não há sinal).
+
 Na Etapa 4, o Supervisor se pergunta: *"Um investidor ficaria com dúvida de POR QUE esse número aconteceu?"* Se sim, manda para o Investigator com a anomalia descrita na `task_for_agent`; se não, FINISH.
 
 **Por quê:** investigar toda ação seria caro (várias buscas na web) e inútil para empresa estável. A decisão é **semântica** (LLM), porque "anomalia" depende de contexto e não cabe numa regra fixa tipo "queda > X%".
@@ -275,6 +277,24 @@ As fontes saíam como `- site: <link>`, e o link é um redirecionamento do Googl
 `tests/graph/test_fluxo.py` roda o app compilado do START ao END com os 3 agentes e o LLM do Supervisor mockados, em três cenários: com anomalia (Investigator roda, 5 loops, 3 decisões pelo LLM), sem anomalia (Investigator não é chamado, 4 loops) e LLM que nunca escolhe FINISH (o hard stop encerra).
 
 **Por quê:** os testes do supervisor olhavam uma decisão por vez. Este pega o que só aparece com as peças juntas: o router, as arestas, os guards em sequência e a tarefa do Supervisor chegando ao Investigator. É a versão sem custo do `scripts/e2e.py`.
+
+### D40 — Guard de anomalia calculado em código
+Antes, a Etapa 4 dependia só do Gemini julgar se P/L, ROE e Piotroski eram "anômalos". Agora o nó do YFinance chama `detectar_sinais_anomalia()` (`tools/anomalias.py`), que calcula três sinais com números, sem LLM:
+- **queda_lucro**: lucro líquido do último trimestre mais de 30% abaixo do **mesmo trimestre do ano anterior**. Comparar com o mesmo trimestre, e não com o anterior, evita confundir sazonalidade com problema.
+- **prejuizo**: último trimestre com lucro líquido negativo.
+- **piotroski_fraco**: Piotroski ≤ 3.
+
+Se houver sinal, o Supervisor manda para o Investigator na Etapa 4 **por guard**, com a tarefa montada a partir dos números. Sem sinal, o LLM continua decidindo, e pode investigar mesmo assim.
+
+**Por quê:** prefiro uma regra que eu entendo e consigo testar a um julgamento que muda de uma execução para outra. O LLM continua útil para o que a regra não pega.
+
+**Calibração (02/11/2026):** VALE3 −35% (acusa queda), MGLU3 com prejuízo (acusa), BBAS3 −14%, WEGE3 +5%, ITUB4 +8% e PETR4 +120% (não acusam). Quando o yfinance não traz o dado (ABEV3 com NaN no ano anterior, AZUL4 sem trimestrais), a regra é pulada, nunca acusa. O e2e confirmou: na VALE3 o Investigator entrou pelo guard ("Sinais de anomalia calculados em código (queda_lucro)"), e na WEGE3 o LLM fechou em FINISH.
+
+**Exceção à regra de camadas (D03):** o `graph/` passou a importar direto de `tools/` (o detector). A dependência continua num sentido só, mas pula a camada `agents`. Faz sentido porque o detector é cálculo, não agente; criar um "agente" só para repassar a chamada seria cerimônia.
+
+**Detalhes:** o ticker vem do pedido do usuário por regex (`extrair_ticker` em `shared/utils.py`: 4 letras + 1 ou 2 dígitos). Os sinais também entram no texto da mensagem do YFinance ("SINAIS DE ANOMALIA"), então o Analyzer e o dashboard os veem. Custo: o detector consulta o yfinance de novo (trimestrais + anuais), ~1 s a mais por análise.
+
+**Lição:** o primeiro teste do grafo depois da mudança foi ao yfinance de verdade, porque o nó do YFinance passou a chamar o detector real. O teste falhou (bom), e o detector entrou no mock da fixture. É a pendência "testes não bloqueiam rede" se mostrando na prática.
 
 ---
 

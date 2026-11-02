@@ -7,11 +7,20 @@ from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 
 
+class SinalAnomalia(BaseModel):
+    """Sinal de anomalia calculado em código (sem LLM) a partir dos números da empresa."""
+    tipo: Literal["queda_lucro", "prejuizo", "piotroski_fraco"]
+    descricao: str = Field(description="Frase com os números, pronta para virar tarefa do Investigator.")
+
+
 class MessagesState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
     next_agent: str
     loop_count: Annotated[int, operator.add]
     supervisor_reasoning: str
+    # Preenchido pelo nó do YFinance; se não estiver vazio, o Supervisor manda para o Investigator
+    # na Etapa 4 sem consultar o LLM (guard). Ausente/vazio = o LLM decide.
+    sinais_anomalia: list[SinalAnomalia]
 
 
 class RouteDecision(BaseModel):
