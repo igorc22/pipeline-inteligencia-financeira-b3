@@ -107,7 +107,7 @@ Commit `5fafc26`. *(motivo a confirmar: provavelmente as faixas antigas classifi
 
 **Por quê:** se aceitasse qualquer inteiro, o LLM poderia inventar um código de série que não existe. O enum restringe às séries que eu sei que fazem sentido.
 
-**Estado:** a tool existe e tem teste, mas ainda não está registrada em nenhum agente.
+**Estado:** a tool existe e tem teste, mas nenhum agente a usa. A SELIC que o projeto usa vem de dentro do `calcular_metricas_risco` (D11). **Preciso revisar (02/11/2026):** registrar no YFinance, para a SELIC e o IPCA aparecerem no relatório, ou apagar a tool.
 
 ---
 

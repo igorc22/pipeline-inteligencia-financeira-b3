@@ -19,7 +19,7 @@ flowchart TD
     S -->|"Etapa 1: sem dados"| Y
     S -->|"Etapas 2 e 3: notícias da empresa, depois do setor"| A
     S -->|"Etapa 4: anomalia"| I
-    S -->|"FINISH (aresta fixa)"| C
+    S -->|"FINISH"| C
 
     subgraph Y["YFinance (coletor)"]
         direction TB
@@ -40,7 +40,7 @@ flowchart TD
         C1["consolidar()<br/>LLM com saída estruturada<br/>RelatorioFinal, sem tools"]
     end
 
-    C -->|"relatório em markdown + relatorio no state"| F(["Fim"])
+    C -->|"aresta fixa: relatório em markdown + relatorio no state"| F(["Fim"])
 
     Y -->|"dados + sinais_anomalia"| S
     A -->|"análise"| S
@@ -56,7 +56,7 @@ flowchart TD
 | 4 | Duas passagens do Analyzer, **sem** sinais | Investigator ou FINISH | LLM (D25) |
 | — | Investigator já respondeu | FINISH | Guard (D28) |
 | — | `loop_count >= 6` | FINISH | Hard stop (D21) |
-| — | Qualquer FINISH | Consolidador → fim | Aresta fixa no router (D41) |
+| — | Qualquer FINISH | Consolidador → fim | Router: FINISH sempre vai ao Consolidador (D41) |
 
 ---
 
