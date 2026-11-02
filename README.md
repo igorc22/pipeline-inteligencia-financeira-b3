@@ -15,6 +15,8 @@ Usuário → Supervisor → YFinance → Supervisor → Analyzer (empresa) → S
         → Analyzer (setor) → Supervisor → [Investigator → Supervisor] → FINISH
 ```
 
+Desenhos completos (fluxo, decisões do Supervisor, camadas e serviços) em [`docs/arquitetura.md`](docs/arquitetura.md); o porquê de cada escolha em [`docs/decisoes.md`](docs/decisoes.md).
+
 ## Instalação
 
 ```bash
