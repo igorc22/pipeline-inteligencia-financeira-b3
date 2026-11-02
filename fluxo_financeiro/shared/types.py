@@ -18,11 +18,12 @@ class RouteDecision(BaseModel):
     reasoning: str = Field(
         description="Em 1-2 frases, explique o que você observou no histórico e por que está tomando esta decisão de roteamento."
     )
-    next_agent: Literal["YFinance", "Analyzer", "FINISH"] = Field(
+    next_agent: Literal["YFinance", "Analyzer","Investigator", "FINISH"] = Field(
         description="""
         Decida o próximo passo do fluxo:
         - 'YFinance': Se faltam dados financeiros ou se o Analyzer pedir mais informações para concluir a tarefa.
         - 'Analyzer': Se os dados foram coletados com sucesso e estão prontos para serem analisados.
+        - 'Investigator': Se há anomalia financeira clara que precisa de diagnóstico causal (queda abrupta de lucro, impairment suspeito, dívida inexplicável).
         - 'FINISH': Se o usuário já tem a resposta final e completa, ou se os agentes não conseguem encontrar o dado após tentarem.
         """
     )

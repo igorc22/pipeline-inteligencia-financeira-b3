@@ -93,7 +93,8 @@ def calcular_metricas_risco(ticker: str) -> str:
     """
     Calcula 6 métricas de risco para uma ação da B3 usando dados do último 1 ano.
     Métricas: Sharpe Ratio, Sortino Ratio, Maximum Drawdown, VaR 95% (Monte Carlo),
-    Beta e Alpha (CAPM vs IBOV). Usa Selic 10.75% a.a. como taxa livre de risco.
+    Beta e Alpha (CAPM vs IBOV). Usa a Selic vigente (API do Banco Central) como taxa
+    livre de risco; se o BCB estiver indisponível, usa 10.75% a.a. como fallback.
     Use quando precisar avaliar o perfil de risco/retorno de uma ação: se ela é defensiva
     ou agressiva, se compensou o risco em relação à Selic, e qual a pior queda histórica.
     Ticker sem sufixo é aceito (ex: PETR4) — o .SA é adicionado automaticamente.

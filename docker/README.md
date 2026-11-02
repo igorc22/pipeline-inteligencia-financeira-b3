@@ -27,4 +27,4 @@ volumes:
   postgres_data:
 ```
 
-See `planos.md` for Phase 2 timeline and deliverables.
+Phase 2 deliverables: `agents/processors.py`, `tools/data_processing.py` and the `docker-compose.yml` above.
