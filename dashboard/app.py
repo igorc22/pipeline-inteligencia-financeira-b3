@@ -155,7 +155,8 @@ def aba_como_foi_feito(resultado: dict) -> None:
         st.warning("O fluxo parou pelo limite de 6 passagens do Supervisor (hard stop).")
 
     consolidou = any(no == "Consolidador" for no, _ in eventos)
-    st.graphviz_chart(dot_do_caminho(passos, decisao_do_fim(eventos), consolidou=consolidou))
+    with st.container(horizontal_alignment="center"):
+        st.graphviz_chart(dot_do_caminho(passos, decisao_do_fim(eventos), consolidou=consolidou))
     st.caption("**Seta cheia:** o Supervisor manda um agente trabalhar. O número é a ordem e o rótulo diz "
                "quem decidiu: **guard** (regra em código), **LLM** (o Supervisor consultou o modelo) ou "
                "**hard stop** (limite de passagens); passe o mouse para ver o raciocínio. "
