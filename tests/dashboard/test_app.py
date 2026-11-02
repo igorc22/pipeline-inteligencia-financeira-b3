@@ -190,3 +190,20 @@ def test_app_trava_campos_durante_a_analise(grafo):
     assert vistos == [True]
     assert at.button[0].disabled is False
     assert grafo.stream.call_count == 1
+
+
+def test_app_passos_sem_none_solto(grafo):
+    """Test que nenhum 'None' aparece na tela (a mágica do Streamlit desenha expressões soltas)."""
+    at = _rodar("PETR4")
+
+    assert not any(str(e.value).strip("` ") == "None" for e in at.markdown)  # a mágica desenha `None`
+
+
+def test_app_mostra_raciocinio_e_card_do_consolidador(grafo):
+    """Test que o raciocínio de cada decisão aparece em texto normal e que o Consolidador ganha card."""
+    at = _rodar("PETR4")
+
+    textos = _textos(at)
+    assert "vai para YFinance" in " ".join(str(m.value) for m in at.markdown)
+    assert "vai para FINISH" in textos  # a decisão de encerrar também aparece
+    assert "4 · Consolidador" in textos

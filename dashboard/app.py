@@ -13,12 +13,14 @@ from langchain_core.messages import HumanMessage
 
 from dashboard.visao import (
     ROTULO_DECISAO,
+    Passo,
     decisao_do_fim,
     dividir_indicadores,
     dot_do_caminho,
     escapar_markdown,
     montar_passos,
     parou_no_hard_stop,
+    passo_do_consolidador,
     state_para_json,
 )
 from fluxo_financeiro import app as grafo
@@ -154,26 +156,39 @@ def aba_como_foi_feito(resultado: dict) -> None:
 
     consolidou = any(no == "Consolidador" for no, _ in eventos)
     st.graphviz_chart(dot_do_caminho(passos, decisao_do_fim(eventos), consolidou=consolidou))
-    st.caption("Cada seta diz quem decidiu o passo: **guard** (regra em código), **LLM** (o Supervisor "
-               "consultou o modelo) ou **hard stop** (limite de passagens).")
+    st.caption("**Seta cheia:** o Supervisor manda um agente trabalhar. O número é a ordem e o rótulo diz "
+               "quem decidiu: **guard** (regra em código), **LLM** (o Supervisor consultou o modelo) ou "
+               "**hard stop** (limite de passagens); passe o mouse para ver o raciocínio. "
+               "**Seta tracejada:** o agente devolve o resultado ao Supervisor.")
 
-    for passo in passos:
-        with st.container(border=True):
-            decisao = ROTULO_DECISAO.get(passo.decidido_por or "")
-            st.markdown(f"**{passo.numero} · {passo.rotulo}**" + (f" · decidido por *{decisao}*" if decisao else ""))
-            if passo.raciocinio:
-                st.caption(escapar_markdown(f"Raciocínio do Supervisor: {passo.raciocinio}"))
-            entrada, saida = st.columns([1, 2])
-            with entrada:
-                st.markdown("**Entrada (tarefa recebida)**")
-                _md(passo.entrada) if passo.entrada else st.markdown("_sem tarefa registrada_")
-            with saida:
-                st.markdown("**Saída**")
-                with st.expander(escapar_markdown(_previa(passo.saida)) or "(vazia)"):
-                    if passo.agente == "YFinance":  # texto alinhado por espaços: monoespaçado
-                        st.code(passo.saida, language=None, wrap_lines=True)
-                    else:
-                        _md(passo.saida)
+    final = passo_do_consolidador(eventos, numero=len(passos) + 1)
+    for passo in passos + ([final] if final else []):
+        _card_do_passo(passo)
+
+
+def _card_do_passo(passo: Passo) -> None:
+    with st.container(border=True):
+        st.markdown(f"**{passo.numero} · {passo.rotulo}**")
+        decisao = ROTULO_DECISAO.get(passo.decidido_por or "")
+        if passo.raciocinio or decisao:
+            quem = f"Supervisor, decidido por *{decisao}*" if decisao else "Supervisor"
+            st.markdown(f"> **{quem}:** {escapar_markdown(passo.raciocinio or '')}")
+        entrada, saida = st.columns([1, 2])
+        with entrada:
+            st.markdown("**Entrada (tarefa recebida)**")
+            if passo.entrada:
+                _md(passo.entrada)
+            elif passo.agente == "Consolidador":
+                st.markdown("_As respostas de todos os agentes (o Consolidador não recebe tarefa)._")
+            else:
+                st.markdown("_sem tarefa registrada_")
+        with saida:
+            st.markdown("**Saída**")
+            with st.expander(escapar_markdown(_previa(passo.saida)) or "(vazia)"):
+                if passo.agente == "YFinance":  # texto alinhado por espaços: monoespaçado
+                    st.code(passo.saida, language=None, wrap_lines=True)
+                else:
+                    _md(passo.saida)
 
 
 def aba_state(resultado: dict) -> None:

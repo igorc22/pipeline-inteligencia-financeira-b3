@@ -61,6 +61,7 @@ O usuário escolheu, entre dois mockups, a opção **"relatório primeiro, fluxo
 - `relatorio` nulo (o LLM do Consolidador falhou): aviso explicando e a mensagem final (relatório de emergência) em markdown.
 
 **Aba Como foi feito:**
+- *(Revisto depois da primeira olhada na tela: o desenho em linha escondia o Supervisor e parecia um pipeline fixo. Agora o Supervisor fica no centro, cada ida a um agente é uma seta numerada com quem decidiu e o raciocínio no tooltip, a volta é tracejada e o Consolidador ganha card próprio.)*
 - **Desenho do caminho** com `st.graphviz_chart` (DOT, renderizado no navegador, sem instalar graphviz), da esquerda para a direita: um nó por execução de worker na ordem em que rodou (Analyzer aparece duas vezes: "empresa" e "setor"), terminando no Consolidador. Cada seta leva o rótulo de quem decidiu (`guard`, `LLM`, `hard stop`), com cores diferentes. Se o Investigator **não** rodou, ele aparece tracejado e apagado, fora do caminho principal. Cores por agente iguais às do HTML atual (YFinance âmbar, Analyzer verde, Investigator vermelho, Consolidador roxo).
 - **Um bloco por passo**, na ordem: título com número e agente, selo de quem decidiu, raciocínio do Supervisor (quando houver), **Entrada** (a tarefa do Supervisor que precedeu o worker) e **Saída** (a resposta inteira, num expansor). A saída do YFinance é texto alinhado por espaços: exibir em bloco monoespaçado para não perder o alinhamento. As outras saídas são markdown.
 - Hard stop: o caminho mostra o que rodou, e um aviso diz que o fluxo parou pelo limite de 6 passagens.

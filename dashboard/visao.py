@@ -98,50 +98,101 @@ def parou_no_hard_stop(eventos: list[tuple[str, dict]]) -> bool:
     return decisao_do_fim(eventos) == "hard_stop"
 
 
-def _aresta(origem: str, destino: str, decidido_por: Optional[str]) -> str:
-    if decidido_por not in ROTULO_DECISAO:
-        return f"  {origem} -> {destino};"
-    cor = COR_DECISAO[decidido_por]
-    return (f'  {origem} -> {destino} [label="{ROTULO_DECISAO[decidido_por]}", '
-            f'color="{cor}", fontcolor="{cor}"];')
+def passo_do_consolidador(eventos: list[tuple[str, dict]], numero: int) -> Optional[Passo]:
+    """O Consolidador como último passo: a decisão de encerrar (FINISH) e o relatório que ele escreveu.
+
+    None se a análise não chegou ao Consolidador. Ele não recebe tarefa do Supervisor: lê as
+    respostas de todos os agentes, por isso a entrada fica None.
+    """
+    mensagens = [u.get("messages") for no, u in eventos if no == "Consolidador" and (u or {}).get("messages")]
+    if not mensagens:
+        return None
+    finais = [u for no, u in eventos if no == "Supervisor" and (u or {}).get("next_agent") == "FINISH"]
+    fim = finais[-1] if finais else {}
+    return Passo(numero=numero, agente="Consolidador", rotulo="Consolidador",
+                 decidido_por=fim.get("decidido_por"), raciocinio=fim.get("supervisor_reasoning"),
+                 entrada=None, saida=_conteudo(mensagens[-1][-1]))
 
 
-def _no(nome: str, rotulo: str, cor: str) -> str:
-    return f'  {nome} [label="{rotulo}", color="{cor}", fontcolor="{cor}"];'
+COR_APAGADA = "#9e9e9e"
+COR_VOLTA = "#9e9e9e"
+COR_INTERROMPIDO = "#c62828"
+NO_DO_AGENTE = {"YFinance": "yfinance", "Analyzer": "analyzer", "Investigator": "investigator",
+                "Consolidador": "consolidador"}
+
+
+def _texto_dot(texto: str) -> str:
+    """Texto seguro dentro de aspas no DOT: barra e aspas escapadas, sem quebra de linha."""
+    return " ".join(texto.replace("\\", "\\\\").replace('"', '\\"').split())
+
+
+def _ida(destino: str, numero: int, decidido_por: Optional[str], raciocinio: Optional[str]) -> str:
+    """Seta cheia do Supervisor para o agente: número da ordem, quem decidiu e o raciocínio no tooltip."""
+    atributos = []
+    if decidido_por in ROTULO_DECISAO:
+        cor = COR_DECISAO[decidido_por]
+        atributos += [f'label="{numero} · {ROTULO_DECISAO[decidido_por]}"', f'color="{cor}"', f'fontcolor="{cor}"']
+    else:
+        atributos.append(f'label="{numero}"')
+    if raciocinio:
+        atributos.append(f'tooltip="{_texto_dot(raciocinio)}"')
+    return f"  supervisor -> {destino} [{', '.join(atributos)}];"
+
+
+def _no(nome: str, rotulo: str, cor: str, rodou: bool) -> str:
+    if rodou:
+        return f'  {nome} [label="{rotulo}", color="{cor}", fontcolor="{cor}"];'
+    return (f'  {nome} [label="{rotulo}\\n(não rodou)", style="rounded,dashed", '
+            f'color="{COR_APAGADA}", fontcolor="{COR_APAGADA}"];')
 
 
 def dot_do_caminho(passos: list[Passo], decisao_fim: Optional[str], consolidou: bool = True) -> str:
-    """DOT do caminho percorrido, da esquerda para a direita, com quem decidiu cada passo.
+    """DOT do grafo com o Supervisor no centro e o caminho desta análise aceso.
 
-    consolidou=False (a análise falhou antes do fim): o caminho termina num nó "Interrompido",
-    e o Investigator tracejado não aparece (não dá para dizer que ele "não rodou" por escolha).
+    Cada ida do Supervisor a um agente é uma seta cheia com o número da ordem e quem decidiu
+    (o raciocínio aparece ao passar o mouse). A volta de cada agente ao Supervisor é uma seta
+    tracejada. Agente que não rodou fica apagado, sem seta.
+
+    consolidou=False (a análise falhou antes do fim): nada chega ao Consolidador; o último
+    agente que rodou aponta para um nó "Interrompido".
     """
+    rodaram = list(dict.fromkeys(p.agente for p in passos))  # na ordem da primeira execução
     linhas = [
         "digraph caminho {",
-        "  rankdir=LR;",
+        "  rankdir=TB;",
         '  bgcolor="transparent";',
-        '  node [shape=box, style="rounded", fontname="Helvetica", fontsize=12, penwidth=2];',
+        "  nodesep=0.8; ranksep=0.6;",
+        '  node [shape=box, style="rounded", fontname="Helvetica", fontsize=12, penwidth=2, margin="0.2,0.08"];',
         '  edge [fontname="Helvetica", fontsize=10, penwidth=1.5];',
-        '  inicio [label="Pedido", color="#888888", fontcolor="#888888"];',
+        f'  inicio [label="Pedido", color="{COR_APAGADA}", fontcolor="{COR_APAGADA}"];',
+        '  supervisor [label="Supervisor", color="#555555", fontcolor="#555555", penwidth=2.5];',
     ]
-    anterior = "inicio"
+    for agente in WORKERS:
+        linhas.append(_no(NO_DO_AGENTE[agente], agente, COR_AGENTE[agente], agente in rodaram))
+    linhas.append("  { rank=same; yfinance; analyzer; investigator; }")
+    for agente in WORKERS:
+        if agente not in rodaram:  # sem seta, o graphviz o jogaria para longe dos outros
+            linhas.append(f"  supervisor -> {NO_DO_AGENTE[agente]} [style=invis];")
+    linhas.append(_no("consolidador", "Consolidador", COR_AGENTE["Consolidador"], consolidou))
+    linhas.append("  analyzer -> consolidador [style=invis];  // põe o Consolidador abaixo dos agentes")
+    linhas.append(f'  inicio -> supervisor [color="{COR_APAGADA}"];')
+
     for passo in passos:
-        nome = f"p{passo.numero}"
-        linhas.append(_no(nome, passo.rotulo, COR_AGENTE[passo.agente]))
-        linhas.append(_aresta(anterior, nome, passo.decidido_por))
-        anterior = nome
-    if not consolidou:
-        linhas.append('  interrompido [label="Interrompido", style="rounded,dashed", '
-                      'color="#c62828", fontcolor="#c62828"];')
-        linhas.append(f'  {anterior} -> interrompido [style=dashed, color="#c62828"];')
-        linhas.append("}")
-        return "\n".join(linhas)
-    linhas.append(_no("consolidador", "Consolidador", COR_AGENTE["Consolidador"]))
-    linhas.append(_aresta(anterior, "consolidador", decisao_fim))
-    if not any(p.agente == "Investigator" for p in passos):
-        linhas.append('  investigator [label="Investigator\\n(não rodou)", style="rounded,dashed", '
-                      'color="#777777", fontcolor="#777777"];')
-        linhas.append(f'  {anterior} -> investigator [style=dashed, color="#777777", arrowhead=none];')
+        linhas.append(_ida(NO_DO_AGENTE[passo.agente], passo.numero, passo.decidido_por, passo.raciocinio))
+    for agente in rodaram:
+        # dir=back: a seta aponta para o Supervisor, mas o desenho mantém a hierarquia (volta reta, sem laço)
+        linhas.append(f'  supervisor -> {NO_DO_AGENTE[agente]} [dir=back, style=dashed, color="{COR_VOLTA}", '
+                      'arrowsize=0.7];')
+
+    if consolidou:
+        linhas.append(_ida("consolidador", len(passos) + 1, decisao_fim, None))
+        linhas.append(f'  fim [label="Fim", shape=oval, color="{COR_APAGADA}", fontcolor="{COR_APAGADA}"];')
+        linhas.append(f'  consolidador -> fim [color="{COR_APAGADA}"];')
+    else:
+        ultimo = NO_DO_AGENTE[passos[-1].agente] if passos else "supervisor"
+        linhas.append(f'  interrompido [label="Interrompido", style="rounded,dashed", '
+                      f'color="{COR_INTERROMPIDO}", fontcolor="{COR_INTERROMPIDO}"];')
+        linhas.append(f'  {ultimo} -> interrompido [style=dashed, color="{COR_INTERROMPIDO}"];')
     linhas.append("}")
     return "\n".join(linhas)
 

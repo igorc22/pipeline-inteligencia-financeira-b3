@@ -9,6 +9,7 @@ from dashboard.visao import (
     escapar_markdown,
     montar_passos,
     parou_no_hard_stop,
+    passo_do_consolidador,
     separar_indicador,
     state_para_json,
 )
@@ -92,20 +93,34 @@ def test_montar_passos_sem_supervisor_antes():
     assert passos[0].raciocinio is None
 
 
-def test_dot_do_caminho_ordem_e_rotulos():
-    """Test que o DOT desenha os passos na ordem, da esquerda para a direita, com quem decidiu."""
+def _arestas(dot, origem, destino):
+    """Setas que apontam de origem para destino (a volta é desenhada como destino -> origem com dir=back)."""
+    linhas = [linha.strip() for linha in dot.splitlines() if "style=invis" not in linha]  # só posicionam
+    diretas = [l for l in linhas if l.startswith(f"{origem} -> {destino} ") and "dir=back" not in l]
+    reversas = [l for l in linhas if l.startswith(f"{destino} -> {origem} ") and "dir=back" in l]
+    return diretas + reversas
+
+
+def test_dot_do_caminho_supervisor_no_centro():
+    """Test que o Supervisor é o centro: cada ida sai dele, numerada e com quem decidiu; a volta é tracejada."""
     dot = dot_do_caminho(montar_passos(FLUXO_NORMAL), decisao_do_fim(FLUXO_NORMAL))
 
-    assert "rankdir=LR" in dot
-    posicoes = [dot.index(r) for r in ["YFinance", "Analyzer (empresa)", "Analyzer (setor)", "Consolidador"]]
-    assert posicoes == sorted(posicoes)
-    assert 'label="guard"' in dot and 'label="LLM"' in dot
+    assert len(_arestas(dot, "inicio", "supervisor")) == 1
+    assert 'label="1 · LLM"' in _arestas(dot, "supervisor", "yfinance")[0]
+    idas_analyzer = _arestas(dot, "supervisor", "analyzer")
+    assert len(idas_analyzer) == 2  # empresa e setor
+    assert 'label="2 · guard"' in idas_analyzer[0] and 'label="3 · guard"' in idas_analyzer[1]
+    assert 'label="4 · LLM"' in _arestas(dot, "supervisor", "consolidador")[0]
+    assert "dashed" in _arestas(dot, "yfinance", "supervisor")[0]
+    assert len(_arestas(dot, "analyzer", "supervisor")) == 1  # uma volta por agente, não por passagem
+    assert len(_arestas(dot, "consolidador", "fim")) == 1
 
 
-def test_dot_do_caminho_investigator_tracejado():
-    """Test que o Investigator aparece tracejado só quando não rodou."""
+def test_dot_do_caminho_investigator_apagado_so_quando_nao_rodou():
+    """Test que o Investigator aparece apagado, sem seta, quando não rodou; quando roda, ganha a seta numerada."""
     sem = dot_do_caminho(montar_passos(FLUXO_NORMAL), "llm")
-    assert "não rodou" in sem and "style=dashed" in sem
+    assert "não rodou" in sem
+    assert not _arestas(sem, "supervisor", "investigator")
 
     com_investigator = FLUXO_NORMAL[:6] + [
         _sup("guard", "Investigator", "Investigue"),
@@ -114,6 +129,15 @@ def test_dot_do_caminho_investigator_tracejado():
     ]
     com = dot_do_caminho(montar_passos(com_investigator), "guard")
     assert "não rodou" not in com
+    assert 'label="4 · guard"' in _arestas(com, "supervisor", "investigator")[0]
+    assert 'label="5 · guard"' in _arestas(com, "supervisor", "consolidador")[0]
+
+
+def test_dot_do_caminho_hard_stop_na_seta_final():
+    """Test que o FINISH do hard stop aparece na seta para o Consolidador."""
+    dot = dot_do_caminho(montar_passos(FLUXO_NORMAL), "hard_stop")
+
+    assert 'label="4 · hard stop"' in _arestas(dot, "supervisor", "consolidador")[0]
 
 
 def test_state_para_json():
@@ -143,14 +167,15 @@ def test_escapar_markdown_protege_cifrao():
 
 
 def test_dot_do_caminho_interrompido_nao_desenha_consolidador():
-    """Test que, quando a análise falhou antes do fim, o desenho termina em 'Interrompido'."""
+    """Test que, quando a análise falhou antes do fim, nada chega ao Consolidador e aparece 'Interrompido'."""
     passos = montar_passos(FLUXO_NORMAL[:2])  # só o YFinance rodou
 
     dot = dot_do_caminho(passos, None, consolidou=False)
 
-    assert "Consolidador" not in dot
     assert "Interrompido" in dot
-    assert "não rodou" not in dot
+    assert _arestas(dot, "yfinance", "interrompido")
+    assert not _arestas(dot, "supervisor", "consolidador")
+    assert not _arestas(dot, "consolidador", "fim")
 
 
 def test_dividir_indicadores_manda_texto_longo_para_lista():
@@ -160,3 +185,24 @@ def test_dividir_indicadores_manda_texto_longo_para_lista():
 
     assert quadros == [("P/L", "5.0x")]
     assert linhas == [longo, "Lucro em alta"]
+
+
+def test_dot_do_caminho_raciocinio_vira_tooltip_da_seta():
+    """Test que o raciocínio do Supervisor aparece ao passar o mouse na seta (aspas escapadas no DOT)."""
+    eventos = [_sup("llm", "YFinance", "Colete", 'Sem dados da "PETR4".'), _worker("YFinance", "dados")]
+
+    dot = dot_do_caminho(montar_passos(eventos), None)
+
+    assert 'tooltip="Sem dados da \\"PETR4\\"."' in _arestas(dot, "supervisor", "yfinance")[0]
+
+
+def test_passo_do_consolidador():
+    """Test que o Consolidador vira o último passo, com a decisão de encerrar e o relatório como saída."""
+    passo = passo_do_consolidador(FLUXO_NORMAL, numero=4)
+
+    assert passo.agente == "Consolidador"
+    assert passo.numero == 4
+    assert passo.decidido_por == "llm"
+    assert passo.raciocinio == "Sem anomalia."
+    assert passo.saida == "# Relatório"
+    assert passo_do_consolidador(FLUXO_NORMAL[:2], numero=2) is None  # não chegou ao fim
