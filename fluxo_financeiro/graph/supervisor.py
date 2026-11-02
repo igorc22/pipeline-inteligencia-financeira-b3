@@ -2,7 +2,7 @@ from typing import Literal
 from langchain_core.messages import HumanMessage, SystemMessage
 from fluxo_financeiro.shared.llm import criar_llm
 from fluxo_financeiro.shared.types import MessagesState, RouteDecision
-from fluxo_financeiro.shared.utils import logger
+from fluxo_financeiro.shared.utils import extrair_ticker, logger
 
 llm = criar_llm()
 
@@ -35,9 +35,20 @@ def supervisor_node(state: MessagesState):
         logger.info("[supervisor] guard: Investigator concluiu → FINISH")
         return {"next_agent": "FINISH", "loop_count": 1}
 
+    # Guard determinístico (Etapa 3): uma passagem do Analyzer (empresa) → falta o contexto do setor.
+    # Antes era o LLM quem decidia, e ele chegou a pular a etapa achando que ela já tinha sido feita (D45).
+    passagens_analyzer = sum(1 for m in state.get("messages", []) if getattr(m, "name", None) == "Analyzer")
+    if passagens_analyzer == 1:
+        logger.info("[supervisor] guard: 1 passagem do Analyzer → forcando Analyzer (etapa 3: setor)")
+        return {
+            "next_agent": "Analyzer",
+            "loop_count": 1,
+            "supervisor_reasoning": "Analyzer trouxe as notícias da empresa — passando obrigatoriamente para o contexto do setor (etapa 3).",
+            "messages": [HumanMessage(content=_tarefa_setor(state.get("messages", [])), name="Supervisor")],
+        }
+
     # Guard determinístico (Etapa 4): análise completa + sinais de anomalia calculados em código
     # → Investigator, sem consultar o LLM. Sem sinais, quem decide a Etapa 4 continua sendo o LLM.
-    passagens_analyzer = sum(1 for m in state.get("messages", []) if getattr(m, "name", None) == "Analyzer")
     sinais = state.get("sinais_anomalia") or []
     if passagens_analyzer >= 2 and sinais:
         tipos = ", ".join(s.tipo for s in sinais)
@@ -65,20 +76,13 @@ def supervisor_node(state: MessagesState):
     PIPELINE DE PESQUISA — siga esta ordem rigorosamente:
     Etapa 1 — Dados financeiros: Se não há mensagem do YFinance → rotear para 'YFinance'.
     Etapa 2 — Notícias da empresa: Se há YFinance mas nenhuma mensagem do Analyzer → rotear para 'Analyzer' (já tratado automaticamente pelo guard).
-    Etapa 3 — Contexto do setor: Se há exatamente 1 mensagem do Analyzer E nenhuma mensagem do Supervisor menciona "setor" → rotear para 'Analyzer' com task_for_agent focado no setor da empresa identificada nos dados.
+    Etapa 3 — Contexto do setor: Se há exatamente 1 mensagem do Analyzer → 'Analyzer' com tarefa sobre o setor (já tratado automaticamente pelo guard).
     Etapa 4 — Investigação condicional: Se já há 2 ou mais mensagens do Analyzer:
         (Se a mensagem do YFinance trouxer "SINAIS DE ANOMALIA", essa etapa já é tratada automaticamente pelo guard.
         Você só decide aqui quando não há sinais calculados; mesmo assim pode haver algo que mereça investigação.)
         Leia o contexto completo e pergunte: "Um investidor ficaria com dúvida de POR QUE esse número aconteceu?"
         Se SIM → next_agent: 'Investigator', task_for_agent: descrição precisa da anomalia e o que investigar
         Se NÃO → next_agent: 'FINISH'
-
-    COMO CONTAR MENSAGENS DO ANALYZER:
-    Conte quantas mensagens têm name='Analyzer' no histórico. Se for 1, a etapa 3 (contexto setorial) ainda não foi feita.
-
-    COMO FORMULAR task_for_agent NA ETAPA 3:
-    - Identifique o setor da empresa pelo ticker (ex: VALE3 → mineração/commodities, WEGE3 → automação industrial, PETR4 → petróleo e gás, ITUB4 → bancário)
-    - Formule: 'Busque informações sobre o setor de [SETOR] e o posicionamento da [EMPRESA] ([TICKER]) nesse setor. Foque em tendências, concorrentes principais e fatores macroeconômicos relevantes.'
 
     COMO FORMULAR task_for_agent NA ETAPA 4 (Investigator):
     - Identifique a anomalia mais grave nos dados (maior queda de lucro, maior aumento de dívida, score baixo)
@@ -104,6 +108,18 @@ def supervisor_node(state: MessagesState):
     if decision.task_for_agent and decision.next_agent != "FINISH":
         result["messages"] = [HumanMessage(content=decision.task_for_agent, name="Supervisor")]
     return result
+
+
+def _tarefa_setor(messages) -> str:
+    """Tarefa da Etapa 3. O setor sai da indústria que o YFinance trouxe; o ticker, do pedido do usuário."""
+    pedido = next((m.text for m in messages if not getattr(m, "name", None)), "")
+    ticker = extrair_ticker(pedido)
+    empresa = f"da empresa ({ticker})" if ticker else "da empresa"
+    return (
+        f"Busque informações sobre o setor de atuação {empresa}, usando a indústria informada nos dados "
+        "do YFinance, e o posicionamento dela nesse setor. Foque em tendências, concorrentes principais "
+        "e fatores macroeconômicos relevantes."
+    )
 
 
 def router(state: MessagesState) -> Literal["YFinance", "Analyzer", "Investigator", "Consolidador"]:

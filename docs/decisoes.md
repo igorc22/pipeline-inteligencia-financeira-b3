@@ -166,6 +166,13 @@ O primeiro guard: se o YFinance já coletou e o Analyzer ainda não rodou, vai p
 
 **Por quê:** quando a regra é objetiva, não faz sentido pagar uma chamada de LLM e correr o risco de ele errar. Código decide o óbvio; o LLM decide o que exige julgamento.
 
+### D45 — Guard também para a Etapa 3 (contexto do setor)
+Com exatamente uma passagem do Analyzer, o Supervisor manda o Analyzer de novo para o setor **sem chamar o LLM**. A tarefa é montada em código: ticker tirado do pedido do usuário e setor deixado para o Analyzer ler na indústria que o YFinance trouxe. Some do prompt do Supervisor o mapa ticker → setor.
+
+**Por quê:** no e2e da VALE3 de 02/11/2026, depois de uma única passagem do Analyzer, o LLM foi direto ao Investigator dizendo que "as duas etapas de análise já foram concluídas", mesmo com o prompt mandando contar as mensagens do Analyzer. A Etapa 3 era a única passagem obrigatória que ainda dependia do LLM; é uma regra objetiva, então vai para código, como a D20 e a D40.
+
+**Custo:** a tarefa da Etapa 3 fica genérica (não cita o setor pelo nome), e o LLM do Supervisor agora só decide a Etapa 1 e a Etapa 4 sem sinais. Economiza uma chamada por análise.
+
 ### D21 — Hard stop de 3 para 6
 **Por quê:** com o Analyzer rodando duas vezes (D19), o fluxo normal usa exatamente 3 decisões (YFinance, Analyzer, Analyzer setor) e o FINISH só saía porque batia no hard stop. Não sobrava espaço para nenhuma nova tentativa (por exemplo, voltar ao YFinance depois de uma falha). Com 6, o fluxo completo cabe com folga; com o Investigator (D25), o fluxo passou a usar 5 passagens. *(motivo a confirmar)*
 

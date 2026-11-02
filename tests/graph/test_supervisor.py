@@ -92,16 +92,28 @@ def test_supervisor_guard_sinais_forca_investigator(mock_llm):
     mock_llm.with_structured_output.assert_not_called()
 
 
+def test_supervisor_guard_uma_passagem_do_analyzer_pede_o_setor(mock_llm):
+    """Test que, com 1 passagem do Analyzer, o guard pede o contexto do setor sem consultar o LLM (Etapa 3)."""
+    state = _state(HISTORICO_ETAPA_4[:4], loop_count=2)  # só 1 mensagem do Analyzer
+
+    result = supervisor_node(state)
+
+    assert result["next_agent"] == "Analyzer"
+    tarefa = result["messages"][0]
+    assert tarefa.name == "Supervisor"
+    assert "setor" in tarefa.content and "VALE3" in tarefa.content
+    mock_llm.with_structured_output.assert_not_called()
+
+
 def test_supervisor_guard_sinais_espera_as_duas_passagens_do_analyzer(mock_llm):
-    """Test que o sinal não pula a Etapa 3: com 1 passagem do Analyzer, quem decide é o LLM."""
-    _llm_decide(mock_llm, RouteDecision(reasoning="falta o setor", next_agent="Analyzer", task_for_agent="setor"))
+    """Test que o sinal não pula a Etapa 3: com 1 passagem do Analyzer, vai ao setor antes do Investigator."""
     state = _state(HISTORICO_ETAPA_4[:4], loop_count=2)  # só 1 mensagem do Analyzer
     state["sinais_anomalia"] = [QUEDA]
 
     result = supervisor_node(state)
 
     assert result["next_agent"] == "Analyzer"
-    mock_llm.with_structured_output.assert_called_once()
+    mock_llm.with_structured_output.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
