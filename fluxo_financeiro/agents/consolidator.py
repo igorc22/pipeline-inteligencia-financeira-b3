@@ -59,13 +59,19 @@ def consolidar(messages: list[BaseMessage]) -> RelatorioFinal:
 
     falaram = {getattr(m, "name", None) for m in messages}
     diagnostico = next((m.text for m in messages if getattr(m, "name", None) == "Investigator"), None)
+    ajustes: dict = {"diagnostico": diagnostico}
     limitacoes = list(relatorio.limitacoes)
+    # Etapa que não rodou: além da limitação, descarta o que o LLM escreveu sobre ela (ele tende a
+    # preencher com o que já sabe da empresa, e o relatório fingiria ter dados ou notícias).
     if "YFinance" not in falaram:
         limitacoes.append(LIMITACAO_SEM_DADOS)
+        ajustes["indicadores"] = []
     if "Analyzer" not in falaram:
         limitacoes.append(LIMITACAO_SEM_NOTICIAS)
+        ajustes["contexto"] = ""
+    ajustes["limitacoes"] = limitacoes
 
-    return relatorio.model_copy(update={"diagnostico": diagnostico, "limitacoes": limitacoes})
+    return relatorio.model_copy(update=ajustes)
 
 
 def _secao_texto(titulo: str, texto: Optional[str]) -> list[str]:

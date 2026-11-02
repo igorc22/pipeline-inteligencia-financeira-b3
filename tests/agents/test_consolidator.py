@@ -148,6 +148,17 @@ def test_consolidar_aponta_etapas_que_faltaram(mock_llm):
     assert LIMITACAO_SEM_NOTICIAS not in completo.limitacoes
 
 
+def test_consolidar_zera_secoes_de_etapas_que_nao_rodaram(mock_llm):
+    """Test que, sem YFinance/Analyzer, indicadores e contexto do LLM são descartados (não finge ter dados)."""
+    sem_nada = consolidar([HumanMessage("Analise VALE3")])  # REL vem com indicadores e contexto preenchidos
+    assert sem_nada.indicadores == []
+    assert sem_nada.contexto == ""
+
+    completo = consolidar(HIST)
+    assert completo.indicadores == REL.indicadores
+    assert completo.contexto == REL.contexto
+
+
 def test_consolidar_erro_do_llm_sobe(mock_llm):
     """Test que erro do LLM sobe: quem decide o fallback é o nó do grafo."""
     mock_llm.with_structured_output.return_value.invoke.side_effect = Exception("429")

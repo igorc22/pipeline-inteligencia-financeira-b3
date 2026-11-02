@@ -309,7 +309,7 @@ Toda análise agora termina num **Consolidador**, que junta dados, notícias, se
 
 **Três cuidados em código:**
 - O diagnóstico é **copiado literalmente** do Investigator, e o LLM não o reescreve. Assim Causa, Natureza, Evidências e Impacto chegam inteiros.
-- Se faltou uma etapa (hard stop, ticker inexistente), a limitação é escrita pelo código, e o relatório não finge ter notícias que não buscou.
+- Se faltou uma etapa (hard stop), a limitação é escrita pelo código, e o que o LLM escreveu sobre essa etapa (indicadores, notícias) é descartado: o relatório não finge ter dados que não coletou.
 - Se o LLM do Consolidador falhar, a resposta vira as respostas dos agentes juntadas. A análise inteira não se perde no último passo.
 
 **Sem `defer=True`:** o `defer` serve para esperar ramos paralelos convergirem. Meu grafo é sequencial, então ele não faria nada. Volta à mesa junto com o paralelismo via `Send`.
