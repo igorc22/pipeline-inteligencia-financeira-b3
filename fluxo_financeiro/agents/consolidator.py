@@ -21,6 +21,7 @@ AVISO_EMERGENCIA = "> Não foi possível consolidar o relatório; seguem as resp
 # (hard stop, ticker inexistente).
 LIMITACAO_SEM_DADOS = "Os dados de mercado não foram coletados."
 LIMITACAO_SEM_NOTICIAS = "A pesquisa de notícias e de setor não foi feita."
+LIMITACAO_SEM_SETOR = "O contexto do setor não foi pesquisado."
 
 CONSOLIDADOR_PROMPT = """Você escreve o relatório final de uma análise de ação da B3 para um investidor pessoa física.
 
@@ -69,7 +70,11 @@ def consolidar(messages: list[BaseMessage]) -> RelatorioFinal:
     if "Analyzer" not in falaram:
         limitacoes.append(LIMITACAO_SEM_NOTICIAS)
         ajustes["contexto"] = ""
-    ajustes["limitacoes"] = limitacoes
+    elif sum(getattr(m, "name", None) == "Analyzer" for m in messages) == 1:
+        # Só a passagem da empresa rodou (ex: hard stop): o contexto dela fica, mas falta o setor.
+        limitacoes.append(LIMITACAO_SEM_SETOR)
+    # O LLM pode repetir uma limitação escrita aqui: remove repetidas, mantendo a ordem.
+    ajustes["limitacoes"] = list(dict.fromkeys(l.strip() for l in limitacoes if l.strip()))
 
     return relatorio.model_copy(update=ajustes)
 

@@ -7,6 +7,7 @@ from fluxo_financeiro.agents.consolidator import (
     CONSOLIDADOR_PROMPT,
     LIMITACAO_SEM_DADOS,
     LIMITACAO_SEM_NOTICIAS,
+    LIMITACAO_SEM_SETOR,
     consolidar,
     formatar_relatorio,
     relatorio_de_emergencia,
@@ -157,6 +158,28 @@ def test_consolidar_zera_secoes_de_etapas_que_nao_rodaram(mock_llm):
     completo = consolidar(HIST)
     assert completo.indicadores == REL.indicadores
     assert completo.contexto == REL.contexto
+
+
+def test_consolidar_nao_repete_limitacoes(mock_llm):
+    """Test que limitações iguais (a menos de espaços nas pontas) aparecem uma vez, na ordem."""
+    mock_llm.with_structured_output.return_value.invoke.side_effect = lambda _m: REL.model_copy(
+        update={"limitacoes": [LIMITACAO_SEM_DADOS + " ", "Sem fatos relevantes", "Sem fatos relevantes"]})
+
+    lim = consolidar([HumanMessage("Analise VALE3")]).limitacoes
+
+    assert lim == [LIMITACAO_SEM_DADOS, "Sem fatos relevantes", LIMITACAO_SEM_NOTICIAS]
+
+
+def test_consolidar_aponta_setor_que_faltou(mock_llm):
+    """Test que uma passagem só do Analyzer vira limitação de setor; zero ou duas, não."""
+    uma = HIST[:4]  # pedido, YFinance, tarefa, 1 Analyzer
+    assert LIMITACAO_SEM_SETOR in consolidar(uma).limitacoes
+    assert consolidar(uma).contexto == REL.contexto  # o que o Analyzer trouxe continua
+
+    assert LIMITACAO_SEM_SETOR not in consolidar(HIST).limitacoes
+
+    sem_analyzer = consolidar([HumanMessage("Analise VALE3")]).limitacoes
+    assert LIMITACAO_SEM_SETOR not in sem_analyzer and LIMITACAO_SEM_NOTICIAS in sem_analyzer
 
 
 def test_consolidar_erro_do_llm_sobe(mock_llm):
