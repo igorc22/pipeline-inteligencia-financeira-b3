@@ -28,6 +28,8 @@ class MessagesState(TypedDict):
     next_agent: str
     loop_count: Annotated[int, operator.add]
     supervisor_reasoning: str
+    # Quem decidiu a última passagem do Supervisor: "guard", "llm" ou "hard_stop" (o dashboard desenha isso).
+    decidido_por: str
     # Preenchido pelo nó do YFinance; se não estiver vazio, o Supervisor manda para o Investigator
     # na Etapa 4 sem consultar o LLM (guard). Ausente/vazio = o LLM decide.
     sinais_anomalia: list[SinalAnomalia]

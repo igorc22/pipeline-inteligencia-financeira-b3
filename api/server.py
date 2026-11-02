@@ -67,6 +67,8 @@ async def analyze_ticker(ticker: str):
                             payload["loop_count"] = state_update["loop_count"]
                         if "supervisor_reasoning" in state_update:
                             payload["reasoning"] = state_update["supervisor_reasoning"]
+                        if "decidido_por" in state_update:
+                            payload["decidido_por"] = state_update["decidido_por"]
                         asyncio.run_coroutine_threadsafe(queue.put(payload), loop)
                 asyncio.run_coroutine_threadsafe(queue.put({"done": True}), loop)
             except Exception as exc:

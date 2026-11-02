@@ -44,6 +44,7 @@ def _llm_decide(mock_llm, decision: RouteDecision):
 def test_supervisor_node_hard_stop(mock_llm):
     """Test que o supervisor encerra em loop_count >= 6 sem consultar o LLM."""
     result = supervisor_node(_state([HumanMessage(content="test")], loop_count=6))
+    assert result["decidido_por"] == "hard_stop"
     assert result["next_agent"] == "FINISH"
     mock_llm.with_structured_output.assert_not_called()
 
@@ -56,6 +57,7 @@ def test_supervisor_guard_yfinance_para_analyzer(mock_llm):
     ], loop_count=1)
 
     result = supervisor_node(state)
+    assert result["decidido_por"] == "guard"
 
     assert result["next_agent"] == "Analyzer"
     assert result["messages"][0].name == "Supervisor"
@@ -71,6 +73,7 @@ def test_supervisor_guard_investigator_retorna_finish(mock_llm):
         next_agent="Investigator",
     )
     result = supervisor_node(state)
+    assert result["decidido_por"] == "guard"
     assert result["next_agent"] == "FINISH"
     mock_llm.with_structured_output.assert_not_called()
 
@@ -84,6 +87,7 @@ def test_supervisor_guard_sinais_forca_investigator(mock_llm):
     state["sinais_anomalia"] = [QUEDA]
 
     result = supervisor_node(state)
+    assert result["decidido_por"] == "guard"
 
     assert result["next_agent"] == "Investigator"
     assert result["messages"][0].name == "Supervisor"
@@ -97,6 +101,7 @@ def test_supervisor_guard_uma_passagem_do_analyzer_pede_o_setor(mock_llm):
     state = _state(HISTORICO_ETAPA_4[:4], loop_count=2)  # só 1 mensagem do Analyzer
 
     result = supervisor_node(state)
+    assert result["decidido_por"] == "guard"
 
     assert result["next_agent"] == "Analyzer"
     tarefa = result["messages"][0]
@@ -111,6 +116,7 @@ def test_supervisor_guard_sinais_espera_as_duas_passagens_do_analyzer(mock_llm):
     state["sinais_anomalia"] = [QUEDA]
 
     result = supervisor_node(state)
+    assert result["decidido_por"] == "guard"
 
     assert result["next_agent"] == "Analyzer"
     mock_llm.with_structured_output.assert_not_called()
@@ -130,6 +136,7 @@ def test_supervisor_etapa4_roteia_investigator_com_tarefa(mock_llm):
     ))
 
     result = supervisor_node(_state(HISTORICO_ETAPA_4, loop_count=3))
+    assert result["decidido_por"] == "llm"
 
     assert result["next_agent"] == "Investigator"
     assert result["supervisor_reasoning"] == "Queda de lucro sem explicação nas notícias."
@@ -147,6 +154,7 @@ def test_supervisor_etapa4_sem_anomalia_finaliza_sem_mensagem(mock_llm):
     ))
 
     result = supervisor_node(_state(HISTORICO_ETAPA_4, loop_count=3))
+    assert result["decidido_por"] == "llm"
 
     assert result["next_agent"] == "FINISH"
     assert "messages" not in result
