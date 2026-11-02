@@ -851,7 +851,7 @@ Crie o arquivo com as células abaixo (use Jupyter ou crie o JSON diretamente).
 
   Esperado: todos os testes PASS.
 
-- [ ] **Step 2: Testar com ticker que deve ativar o Investigator (anomalia presente)**
+- [x] **Step 2: Testar com ticker que deve ativar o Investigator (anomalia presente)**
 
   ```bash
   python -c "
@@ -875,7 +875,7 @@ Crie o arquivo com as células abaixo (use Jupyter ou crie o JSON diretamente).
 
   Verificar: o histórico contém uma mensagem com `name='Investigator'` e a resposta final inclui a seção de diagnóstico causal.
 
-- [ ] **Step 3: Testar com ticker de empresa estável (sem anomalia esperada)**
+- [x] **Step 3: Testar com ticker de empresa estável (sem anomalia esperada)**
 
   ```bash
   python -c "
@@ -895,8 +895,8 @@ Crie o arquivo com as células abaixo (use Jupyter ou crie o JSON diretamente).
 
 ## Critérios de Sucesso
 
-- [ ] `pytest tests/ -v` — todos os testes passam
-- [ ] Ticker com anomalia → `Investigator` presente no histórico de mensagens
-- [ ] Ticker estável → `Investigator` não ativado, pipeline com 4 loops ou menos
-- [ ] Hard stop funciona (loop_count <= 6 sempre)
-- [ ] Output com Investigator inclui: Causa, Natureza, Evidências, Impacto
+- [x] `pytest tests/ -v` — todos os testes passam
+- [x] Ticker com anomalia → `Investigator` presente no histórico de mensagens
+- [x] Ticker estável → `Investigator` não ativado, pipeline com 4 loops ou menos
+- [x] Hard stop funciona (loop_count <= 6 sempre)
+- [x] Output com Investigator inclui: Causa, Natureza, Evidências, Impacto
