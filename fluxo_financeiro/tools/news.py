@@ -1,10 +1,10 @@
 from datetime import datetime, timedelta
-import anthropic
 from newsapi import NewsApiClient
 from langchain_core.tools import tool
 
-from fluxo_financeiro.shared.config import NEWS_API_KEY, MODEL
+from fluxo_financeiro.shared.config import NEWS_API_KEY
 from fluxo_financeiro.shared.utils import logger
+from fluxo_financeiro.tools.web_search import pesquisar_na_web
 
 
 @tool
@@ -74,32 +74,23 @@ def buscar_noticias(query: str) -> str:
 @tool
 def buscar_noticias_web(query: str) -> str:
     """
-    Busca noticias em tempo real sobre uma empresa ou acao via Anthropic Web Search.
+    Busca notícias em tempo real sobre uma empresa ou ação via Google Search (Gemini).
     Use esta ferramenta quando buscar_noticias retornar poucos resultados ou quando
-    precisar de noticias das ultimas horas (eventos corporativos recentes, resultados, M&A).
+    precisar de notícias das últimas horas (eventos corporativos recentes, resultados, M&A).
+    A resposta termina com a lista de fontes consultadas.
     """
     logger.info(f"[tool] buscar_noticias_web: query='{query}'")
     try:
-        client = anthropic.Anthropic()
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=1024,
-            messages=[{
-                'role': 'user',
-                'content': (
-                    f'Busque e resuma as noticias mais recentes sobre {query} '
-                    f'na bolsa brasileira B3. Foque em eventos corporativos e '
-                    f'movimentos de mercado. Seja conciso (max 3 paragrafos).'
-                )
-            }],
-            tools=[{'type': 'web_search_20250305', 'name': 'web_search'}]
+        resultado = pesquisar_na_web(
+            f'Busque e resuma as notícias mais recentes sobre {query} '
+            f'na bolsa brasileira B3. Foque em eventos corporativos e '
+            f'movimentos de mercado. Seja conciso (máx. 3 parágrafos).'
         )
-        textos = [block.text for block in response.content if block.type == 'text']
-        if not textos:
+        if not resultado:
             logger.warning(f"[tool] buscar_noticias_web: nenhum resultado para '{query}'")
-            return f'Nenhuma noticia encontrada para: {query}'
-        logger.info(f"[tool] buscar_noticias_web: ok ({len(textos)} blocos de texto)")
-        return '\n'.join(textos)
+            return f'Nenhuma notícia encontrada para: {query}'
+        logger.info(f"[tool] buscar_noticias_web: ok ({len(resultado)} chars)")
+        return resultado
     except Exception as e:
         logger.exception(f"[tool] buscar_noticias_web falhou para '{query}'")
-        return f'Erro ao buscar noticias via web search: {e}'
+        return f'Erro ao buscar notícias via web search: {e}'

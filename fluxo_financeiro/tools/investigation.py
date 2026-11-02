@@ -1,10 +1,9 @@
-import anthropic
 import pandas as pd
 import yfinance as yf
 from langchain_core.tools import tool
 
-from fluxo_financeiro.shared.config import MODEL
 from fluxo_financeiro.shared.utils import logger
+from fluxo_financeiro.tools.web_search import pesquisar_na_web
 
 
 @tool
@@ -65,7 +64,7 @@ def buscar_fatos_relevantes(ticker: str) -> str:
     Inclui: impairments, reestruturações, provisões, eventos extraordinários.
     Use quando um número financeiro parece atípico e você precisa identificar
     se houve evento corporativo específico que justifique o resultado fora do padrão.
-    Usa Anthropic Web Search para resultados em tempo real.
+    Usa Google Search (Gemini) para resultados em tempo real; a resposta termina com as fontes.
     Ticker sem sufixo é aceito (ex: VALE3) — o .SA é adicionado automaticamente.
     """
     if not ticker.endswith('.SA'):
@@ -75,27 +74,17 @@ def buscar_fatos_relevantes(ticker: str) -> str:
     logger.info(f"[tool] buscar_fatos_relevantes: ticker={ticker_base}")
 
     try:
-        client = anthropic.Anthropic()
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=1024,
-            messages=[{
-                'role': 'user',
-                'content': (
-                    f'Busque fatos relevantes, impairments, reestruturações e eventos '
-                    f'corporativos extraordinários de {ticker_base} nos últimos 6 meses. '
-                    f'Foque em eventos que expliquem variações atípicas nos resultados '
-                    f'financeiros. Seja conciso (max 3 parágrafos).'
-                )
-            }],
-            tools=[{'type': 'web_search_20250305', 'name': 'web_search'}]
+        resultado = pesquisar_na_web(
+            f'Busque fatos relevantes, impairments, reestruturações e eventos '
+            f'corporativos extraordinários de {ticker_base} nos últimos 6 meses. '
+            f'Foque em eventos que expliquem variações atípicas nos resultados '
+            f'financeiros. Seja conciso (máx. 3 parágrafos).'
         )
-        textos = [block.text for block in response.content if block.type == 'text']
-        if not textos:
+        if not resultado:
             logger.warning(f"[tool] buscar_fatos_relevantes: nenhum resultado para {ticker_base}")
             return f'Nenhum fato relevante encontrado para: {ticker_base}'
-        logger.info(f"[tool] buscar_fatos_relevantes: ok ({len(textos)} blocos de texto)")
-        return f'Fatos relevantes e eventos corporativos de {ticker_base}:\n\n' + '\n'.join(textos)
+        logger.info(f"[tool] buscar_fatos_relevantes: ok ({len(resultado)} chars)")
+        return f'Fatos relevantes e eventos corporativos de {ticker_base}:\n\n' + resultado
 
     except Exception as e:
         logger.exception(f"[tool] buscar_fatos_relevantes falhou para {ticker_base}")
