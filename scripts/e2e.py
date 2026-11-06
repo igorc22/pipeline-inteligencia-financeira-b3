@@ -13,6 +13,8 @@ import sys
 from langchain_core.messages import HumanMessage
 
 from fluxo_financeiro import app
+from fluxo_financeiro.shared.config import SANITIZACAO_ATIVA
+from fluxo_financeiro.shared.prompts import TAG_CONTEUDO_EXTERNO
 
 SECOES_DIAGNOSTICO = ["Causa", "Natureza", "Evidências", "Impacto"]
 HARD_STOP = 6
@@ -33,9 +35,19 @@ def conferir_diagnostico(diag: str, final: str) -> list[str]:
     return falhas
 
 
+def conferir_tags_vazadas(mensagens: list[tuple[str, str]]) -> list[str]:
+    """Agentes cuja resposta repetiu a tag <conteudo_externo> (D47), na ordem, sem repetir nomes.
+
+    A tag é para o agente ler, não para aparecer no relatório e no dashboard. Só avisa: vazar
+    a tag não muda a análise, então o e2e não reprova por isso.
+    """
+    return list(dict.fromkeys(nome for nome, texto in mensagens if f"<{TAG_CONTEUDO_EXTERNO}" in texto))
+
+
 def rodar(ticker: str) -> dict:
     caminho: list[str] = []
     mensagens: dict[str, str] = {}
+    todas: list[tuple[str, str]] = []  # cada resposta (o Analyzer fala duas vezes; o dict guarda só a última)
     relatorio = None
     loops = 0
 
@@ -56,11 +68,12 @@ def rodar(ticker: str) -> dict:
                 caminho.append(node)
                 conteudo = update["messages"][-1].content if update.get("messages") else ""
                 mensagens[node] = conteudo
+                todas.append((node, conteudo))
                 if node == "Consolidador":
                     relatorio = update.get("relatorio")
                 print(f"\n[{node}] ({len(conteudo)} chars)\n{conteudo[:600]}{'...' if len(conteudo) > 600 else ''}")
 
-    return {"caminho": caminho, "mensagens": mensagens, "relatorio": relatorio, "loops": loops}
+    return {"caminho": caminho, "mensagens": mensagens, "todas": todas, "relatorio": relatorio, "loops": loops}
 
 
 def main() -> int:
@@ -79,6 +92,10 @@ def main() -> int:
     print(f"Caminho:       {' | '.join(resultado['caminho'])}")
     print(f"Loops:         {resultado['loops']} (hard stop em {HARD_STOP})")
     print(f"Investigator:  {'ATIVADO' if ativou else 'não ativado'}")
+    print(f"Sanitização:   {'LIGADA' if SANITIZACAO_ATIVA else 'desligada'} (SANITIZACAO_ATIVA)")
+    vazaram = conferir_tags_vazadas(resultado["todas"])
+    if vazaram:
+        print(f"AVISO: tags de conteúdo externo vazaram nas mensagens de: {', '.join(vazaram)}")
 
     falhas = []
     relatorio = resultado["relatorio"]

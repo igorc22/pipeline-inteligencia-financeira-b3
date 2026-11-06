@@ -31,3 +31,15 @@ def test_conferir_diagnostico_sem_secao():
     """Test que diagnóstico sem uma seção ainda é acusado."""
     diag = DIAG.replace("- Impacto: baixo", "")
     assert "diagnóstico sem as seções: Impacto" in e2e.conferir_diagnostico(diag, diag)
+
+
+def test_conferir_tags_vazadas():
+    """Test que o e2e aponta os agentes cuja resposta repetiu a tag de conteúdo externo, sem repetir nomes."""
+    mensagens = [
+        ("YFinance", 'Sumário: <conteudo_externo origem="yfinance">...'),
+        ("Analyzer", "notícias ok"),
+        ("Analyzer", "setor <conteudo_externo origem=\"google_search\">"),
+        ("YFinance", "<conteudo_externo"),
+    ]
+    assert e2e.conferir_tags_vazadas(mensagens) == ["YFinance", "Analyzer"]
+    assert e2e.conferir_tags_vazadas([("Analyzer", "ok")]) == []
