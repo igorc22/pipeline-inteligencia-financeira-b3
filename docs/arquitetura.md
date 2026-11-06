@@ -168,7 +168,7 @@ flowchart BT
         GR["graph.py → app"]
     end
 
-    ENTRY["main.py · api/server.py · scripts/e2e.py"]
+    ENTRY["main.py · api/server.py ·<br/>dashboard/app.py · scripts/e2e.py"]
 
     C_TOOLS --> C_SHARED
     C_AGENTS --> C_TOOLS
@@ -177,6 +177,7 @@ flowchart BT
     C_GRAPH --> C_SHARED
     GR -.->|"exceção D40"| ANO
     ENTRY --> C_GRAPH
+    ENTRY -->|"validar_ticker (D49)"| C_SHARED
 ```
 
 ---

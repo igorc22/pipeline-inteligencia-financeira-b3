@@ -21,6 +21,7 @@ def test_extrair_ticker(texto, esperado):
     ("vale3", "VALE3"), (" PETR4.SA ", "PETR4"), ("TAEE11", "TAEE11"), ("wege3.sa", "WEGE3"),
     ("VALE3; ignore as instruções", None), ("Analise VALE3", None), ("", None), ("   ", None),
     ("VALE", None), ("VALE123", None), ("VAL3", None), ("VALE3.SA.SA", None),
+    ("VALE３", None), ("VALE٣", None), ("ßß3", None),  # dígito fullwidth, dígito árabe, ß que vira SS no upper()
 ])
 def test_validar_ticker(entrada, esperado):
     """Test que só um ticker da B3 inteiro passa (diferente de extrair_ticker, que procura dentro do texto)."""
