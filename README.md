@@ -30,6 +30,7 @@ Copie `.env.example` para `.env` e preencha:
 GEMINI_API_KEY=...            # obrigatório (LLM e busca na web)
 NEWS_API_KEY=...               # obrigatório para buscar_noticias
 LOG_LEVEL=INFO                 # opcional
+SANITIZACAO_ATIVA=false        # opcional: true liga a checagem de injeção nas buscas (gasta 1 chamada a mais por busca)
 
 # opcional: tracing no LangSmith
 LANGSMITH_TRACING=true
@@ -39,6 +40,14 @@ LANGSMITH_AGENT_ENVIRONMENT=local    # local, development, staging ou production
 ```
 
 A busca na web (Google Search) exige faturamento ativo no projeto da chave do Gemini. Sem isso, as tools de busca devolvem erro e o fluxo segue só com a NewsAPI e os dados do yfinance.
+
+## Segurança das entradas
+
+- **Ticker:** CLI, API e dashboard só aceitam o código da B3 inteiro (ex: `VALE3`, `TAEE11`, com ou sem `.SA`). Qualquer outra coisa é recusada antes de o grafo rodar (a API responde `400`).
+- **Texto de fora** (busca na web, NewsAPI, descrição da empresa no yfinance): chega aos agentes dentro de `<conteudo_externo>`, com `<` e `>` escapados, e todo prompt diz que esse conteúdo é dado, nunca instrução. Sempre ligado, sem custo.
+- **Checagem por IA** (`SANITIZACAO_ATIVA=true`): antes de chegar aos agentes, o resultado de cada busca passa por um classificador (Gemini Flash-Lite) que diz se o texto tenta dar ordens ao sistema; se sim, ele é trocado por um aviso e entra nas limitações do relatório. Desligada por padrão, para economizar chamadas. O modelo pode ser trocado com `SANITIZACAO_MODELO`.
+
+Detalhes e motivos: D47 a D49 em `docs/decisoes.md`.
 
 ## Como Usar
 
