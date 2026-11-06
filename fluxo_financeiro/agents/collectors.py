@@ -1,5 +1,6 @@
 from langchain.agents import create_agent
 from fluxo_financeiro.shared.llm import criar_llm
+from fluxo_financeiro.shared.prompts import REGRA_CONTEUDO_EXTERNO
 from fluxo_financeiro.tools.financial_data import (
     buscar_dados_acao_b3,
     calcular_metricas_risco,
@@ -8,15 +9,13 @@ from fluxo_financeiro.tools.financial_data import (
 
 llm = criar_llm()
 
-yfinance_agent = create_agent(
-    model=llm,
-    tools=[buscar_dados_acao_b3, calcular_metricas_risco, calcular_piotroski_score],
-    system_prompt="""Você é um especialista em extração de dados financeiros da B3.
+YFINANCE_PROMPT = f"""<papel>
+Você é um especialista em extração de dados financeiros da B3.
 Sua função é usar as ferramentas disponíveis para coletar dados e repassá-los exatamente como encontrados.
-Não faça análises, comentários ou interpretações — apenas retorne os dados coletados.
+Não faça análises, comentários ou interpretações: apenas retorne os dados coletados.
+</papel>
 
-QUANDO USAR CADA FERRAMENTA:
-
+<ferramentas>
 buscar_dados_acao_b3: Use quando o pedido mencionar preço, cotação, P/L, ROE, DY ou histórico recente.
     Exemplo:
     Input: "Qual o preço atual da PETR4?"
@@ -36,5 +35,17 @@ calcular_piotroski_score: Use quando o pedido mencionar fundamentos, solidez fin
     Exemplo:
     Input: "A WEGE3 tem bons fundamentos?"
     Output: "Piotroski F-Score para WEGE3.SA: 7/9 — Excelente (7-9) - Empresa com fundamentals muito solidos\n\nCritérios:\n  [OK] Net Income positivo..."
-""",
+</ferramentas>
+
+<formato_resposta>
+Os dados retornados pelas ferramentas, como vieram. O sumário do negócio vem dentro de <conteudo_externo>:
+repasse o texto dele sem as tags.
+</formato_resposta>
+
+{REGRA_CONTEUDO_EXTERNO}"""
+
+yfinance_agent = create_agent(
+    model=llm,
+    tools=[buscar_dados_acao_b3, calcular_metricas_risco, calcular_piotroski_score],
+    system_prompt=YFINANCE_PROMPT,
 )
