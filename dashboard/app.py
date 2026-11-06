@@ -24,7 +24,7 @@ from dashboard.visao import (
     state_para_json,
 )
 from fluxo_financeiro import app as grafo
-from fluxo_financeiro.shared.utils import logger
+from fluxo_financeiro.shared.utils import TICKER_INVALIDO, logger, validar_ticker
 
 COLUNAS_INDICADORES = 4
 TAMANHO_PREVIA = 90
@@ -205,10 +205,13 @@ def _pedir_analise() -> None:
     Guarda o ticker aqui: quando o campo muda de travado para destravado, o Streamlit o trata
     como outro widget e zera o valor.
     """
-    ticker = st.session_state.get("ticker", "").strip().upper()
+    digitado = st.session_state.get("ticker", "").strip()
+    ticker = validar_ticker(digitado)
     if ticker:
         st.session_state["ticker_pedido"] = ticker
         st.session_state["rodando"] = True
+    elif digitado:
+        st.session_state["aviso_ticker_invalido"] = True  # não é ticker: nem chega ao grafo (D49)
     else:
         st.session_state["aviso_ticker_vazio"] = True
 
@@ -226,6 +229,8 @@ botao.button("Analisar", type="primary", use_container_width=True, on_click=_ped
 
 if st.session_state.pop("aviso_ticker_vazio", False):
     st.warning("Digite um ticker antes de analisar.")
+if st.session_state.pop("aviso_ticker_invalido", False):
+    st.warning(TICKER_INVALIDO)
 
 if rodando:
     try:

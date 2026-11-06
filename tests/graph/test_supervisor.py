@@ -3,7 +3,8 @@ from unittest.mock import patch
 import pytest
 from langchain_core.messages import HumanMessage
 
-from fluxo_financeiro.graph.supervisor import supervisor_node, router
+from fluxo_financeiro.graph.supervisor import SUPERVISOR_PROMPT, supervisor_node, router
+from fluxo_financeiro.shared.prompts import REGRA_CONTEUDO_EXTERNO
 from fluxo_financeiro.shared.types import MessagesState, RouteDecision, SinalAnomalia
 
 
@@ -173,3 +174,31 @@ def test_supervisor_etapa4_sem_anomalia_finaliza_sem_mensagem(mock_llm):
 def test_router(next_agent, destino):
     """Test que o router mapeia cada decisão para o nó correto (FINISH → Consolidador, que vai ao END)."""
     assert router(_state([HumanMessage(content="test")], next_agent=next_agent)) == destino
+
+
+# ---------------------------------------------------------------------------
+# Prompt em XML (D47)
+# ---------------------------------------------------------------------------
+
+def test_supervisor_prompt_mantem_contratos():
+    """Test que a reescrita em XML manteve o que o pipeline e os guards dependem."""
+    for trecho in ("SINAIS DE ANOMALIA", "YFinance", "Analyzer", "Investigator", "FINISH",
+                   "Um investidor ficaria com dúvida de POR QUE"):
+        assert trecho in SUPERVISOR_PROMPT
+    assert REGRA_CONTEUDO_EXTERNO in SUPERVISOR_PROMPT
+    assert "<pipeline>" in SUPERVISOR_PROMPT and "</pipeline>" in SUPERVISOR_PROMPT
+
+
+def test_supervisor_prompt_sem_indentacao_herdada():
+    """Test que nenhuma linha do prompt carrega a indentação de 4 espaços do código antigo."""
+    assert not any(linha.startswith("    -") for linha in SUPERVISOR_PROMPT.splitlines())
+
+
+def test_supervisor_envia_o_prompt_como_system_message(mock_llm):
+    """Test que a etapa 4 sem sinais manda exatamente o SUPERVISOR_PROMPT como primeira mensagem."""
+    _llm_decide(mock_llm, RouteDecision(reasoning="ok", next_agent="FINISH"))
+
+    supervisor_node(_state(HISTORICO_ETAPA_4, loop_count=3))
+
+    mensagens = mock_llm.with_structured_output.return_value.invoke.call_args.args[0]
+    assert mensagens[0].content == SUPERVISOR_PROMPT

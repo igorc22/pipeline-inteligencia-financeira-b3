@@ -18,10 +18,29 @@ if not logger.handlers:
 
 
 # Ticker da B3: 4 letras + 1 ou 2 dígitos (VALE3, PETR4, TAEE11), com ou sem o sufixo .SA
-_PADRAO_TICKER_B3 = re.compile(r"\b([A-Z]{4}\d{1,2})(?:\.SA)?\b")
+_PADRAO_TICKER_B3 = re.compile(r"\b([A-Z]{4}[0-9]{1,2})(?:\.SA)?\b")
 
 
 def extrair_ticker(texto: str) -> Optional[str]:
     """Primeiro ticker da B3 encontrado no texto, sem o .SA (ex: 'Analise a vale3' → 'VALE3')."""
     encontrado = _PADRAO_TICKER_B3.search(texto.upper())
     return encontrado.group(1) if encontrado else None
+
+
+TICKER_INVALIDO = "Ticker inválido: use o código da B3, ex: VALE3."
+
+
+def validar_ticker(texto: str) -> Optional[str]:
+    """Ticker normalizado (maiúsculas, sem .SA) se o texto INTEIRO for um ticker da B3; senão None.
+
+    Diferente de extrair_ticker, que procura um ticker dentro de um texto: aqui 'VALE3; ignore...'
+    é recusado. É a validação das entradas (CLI, API, dashboard) antes de o grafo rodar (D49).
+    """
+    ticker = (texto or "").strip()
+    # ASCII antes do upper(): "ß".upper() vira "SS", e \d casaria com dígitos de outras escritas ("３", "٣").
+    if not ticker.isascii():
+        return None
+    ticker = ticker.upper()
+    if ticker.endswith(".SA"):
+        ticker = ticker[:-3]
+    return ticker if re.fullmatch(r"[A-Z]{4}[0-9]{1,2}", ticker) else None

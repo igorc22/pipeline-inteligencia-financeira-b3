@@ -3,6 +3,7 @@ import requests
 import numpy as np
 import pandas as pd
 from langchain_core.tools import tool
+from fluxo_financeiro.shared.prompts import envolver_conteudo_externo
 from fluxo_financeiro.shared.types import ConsultaBCBInput
 from fluxo_financeiro.shared.utils import logger
 from typing import Any, Dict
@@ -43,8 +44,10 @@ def buscar_dados_acao_b3(ticker: str) -> str:
         resultado += f"P/L:  {f'{pl:.1f}x' if pl else 'N/A'}\n"
         resultado += f"ROE:  {f'{roe*100:.1f}%' if roe else 'N/A'}\n"
         resultado += f"DY:   {f'{dy*100:.2f}%' if dy else 'N/A'}\n"
-        resultado += f"Industria: {industria}"
-        resultado += f"Sumario de Negócio: {sumario}"
+        resultado += f"Industria: {industria}\n"
+        # O sumário é texto de terceiros: vai na tag (D47). Não passa pelo classificador, que cobre só as buscas.
+        resultado += "Sumario de Negócio:\n"
+        resultado += (envolver_conteudo_externo(sumario, "yfinance") if sumario else "N/A") + "\n"
         resultado += f"Histórico Recente (Últimos 5 dias de fechamento):\n{hist['Close'].tail(5).to_string()}\n"
         logger.info(f"[tool] buscar_dados_acao_b3: ok ({len(resultado)} chars)")
         return resultado

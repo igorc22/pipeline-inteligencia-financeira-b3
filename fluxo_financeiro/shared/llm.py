@@ -2,7 +2,7 @@ from functools import lru_cache
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from fluxo_financeiro.shared.config import GEMINI_API_KEY, MODEL
+from fluxo_financeiro.shared.config import GEMINI_API_KEY, MODEL, SANITIZACAO_MODELO
 from fluxo_financeiro.shared.utils import logger
 
 # O ChatGoogleGenerativeAI exige uma chave já na criação. Como os agentes são criados na
@@ -23,6 +23,20 @@ def criar_llm() -> ChatGoogleGenerativeAI:
         model=MODEL,
         # None = usa o padrão do modelo. O Google recomenda não mexer na temperatura no Gemini 3+
         # (valores baixos podem causar loops), e o gemini-3.5-flash-lite nem aceita o ajuste.
+        temperature=None,
+        api_key=GEMINI_API_KEY or CHAVE_AUSENTE,
+    )
+
+
+@lru_cache(maxsize=1)
+def criar_llm_sanitizador() -> ChatGoogleGenerativeAI:
+    """LLM do classificador de injeção (tools/sanitizacao.py), com o modelo de SANITIZACAO_MODELO.
+
+    Instância separada da dos agentes para o modelo poder ser outro (mais leve) sem mexer neles.
+    Criá-la não faz chamada nenhuma: com a flag desligada, ela existe mas nunca é usada.
+    """
+    return ChatGoogleGenerativeAI(
+        model=SANITIZACAO_MODELO,
         temperature=None,
         api_key=GEMINI_API_KEY or CHAVE_AUSENTE,
     )

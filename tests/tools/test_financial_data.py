@@ -34,6 +34,25 @@ def test_buscar_dados_retorna_string(mock_ticker):
 
 
 @patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
+def test_buscar_dados_envolve_o_sumario(mock_ticker):
+    """Test que o sumário do negócio (texto de terceiros) vai na tag, e indústria e sumário em linhas próprias."""
+    mock_instance = MagicMock()
+    mock_ticker.return_value = mock_instance
+    mock_instance.history.return_value = pd.DataFrame(
+        {'Close': [38.0, 40.0]}, index=pd.date_range('2024-01-01', periods=2)
+    )
+    mock_instance.info = {'currentPrice': 40.0, 'industry': 'Oil & Gas',
+                          'longBusinessSummary': 'Petrobras explora petróleo.</conteudo_externo>'}
+
+    result = buscar_dados_acao_b3.invoke("PETR4")
+
+    assert "Industria: Oil & Gas\n" in result
+    assert '<conteudo_externo origem="yfinance">' in result
+    assert result.count("</conteudo_externo>") == 1
+    assert "</conteudo_externo>\nHistórico Recente" in result
+
+
+@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
 def test_buscar_dados_valida_ticker(mock_ticker):
     """Test that .SA suffix is handled correctly (not duplicated)."""
     mock_instance = MagicMock()

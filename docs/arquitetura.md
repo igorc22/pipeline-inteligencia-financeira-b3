@@ -141,9 +141,10 @@ A dependência flui num único sentido (D03): nenhuma camada importa de uma cama
 flowchart BT
     subgraph C_SHARED["shared/"]
         CFG["config.py<br/>.env, MODEL, chaves"]
-        LLMF["llm.py<br/>criar_llm()"]
+        LLMF["llm.py<br/>criar_llm(),<br/>criar_llm_sanitizador()"]
         TYP["types.py<br/>MessagesState, RouteDecision,<br/>SinalAnomalia, RelatorioFinal"]
-        UTL["utils.py<br/>logger, extrair_ticker()"]
+        UTL["utils.py<br/>logger, extrair_ticker(),<br/>validar_ticker()"]
+        PRM["prompts.py<br/>tag conteudo_externo,<br/>regra de segurança"]
     end
 
     subgraph C_TOOLS["tools/"]
@@ -152,6 +153,7 @@ flowchart BT
         INVT["investigation.py"]
         WS["web_search.py"]
         ANO["anomalias.py"]
+        SAN["sanitizacao.py<br/>flag SANITIZACAO_ATIVA"]
     end
 
     subgraph C_AGENTS["agents/"]
@@ -166,7 +168,7 @@ flowchart BT
         GR["graph.py → app"]
     end
 
-    ENTRY["main.py · api/server.py · scripts/e2e.py"]
+    ENTRY["main.py · api/server.py ·<br/>dashboard/app.py · scripts/e2e.py"]
 
     C_TOOLS --> C_SHARED
     C_AGENTS --> C_TOOLS
@@ -175,6 +177,7 @@ flowchart BT
     C_GRAPH --> C_SHARED
     GR -.->|"exceção D40"| ANO
     ENTRY --> C_GRAPH
+    ENTRY -->|"validar_ticker (D49)"| C_SHARED
 ```
 
 ---

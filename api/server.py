@@ -2,12 +2,13 @@ import asyncio
 import json
 from concurrent.futures import ThreadPoolExecutor
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import BaseMessage, HumanMessage
 
 from fluxo_financeiro import app as langgraph_app
+from fluxo_financeiro.shared.utils import TICKER_INVALIDO, validar_ticker
 
 api = FastAPI(title="Pipeline Financeiro API")
 
@@ -38,13 +39,18 @@ def _serialize_message(msg: BaseMessage) -> dict:
 
 @api.get("/analyze")
 async def analyze_ticker(ticker: str):
+    # Valida antes de abrir o stream: um texto que não é ticker nem chega ao grafo (D49).
+    ticker_valido = validar_ticker(ticker)
+    if not ticker_valido:
+        raise HTTPException(status_code=400, detail=TICKER_INVALIDO)
+
     async def event_stream():
         loop = asyncio.get_event_loop()
         queue: asyncio.Queue = asyncio.Queue()
 
         def _run_graph():
             try:
-                initial = {"messages": [HumanMessage(content=f"Analise a ação {ticker.upper()}")]}
+                initial = {"messages": [HumanMessage(content=f"Analise a ação {ticker_valido}")]}
                 for event in langgraph_app.stream(initial):
                     for node_name, state_update in event.items():
                         payload: dict = {"node": node_name}

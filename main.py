@@ -1,13 +1,18 @@
 from langchain_core.messages import HumanMessage
 from fluxo_financeiro import app
+from fluxo_financeiro.shared.utils import TICKER_INVALIDO, validar_ticker
 
 
 def main():
     print("=== Financial Pipeline Analysis ===\n")
 
-    ticker = input("Digite o ticker para analisar (ex: WEGE3): ").strip()
-    if not ticker:
+    digitado = input("Digite o ticker para analisar (ex: WEGE3): ").strip()
+    if not digitado:
         print("Ticker não fornecido.")
+        return
+    ticker = validar_ticker(digitado)
+    if not ticker:
+        print(TICKER_INVALIDO)
         return
 
     print(f"\nAnalisando {ticker}...\n")

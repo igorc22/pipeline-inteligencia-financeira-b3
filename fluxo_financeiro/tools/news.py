@@ -3,7 +3,9 @@ from newsapi import NewsApiClient
 from langchain_core.tools import tool
 
 from fluxo_financeiro.shared.config import NEWS_API_KEY
+from fluxo_financeiro.shared.prompts import escapar_tags
 from fluxo_financeiro.shared.utils import logger
+from fluxo_financeiro.tools.sanitizacao import tratar_conteudo_externo
 from fluxo_financeiro.tools.web_search import pesquisar_na_web, registrar_falha_busca
 
 
@@ -48,7 +50,7 @@ def buscar_noticias(query: str) -> str:
             logger.warning(f"[tool] buscar_noticias: nenhum artigo para '{query}'")
             return f"Nenhuma notícia encontrada para a busca: {query}"
 
-        resultado = f"Notícias recentes sobre '{query}':\n\n"
+        corpo = ""
         for i, (article, prefixo) in enumerate(artigos, 1):
             titulo = article.get('title', 'Sem título')
             descricao = article.get('description') or ''
@@ -57,15 +59,16 @@ def buscar_noticias(query: str) -> str:
             content = article.get('content') or ''
 
             fonte_str = f"[{fonte}] " if fonte else ""
-            resultado += f"{i}. {prefixo}({data}) {fonte_str}{titulo}\n"
+            corpo += f"{i}. {prefixo}({data}) {fonte_str}{titulo}\n"
             if descricao:
-                resultado += f"   {descricao}\n"
+                corpo += f"   {descricao}\n"
             if content:
-                resultado += f"   [Contexto adicional]: {content[:200]}\n"
-            resultado += "\n"
+                corpo += f"   [Contexto adicional]: {content[:200]}\n"
+            corpo += "\n"
 
         logger.info(f"[tool] buscar_noticias: {len(artigos)} artigos encontrados")
-        return resultado
+        # Os artigos são texto de terceiros: vão dentro da tag (e pelo sanitizador, se a flag estiver ligada).
+        return f"Notícias recentes sobre '{query}':\n\n" + tratar_conteudo_externo(corpo.strip(), "newsapi")
 
     except Exception as e:
         logger.exception(f"[tool] buscar_noticias falhou para '{query}'")
@@ -82,15 +85,18 @@ def buscar_noticias_web(query: str) -> str:
     logger.info(f"[tool] buscar_noticias_web: query='{query}'")
     try:
         resultado = pesquisar_na_web(
-            f'Busque e resuma as notícias mais recentes sobre {query} '
-            f'na bolsa brasileira B3. Foque em eventos corporativos e '
-            f'movimentos de mercado. Seja conciso (máx. 3 parágrafos).'
+            "<tarefa>\n"
+            "Busque e resuma as notícias mais recentes sobre a consulta abaixo, no contexto da bolsa brasileira B3.\n"
+            "Foque em eventos corporativos e movimentos de mercado.\n"
+            "</tarefa>\n"
+            f"<consulta>{escapar_tags(query)}</consulta>\n"
+            "<formato_resposta>Seja conciso: no máximo 3 parágrafos.</formato_resposta>"
         )
         if not resultado:
             logger.warning(f"[tool] buscar_noticias_web: nenhum resultado para '{query}'")
             return f'Nenhuma notícia encontrada para: {query}'
         logger.info(f"[tool] buscar_noticias_web: ok ({len(resultado)} chars)")
-        return resultado
+        return tratar_conteudo_externo(resultado, "google_search")
     except Exception as e:
         registrar_falha_busca(f"[tool] buscar_noticias_web falhou para '{query}'", e)
         return f'Erro ao buscar notícias via web search: {e}'
