@@ -2,7 +2,9 @@ import pandas as pd
 import yfinance as yf
 from langchain_core.tools import tool
 
+from fluxo_financeiro.shared.prompts import escapar_tags
 from fluxo_financeiro.shared.utils import logger
+from fluxo_financeiro.tools.sanitizacao import tratar_conteudo_externo
 from fluxo_financeiro.tools.web_search import pesquisar_na_web, registrar_falha_busca
 
 
@@ -75,16 +77,22 @@ def buscar_fatos_relevantes(ticker: str) -> str:
 
     try:
         resultado = pesquisar_na_web(
-            f'Busque fatos relevantes, impairments, reestruturações e eventos '
-            f'corporativos extraordinários de {ticker_base} nos últimos 6 meses. '
-            f'Foque em eventos que expliquem variações atípicas nos resultados '
-            f'financeiros. Seja conciso (máx. 3 parágrafos).'
+            "<tarefa>\n"
+            "Busque fatos relevantes, impairments, reestruturações e eventos corporativos extraordinários\n"
+            "da empresa da B3 indicada na consulta, nos últimos 6 meses. Foque em eventos que expliquem\n"
+            "variações atípicas nos resultados financeiros.\n"
+            "</tarefa>\n"
+            f"<consulta>{escapar_tags(ticker_base)}</consulta>\n"
+            "<formato_resposta>Seja conciso: no máximo 3 parágrafos.</formato_resposta>"
         )
         if not resultado:
             logger.warning(f"[tool] buscar_fatos_relevantes: nenhum resultado para {ticker_base}")
             return f'Nenhum fato relevante encontrado para: {ticker_base}'
         logger.info(f"[tool] buscar_fatos_relevantes: ok ({len(resultado)} chars)")
-        return f'Fatos relevantes e eventos corporativos de {ticker_base}:\n\n' + resultado
+        return (
+            f'Fatos relevantes e eventos corporativos de {ticker_base}:\n\n'
+            + tratar_conteudo_externo(resultado, "google_search")
+        )
 
     except Exception as e:
         registrar_falha_busca(f"[tool] buscar_fatos_relevantes falhou para {ticker_base}", e)
