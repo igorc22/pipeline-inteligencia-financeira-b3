@@ -10,6 +10,7 @@ from fluxo_financeiro.agents.consolidator import (
     LIMITACAO_SEM_SETOR,
     consolidar,
     formatar_relatorio,
+    montar_insumos,
     relatorio_de_emergencia,
 )
 from fluxo_financeiro.shared.types import RelatorioFinal
@@ -120,6 +121,23 @@ def test_consolidar_envia_so_respostas_dos_agentes(mock_llm):
     assert system == CONSOLIDADOR_PROMPT
     assert "P/L 74,7x" in insumos and "Setor fraco" in insumos
     assert "Busque notícias" not in insumos and "Busque o setor" not in insumos
+
+
+def test_montar_insumos_um_bloco_por_resposta(mock_llm):
+    """Confere que montar_insumos devolve o pedido e um bloco por resposta de agente, sem as tarefas do Supervisor."""
+    blocos = montar_insumos([HumanMessage("Analise VALE3"), HumanMessage("d", name="YFinance"),
+                             HumanMessage("t", name="Supervisor"), HumanMessage("a1", name="Analyzer")])
+    assert len(blocos) == 3
+    assert blocos[0] == "<pedido_usuario>Analise VALE3</pedido_usuario>"
+    assert blocos[2].startswith('<resposta_agente nome="Analyzer" n="1">')
+
+
+def test_consolidar_envia_os_insumos_juntos(mock_llm):
+    """Confere que o texto que vai ao LLM é a junção dos blocos de montar_insumos (os evals medem contra ela)."""
+    messages = [HumanMessage("Analise VALE3"), HumanMessage("d", name="YFinance")]
+    consolidar(messages)
+    _, insumos = _enviado(mock_llm)
+    assert insumos == "\n\n".join(montar_insumos(messages))
 
 
 def test_consolidar_copia_diagnostico_do_investigator_literalmente(mock_llm):

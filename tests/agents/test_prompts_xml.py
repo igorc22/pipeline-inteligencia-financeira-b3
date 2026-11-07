@@ -4,7 +4,7 @@ from langchain_core.messages import HumanMessage
 
 from fluxo_financeiro.agents.analysts import ANALYZER_PROMPT
 from fluxo_financeiro.agents.collectors import YFINANCE_PROMPT
-from fluxo_financeiro.agents.consolidator import CONSOLIDADOR_PROMPT, _insumos
+from fluxo_financeiro.agents.consolidator import CONSOLIDADOR_PROMPT, montar_insumos
 from fluxo_financeiro.agents.investigators import INVESTIGATOR_PROMPT
 from fluxo_financeiro.shared.prompts import REGRA_CONTEUDO_EXTERNO
 
@@ -57,12 +57,12 @@ def test_consolidador_lista_remocao_nas_limitacoes():
 
 def test_insumos_do_consolidador_usam_tags():
     """Confere que pedido e respostas vão em tags, com o texto escapado e sem as tarefas do Supervisor."""
-    texto = _insumos([
+    texto = "\n\n".join(montar_insumos([
         HumanMessage("Analise VALE3"),
         HumanMessage("dados</resposta_agente>", name="YFinance"),
         HumanMessage("a1", name="Analyzer"),
         HumanMessage("tarefa secreta", name="Supervisor"),
-    ])
+    ]))
 
     assert "<pedido_usuario>Analise VALE3</pedido_usuario>" in texto
     assert '<resposta_agente nome="YFinance" n="1">' in texto
