@@ -21,10 +21,11 @@ from tests.evals.helpers import limitar_fontes, mensagens, resposta_do_agente
 pytestmark = [pytest.mark.eval, pytest.mark.enable_socket]
 
 MOTIVO_COBERTURA = (
-    "Não é portão ainda: no projeto de referência, 11 de 14 vereditos desta métrica eram erro do juiz "
-    "(frase copiada da entrada marcada como não confirmada). A nota é registrada no notas.csv; a decisão "
-    "de virar portão sai da primeira rodada (Task 7 do plano de evals). Erro do juiz (timeout, 429) não é "
-    "absorvido: aparece como failed."
+    "Não é portão: na primeira rodada (07/11/2026, juiz gemini-3.8-flash) a nota foi 0,31 na VALE3 e 0,20 "
+    "na WEGE3, e 13 de 14 vereditos 'não confirmado' eram erro do juiz (o trecho estava na entrada: fluxo de "
+    "caixa, dívida, margem, China, recompra). As perguntas de cobertura saem do sumário do Yahoo (ano de "
+    "fundação, sede, nome antigo), que o relatório não precisa repetir. A nota segue registrada no notas.csv. "
+    "Erro do juiz (timeout, 429) não é absorvido: aparece como failed."
 )
 
 
