@@ -54,9 +54,9 @@ flowchart TD
 | 3 | Uma passagem do Analyzer | Analyzer (contexto do setor) | Guard (D45) |
 | 4 | Duas passagens do Analyzer **e** sinais de anomalia | Investigator | Guard (D40) |
 | 4 | Duas passagens do Analyzer, **sem** sinais | Investigator ou FINISH | LLM (D25) |
-| — | Investigator já respondeu | FINISH | Guard (D28) |
-| — | `loop_count >= 6` | FINISH | Hard stop (D21) |
-| — | Qualquer FINISH | Consolidador → fim | Router: FINISH sempre vai ao Consolidador (D41) |
+| fim | Investigator já respondeu | FINISH | Guard (D28) |
+| fim | `loop_count >= 6` | FINISH | Hard stop (D21) |
+| fim | Qualquer FINISH | Consolidador → fim | Router: FINISH sempre vai ao Consolidador (D41) |
 
 ---
 

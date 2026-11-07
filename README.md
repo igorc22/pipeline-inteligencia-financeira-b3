@@ -1,4 +1,4 @@
-# Pipeline de Inteligência Financeira — B3
+# Pipeline de Inteligência Financeira (B3)
 
 Sistema multi-agente com LLM para análise de ações da B3 usando LangGraph, yfinance e Gemini.
 
@@ -6,7 +6,7 @@ Sistema multi-agente com LLM para análise de ações da B3 usando LangGraph, yf
 
 Um **Supervisor** central orquestra três agentes, e um **Consolidador** fecha toda análise com um relatório:
 
-- **YFinance Agent**: coleta dados de mercado (preço, P/L, ROE, DY, histórico), métricas de risco (Sharpe, Sortino, Max Drawdown, VaR, Beta, Alpha) e Piotroski F-Score
+- **YFinance Agent**: coleta dados de mercado (preço, P/L, ROE, DY, histórico) e tem tools para métricas de risco (Sharpe, Sortino, Max Drawdown, VaR, Beta, Alpha) e Piotroski F-Score
 - **Analyzer Agent**: busca notícias (Google Search via Gemini, com a NewsAPI de reserva) em duas passagens, uma sobre a empresa e outra sobre o setor
 - **Investigator Agent** *(condicional)*: acionado só quando o Supervisor detecta uma anomalia; busca fatos relevantes e histórico trimestral para explicar a causa
 - **Consolidador** *(sempre no fim)*: junta dados, notícias, setor e diagnóstico num relatório (resumo, indicadores, riscos e limitações), sem recomendação de compra ou venda
@@ -48,6 +48,15 @@ A busca na web (Google Search) exige faturamento ativo no projeto da chave do Ge
 - **Checagem por IA** (`SANITIZACAO_ATIVA=true`): antes de chegar aos agentes, o resultado de cada busca passa por um classificador (Gemini Flash-Lite) que diz se o texto tenta dar ordens ao sistema; se sim, ele é trocado por um aviso e entra nas limitações do relatório. Desligada por padrão, para economizar chamadas. O modelo pode ser trocado com `SANITIZACAO_MODELO`.
 
 Detalhes e motivos: D47 a D49 em `docs/decisoes.md`.
+
+## Limitações conhecidas
+
+- As regras de anomalia (lucro mais de 30% abaixo do mesmo trimestre do ano anterior, prejuízo, Piotroski de 3 ou menos) foram calibradas olhando poucos tickers, basicamente VALE3 e WEGE3. Os limites são constantes em `fluxo_financeiro/tools/anomalias.py`.
+- O yfinance demora para publicar os trimestres: em 02/11/2026, a VALE3 ainda aparecia com o 2T26 como último trimestre, um mês depois do fim do 3T26.
+- O agente YFinance escolhe as tools pelo texto do pedido. Com "Analise a ação X", às vezes ele chama só a de preço e múltiplos, e o relatório sai sem risco e Piotroski.
+- Sem faturamento na chave do Gemini, a busca na web falha (erro 429) e as notícias dependem da NewsAPI, que acha pouca coisa sobre ações brasileiras.
+- O classificador da sanitização também é um LLM e pode errar para os dois lados.
+- `busca_indicador_bcb` (SELIC, IPCA e CDI pela API do Banco Central) existe e tem testes, mas nenhum agente a usa por enquanto.
 
 ## Como Usar
 
@@ -111,8 +120,8 @@ uv run python -c "from fluxo_financeiro.tools.investigation import buscar_histor
 
 ```
 fluxo_financeiro/
-├── shared/    # config, tipos (MessagesState, RouteDecision), logger
-├── tools/     # financial_data, news, investigation
+├── shared/    # config (flags), llm (fábrica do Gemini), types, prompts (tag de conteúdo externo), utils (logger, ticker)
+├── tools/     # financial_data, news, investigation, web_search, anomalias, sanitizacao
 ├── agents/    # collectors (YFinance), analysts (Analyzer), investigators (Investigator), consolidator
 └── graph/     # supervisor (guards + LLM) e StateGraph
 scripts/       # e2e.py (teste end-to-end com chamadas reais)
