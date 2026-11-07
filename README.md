@@ -43,7 +43,7 @@ A busca na web (Google Search) exige faturamento ativo no projeto da chave do Ge
 
 ## Segurança das entradas
 
-- **Ticker:** CLI, API e dashboard só aceitam o código da B3 inteiro (ex: `VALE3`, `TAEE11`, com ou sem `.SA`). Qualquer outra coisa é recusada antes de o grafo rodar (a API responde `400`).
+- **Ticker:** a CLI e o dashboard só aceitam o código da B3 inteiro (ex: `VALE3`, `TAEE11`, com ou sem `.SA`). Qualquer outra coisa é recusada antes de o grafo rodar.
 - **Texto de fora** (busca na web, NewsAPI, descrição da empresa no yfinance): chega aos agentes dentro de `<conteudo_externo>`, com `<` e `>` escapados, e todo prompt diz que esse conteúdo é dado, nunca instrução. Sempre ligado, sem custo.
 - **Checagem por IA** (`SANITIZACAO_ATIVA=true`): antes de chegar aos agentes, o resultado de cada busca passa por um classificador (Gemini Flash-Lite) que diz se o texto tenta dar ordens ao sistema; se sim, ele é trocado por um aviso e entra nas limitações do relatório. Desligada por padrão, para economizar chamadas. O modelo pode ser trocado com `SANITIZACAO_MODELO`.
 
@@ -56,7 +56,6 @@ Os atalhos principais estão no `Makefile` (`make help` lista todos). No Windows
 ```bash
 make test          # testes unitários (mockados)
 make streamlit     # dashboard em http://localhost:8501 (cada análise gasta créditos)
-make serve         # API (SSE)
 make e2e TICKER=X  # roda o grafo real para um ticker (gasta créditos)
 ```
 
@@ -68,14 +67,9 @@ uv run python main.py
 
 # Dashboard → http://localhost:8501
 uv run streamlit run dashboard/app.py
-
-# API → http://127.0.0.1:8000/analyze?ticker=WEGE3
-uv run python serve.py
 ```
 
 O dashboard tem três abas: **Relatório** (resumo, indicadores em quadros, riscos, limitações, notícias e diagnóstico), **Como foi feito** (o caminho da análise desenhado, quem decidiu cada passo e a entrada/saída de cada agente) e **State (JSON)**. Só o botão **Analisar** roda o grafo.
-
-A API expõe `GET /analyze?ticker=WEGE3`: stream SSE com cada passo do grafo.
 
 Via código:
 
@@ -121,7 +115,6 @@ fluxo_financeiro/
 ├── tools/     # financial_data, news, investigation
 ├── agents/    # collectors (YFinance), analysts (Analyzer), investigators (Investigator), consolidator
 └── graph/     # supervisor (guards + LLM) e StateGraph
-api/           # FastAPI com streaming SSE
 scripts/       # e2e.py (teste end-to-end com chamadas reais)
 dashboard/     # app.py (Streamlit) e visao.py (state → o que a tela mostra)
 tests/         # espelha fluxo_financeiro/
@@ -136,7 +129,6 @@ tests/         # espelha fluxo_financeiro/
 | Dados de mercado | yfinance, API SGS do Banco Central |
 | Notícias | NewsAPI, Google Search (Gemini) |
 | Dashboard | Streamlit (graphviz para o caminho da análise) |
-| API | FastAPI + uvicorn (SSE) |
 | Observabilidade | LangSmith (tracing de agentes, tools e buscas) |
 | Testes | pytest |
 | Ambiente | uv, python-dotenv |

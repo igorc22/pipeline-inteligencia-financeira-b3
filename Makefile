@@ -1,10 +1,10 @@
-# Atalhos do projeto. Uso: make <alvo>   (ex: make test, make serve, make e2e TICKER=PETR4)
+# Atalhos do projeto. Uso: make <alvo>   (ex: make test, make streamlit, make e2e TICKER=PETR4)
 # As receitas são comandos simples para funcionar tanto no Git Bash quanto no cmd/PowerShell.
 
 TICKER ?= VALE3
 
 .DEFAULT_GOAL := help
-.PHONY: help install test test-tools test-agents test-graph check run serve streamlit e2e e2e-anomalia e2e-estavel notebook clean
+.PHONY: help install test test-tools test-agents test-graph check run streamlit e2e e2e-anomalia e2e-estavel notebook clean
 
 help:
 	@echo Alvos disponiveis:
@@ -15,7 +15,6 @@ help:
 	@echo   make test-graph      - testes so do supervisor/router
 	@echo   make check           - confere imports e lista os nos do grafo
 	@echo   make run             - CLI interativa (main.py)
-	@echo   make serve           - sobe a API (SSE) em http://127.0.0.1:8000/analyze?ticker=X
 	@echo   make streamlit       - abre o dashboard em http://localhost:8501 (cada analise GASTA CREDITOS)
 	@echo   make e2e TICKER=X    - roda o grafo real para um ticker (GASTA CREDITOS)
 	@echo   make e2e-anomalia    - e2e com VALE3, espera o Investigator ativado
@@ -43,9 +42,6 @@ check:
 
 run:
 	uv run python main.py
-
-serve:
-	uv run python serve.py
 
 streamlit:
 	uv run streamlit run dashboard/app.py

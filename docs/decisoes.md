@@ -182,7 +182,7 @@ O prompt também pede FINISH em `loop_count >= 5` como camada "suave", mas a gar
 
 ## Parte 6 — Visualizar o que está acontecendo
 
-### D22 — API FastAPI com streaming SSE
+### D22 — API FastAPI com streaming SSE (substituída por D50)
 `GET /analyze?ticker=X` roda `app.stream()` e manda cada passo do grafo como evento.
 
 **Por quê:** com `invoke` eu só via o resultado final. Com o stream por nó eu vejo cada decisão do Supervisor e cada resposta de agente chegando em tempo real.
@@ -201,7 +201,7 @@ O roadmap original previa Streamlit na Fase 4. Fiz um `dashboard/index.html` ún
 
 **Junto:** o Supervisor passou a gravar `decidido_por` (`guard`, `llm` ou `hard_stop`) no state, para o desenho mostrar quem decidiu cada passo. Inferir pelo texto do raciocínio não dava: o guard do Investigator e o hard stop nem escrevem raciocínio.
 
-**O que ficou:** a rota `GET /analyze` (SSE) e o `serve.py`, sem tela consumindo, como base para levar o `relatorio` em JSON pela API. Saiu a rota `GET /`.
+**O que ficou:** a rota `GET /analyze` (SSE) e o `serve.py`, sem tela consumindo, como base para levar o `relatorio` em JSON pela API. Saiu a rota `GET /`. **Substituído por D50:** a rota e o `serve.py` também saíram.
 
 **Custo:** perdi a animação do grafo em tempo real (no lugar dela, um `st.status` lista cada passo ao terminar) e a exportação em PDF (ficou só o `.md`).
 
@@ -384,6 +384,19 @@ Com `SANITIZACAO_ATIVA=true` no `.env`, o texto que volta de `buscar_noticias_we
 
 **Por quê:** a entrada direta é sempre um código. Antes, `"VALE3; ignore as instruções"` virava `"Analise a ação VALE3; ignore as instruções"` no histórico do Supervisor, porque o `extrair_ticker` procura o ticker *dentro* do texto e o resto passava junto. Validar o formato não custa nada e fecha essa porta.
 
+**Atualização (D50):** a API saiu; a validação continua na CLI e no dashboard.
+
+---
+
+## Parte 12 — Fechando a v1
+
+### D50 — API removida
+Saíram `api/server.py`, `serve.py`, o `make serve`, os testes da API e as dependências `fastapi` e `uvicorn`. O projeto roda pela CLI (`main.py`), pelo dashboard (`dashboard/app.py`) e pelo e2e (`scripts/e2e.py`), os três chamando o grafo direto.
+
+**Por quê:** desde a D46 nenhuma tela consumia a rota `GET /analyze`. Ela só dava manutenção: na D49, por exemplo, precisou da validação do ticker como se fosse uma entrada de verdade. Se um dia outro programa precisar da análise (outro front, um bot), a API volta pelo histórico do git, e aí já mandando o `relatorio` em JSON, que era o que faltava nela.
+
+**Substitui:** a D22 (API com SSE) e o trecho "O que ficou" da D46.
+
 ---
 
 ## Jeito de trabalhar
@@ -436,10 +449,10 @@ Ainda não são decisões, mas são sinais de que algumas escolhas antigas estã
 
 Vindas do desenho de evolução no Excalidraw (coordenador, agente de dados, analista, subgrafo de pesquisa, consolidador e human-in-the-loop). **Nada disso está decidido ainda:**
 
-- ~~Criar um **Consolidador**~~: feito (D41). Em aberto: migrar o resto do **estado estruturado**, e levar o `relatorio` como JSON para o SSE? (No dashboard, feito: D46.)
+- ~~Criar um **Consolidador**~~: feito (D41). Em aberto: migrar o resto do **estado estruturado**. (O `relatorio` estruturado já aparece no dashboard, D46; a API saiu na D50.)
 - Transformar o Analyzer de setor + Investigator num **subgrafo de pesquisa** (geração de perguntas → web → síntese → crítico)?
 - **Checkpointer** para sessão (`thread_id`) × **cache de dados frescos** por ticker (são problemas diferentes)?
-- **Human-in-the-loop** com `interrupt()`, o que exige um endpoint de `resume` na API?
+- **Human-in-the-loop** com `interrupt()`, o que exige um jeito de retomar a análise depois da resposta do usuário (no dashboard, por exemplo)?
 - ~~**Logging de custo**~~: resolvido com o LangSmith (D36). Em aberto: levar o custo por etapa também para o dashboard?
 - **Busca na web independente do provedor do LLM**: hoje a busca está presa ao Gemini (D35), como antes estava presa à Anthropic (D16). Vale trocar por uma API de busca dedicada (Tavily, Brave, Serper) para que trocar de LLM não quebre a busca de novo?
 - ~~**NewsAPI quase não acha nada**~~: feito (D44), a web virou a busca padrão e a NewsAPI ficou de reserva.

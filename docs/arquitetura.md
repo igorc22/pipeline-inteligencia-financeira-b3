@@ -168,7 +168,7 @@ flowchart BT
         GR["graph.py → app"]
     end
 
-    ENTRY["main.py · api/server.py ·<br/>dashboard/app.py · scripts/e2e.py"]
+    ENTRY["main.py · dashboard/app.py ·<br/>scripts/e2e.py"]
 
     C_TOOLS --> C_SHARED
     C_AGENTS --> C_TOOLS
@@ -188,7 +188,6 @@ flowchart BT
 flowchart LR
     subgraph entrada["Como rodar"]
         CLI["main.py<br/>CLI"]
-        API["api/server.py<br/>FastAPI, SSE"]
         DASH["dashboard/app.py<br/>Streamlit"]
         E2E["scripts/e2e.py<br/>teste real"]
     end
@@ -207,7 +206,6 @@ flowchart LR
     CLI --> APP
     E2E --> APP
     DASH --> APP
-    API -->|"GET /analyze?ticker= (eventos SSE)"| APP
 
     APP --> GEM
     APP --> GS
@@ -238,5 +236,4 @@ flowchart LR
 Próximos passos (ver "Próximas decisões em aberto" em [`decisoes.md`](decisoes.md)):
 
 - **Estado estruturado completo**: `sinais_anomalia` e `relatorio` são os campos além das mensagens (D42); dados, notícias e diagnóstico ainda trafegam como texto entre os agentes, e o Supervisor lê o histórico.
-- **Relatório em JSON pela API**: o dashboard Streamlit já lê o `relatorio` estruturado (D46), mas o SSE da API ainda manda só o markdown.
 - **Human-in-the-loop, checkpointer e cache de dados**: vindos do desenho de evolução no Excalidraw.
