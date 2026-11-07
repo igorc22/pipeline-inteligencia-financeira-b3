@@ -267,6 +267,8 @@ Algumas escolhas antigas estão chegando no limite. Duas tensões já se resolve
 
 O estado ainda é quase todo mensagem. Os sinais de anomalia e o relatório já são campos, mas dados, notícias e diagnóstico trafegam como texto entre os agentes, e para paralelizar seriam melhores campos estruturados. Os erros continuam sendo string, então o supervisor não sabe que algo falhou e não consegue reagir. O Analyzer e o Investigator se sobrepõem, porque os dois pesquisam na web com focos diferentes. 
 
+O retry também está pela metade. Hoje quem tenta de novo é a biblioteca do Gemini, que repete sozinha até 6 vezes uma chamada que falhou por instabilidade, sem eu ter configurado nada. As tools não tentam de novo: devolvem o erro como texto e o agente segue com o que tem. Só o Consolidador tem um plano B quando o LLM falha. Nos outros nós, uma exceção que escape derruba a análise inteira, e a ideia de o supervisor mandar um agente tentar de novo ficou sem caminho depois que os guards entraram.
+
 O resto é o que eu quero implementar daqui para a frente:
 
 - Docker e docker-compose, para subir o projeto inteiro com um comando só.
@@ -274,9 +276,15 @@ O resto é o que eu quero implementar daqui para a frente:
 - Um banco de dados para registrar as chamadas, guardando a entrada e a saída de cada análise com data e hora.
 - Checkpointer e cache de dados frescos. Parecem a mesma coisa, mas são problemas diferentes: o checkpointer guarda o estado de uma análise para ela poder ser retomada, e o cache evita buscar de novo no yfinance um dado que acabou de chegar.
 - Human-in-the-loop, com a análise pausando para esperar uma resposta minha. Ele depende do checkpointer, porque a análise precisa continuar de onde parou.
+- Retry interno em cada agente. O agente tenta de novo por dentro, com uma espera que cresce entre as tentativas (o LangGraph já tem uma política de retry por nó para isso). Se mesmo assim falhar, ele devolve ao coordenador um erro estruturado, dizendo o que falhou, quantas vezes e o que conseguiu até ali, e não mais uma frase solta. O coordenador conta as tentativas no state e, quando elas acabam, manda para a revisão humana.
+- Saber o que vale repetir. Instabilidade de rede, timeout do yfinance e erro temporário da API merecem outra tentativa. Cota zerada por falta de faturamento e ticker que não existe não melhoram repetindo, então o erro precisa dizer de que tipo é. Uma saída estruturada que volta inválida do LLM, no supervisor ou no Consolidador, pode ganhar uma segunda chance antes de cair no plano B. Cada tentativa custa tokens, então o limite fica baixo.
 - Um LiteLLM na frente do modelo, para deixar o provedor genérico. Hoje trocar de provedor já é mexer num arquivo só, e com ele bastaria mudar a configuração.
 - Busca na web desacoplada do modelo. Ela está presa ao Gemini, como antes estava presa à Anthropic, e a troca de LLM quebrou a busca junto. Uma API de busca dedicada, como Tavily, Brave ou Serper, resolveria isso. Ainda não usei porque os planos gratuitos são bem limitados, mas quero testar algum provedor no futuro.
 - Enxugar os nós e as etapas. O Analyzer roda duas vezes e se sobrepõe ao Investigator, e talvez as duas pesquisas caibam num passo só.
 - Paralelismo com `Send`: dados primeiro, depois analista e pesquisa ao mesmo tempo.
 
 Depois de tudo isso, quero expor esse fluxo como um agente A2A, que um futuro fluxo de análise de carteira consiga descobrir e chamar. A API que tirei na v1 volta, mas falando o protocolo, e o relatório estruturado vira a resposta que o agente de carteira vai consumir.
+
+![Desenho da arquitetura-alvo](desenho-arquitetura.png)
+
+*O desenho de onde eu quero chegar. É o alvo, ainda não é o código de hoje.*
