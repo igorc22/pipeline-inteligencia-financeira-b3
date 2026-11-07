@@ -2,9 +2,10 @@
 # As receitas são comandos simples para funcionar tanto no Git Bash quanto no cmd/PowerShell.
 
 TICKER ?= VALE3
+FIXTURE ?= vale3
 
 .DEFAULT_GOAL := help
-.PHONY: help install test test-tools test-agents test-graph check run streamlit e2e e2e-anomalia e2e-estavel e2e-sanitizacao eval-fixtures notebook clean
+.PHONY: help install test test-tools test-agents test-graph check run streamlit e2e e2e-anomalia e2e-estavel e2e-sanitizacao eval-fixtures eval eval-vale3 eval-wege3 eval-todos notebook clean
 
 help:
 	@echo Alvos disponiveis:
@@ -21,6 +22,10 @@ help:
 	@echo   make e2e-estavel     - e2e com WEGE3, espera o Investigator NAO ativado
 	@echo   make e2e-sanitizacao - e2e com VALE3 e a sanitizacao por IA ligada, uma chamada a mais por busca
 	@echo   make eval-fixtures   - gera as fixtures dos evals com analises reais de VALE3 e WEGE3, GASTA CREDITOS
+	@echo   make eval FIXTURE=X  - roda os evals com LLM-juiz numa fixture, padrao vale3, GASTA CREDITOS
+	@echo   make eval-vale3      - evals na fixture da VALE3, com Investigator, GASTA CREDITOS
+	@echo   make eval-wege3      - evals na fixture da WEGE3, sem Investigator, GASTA CREDITOS
+	@echo   make -k eval-todos   - evals nas duas fixtures, o -k roda a WEGE3 mesmo se a VALE3 reprovar, GASTA CREDITOS
 	@echo   make notebook        - abre o Jupyter
 	@echo   make clean           - apaga os caches __pycache__ e .pytest_cache
 
@@ -65,6 +70,25 @@ e2e-sanitizacao:
 eval-fixtures:
 	uv run python scripts/gerar_fixture_eval.py VALE3
 	uv run python scripts/gerar_fixture_eval.py WEGE3
+
+# Evals com LLM-juiz (GASTAM CREDITOS). Variaveis exportadas por alvo, como no e2e-sanitizacao
+eval: export EVAL_FIXTURE = $(FIXTURE)
+eval: export DEEPEVAL_TELEMETRY_OPT_OUT = 1
+eval:
+	uv run pytest tests/evals -m eval -v
+
+eval-vale3: export EVAL_FIXTURE = vale3
+eval-vale3: export DEEPEVAL_TELEMETRY_OPT_OUT = 1
+eval-vale3:
+	uv run pytest tests/evals -m eval -v
+
+eval-wege3: export EVAL_FIXTURE = wege3
+eval-wege3: export DEEPEVAL_TELEMETRY_OPT_OUT = 1
+eval-wege3:
+	uv run pytest tests/evals -m eval -v
+
+# Use com -k (make -k eval-todos): sem ele, uma reprovacao na VALE3 impede a WEGE3 de rodar
+eval-todos: eval-vale3 eval-wege3
 
 notebook:
 	uv run jupyter notebook
