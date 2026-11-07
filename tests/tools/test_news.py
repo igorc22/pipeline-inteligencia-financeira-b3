@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import patch, MagicMock
 from fluxo_financeiro.tools.news import buscar_noticias
 from fluxo_financeiro.tools.sanitizacao import VereditoInjecao

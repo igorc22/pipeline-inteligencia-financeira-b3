@@ -9,7 +9,7 @@ Legenda:
 
 ---
 
-## Parte 1: Antes do domínio financeiro: aprender o padrão
+## Parte 1: Aprender o padrão antes do domínio financeiro
 
 ### D01: Estudar o padrão num domínio simples antes de aplicar em finanças
 Antes de tocar em ações, fiz dois notebooks de estudo com um "assistente pessoal" (calendário e e-mail mockados): `notebooks/estudo/01_subagents_and_tools` e `02_supervisor_orchestration`.
@@ -29,6 +29,8 @@ No estudo 02, o Supervisor era um agente e os subagentes viravam `@tool`. No pro
 
 ### D03: Camadas com dependência num único sentido
 `shared/ ← tools/ ← agents/ ← graph/ ← main.py / api/`. Nenhuma camada importa de uma camada acima.
+
+**Atualização (D50):** a API saiu; as entradas hoje são `main.py` e `dashboard/`.
 
 **Por quê:** cada camada pode ser testada sozinha, não existe import circular, e adicionar um agente novo nas próximas fases não mexe nas tools.
 
@@ -214,7 +216,7 @@ O roadmap original previa Streamlit na Fase 4. Fiz um `dashboard/index.html` ún
 
 **Decisão:** criar o `investigator_agent`, focado em diagnóstico causal: causa, natureza (pontual / estrutural / cíclica), evidências e impacto no investimento.
 
-### D25: Condicional: só roda quando há anomalia
+### D25: Investigator condicional, só roda quando há anomalia
 **Complementada por D40** (sinais calculados em código acionam o Investigator por guard; o LLM decide quando não há sinal).
 
 Na Etapa 4, o Supervisor se pergunta: *"Um investidor ficaria com dúvida de POR QUE esse número aconteceu?"* Se sim, manda para o Investigator com a anomalia descrita na `task_for_agent`; se não, FINISH.
@@ -240,7 +242,7 @@ Na Etapa 4, o Supervisor se pergunta: *"Um investidor ficaria com dúvida de POR
 
 ---
 
-## Parte 8: Troca de provedor: Gemini
+## Parte 8: Troca de provedor para o Gemini
 
 ### D33: Gemini 3.5 Flash-Lite no lugar do Claude Haiku
 O LLM de todos os agentes e do Supervisor passou a ser o `gemini-3.5-flash-lite`, via `langchain-google-genai`. Substitui a escolha de modelo da D04.
@@ -420,6 +422,8 @@ Uma fixture mocka o LLM em todos os testes de `test_supervisor.py`, e os testes 
 
 ### D32: Makefile + script de end-to-end separado do pytest
 `make test`, `make serve`, `make e2e TICKER=X`, `make e2e-anomalia`, `make e2e-estavel`. O e2e fica em `scripts/e2e.py`, fora do `pytest`.
+
+**Atualização (D50):** o `make serve` saiu junto com a API; entrou o `make e2e-sanitizacao`.
 
 **Por quê:** quero um jeito curto e sempre igual de rodar as coisas, sem lembrar comando. O e2e usa APIs reais e gasta créditos, então não pode rodar junto com os testes unitários por acidente. Ele sai com código 1 quando o comportamento não é o esperado (Investigator ativado ou não), o que serve para validar a D25 com casos reais.
 

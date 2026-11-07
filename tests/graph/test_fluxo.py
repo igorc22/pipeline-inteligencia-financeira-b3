@@ -61,7 +61,7 @@ def _quem_falou(resultado):
 
 
 def test_sinal_em_codigo_aciona_investigator_sem_llm(grafo_mockado):
-    """Com sinal de anomalia calculado em código, a Etapa 4 vai para o Investigator pelo guard."""
+    """Confere que, com sinal de anomalia calculado em código, a Etapa 4 vai para o Investigator pelo guard."""
     queda = SinalAnomalia(tipo="queda_lucro", descricao="O lucro líquido de VALE3.SA caiu 35% contra o ano anterior.")
     grafo_mockado["sinais"].return_value = [queda]
     grafo_mockado["decisoes"].side_effect = [
@@ -85,7 +85,7 @@ def test_sinal_em_codigo_aciona_investigator_sem_llm(grafo_mockado):
 
 
 def test_llm_pode_acionar_investigator_mesmo_sem_sinal(grafo_mockado):
-    """Sem sinal calculado, o LLM ainda pode julgar que há algo a investigar (Etapa 4 pelo LLM)."""
+    """Confere que, sem sinal calculado, o LLM ainda pode mandar investigar (Etapa 4 pelo LLM)."""
     grafo_mockado["decisoes"].side_effect = [
         _decisao("YFinance", "Colete os dados da VALE3"),
         _decisao("Investigator", "Investigue o ROE de 0,3% da VALE3"),
@@ -108,7 +108,7 @@ def test_llm_pode_acionar_investigator_mesmo_sem_sinal(grafo_mockado):
 
 
 def test_fluxo_sem_anomalia_nao_chama_o_investigator(grafo_mockado):
-    """Sem anomalia, a etapa 4 vai direto para FINISH."""
+    """Confere que, sem anomalia, a etapa 4 vai direto para FINISH."""
     grafo_mockado["decisoes"].side_effect = [
         _decisao("YFinance", "Colete os dados da WEGE3"),
         _decisao("FINISH"),
@@ -124,7 +124,7 @@ def test_fluxo_sem_anomalia_nao_chama_o_investigator(grafo_mockado):
 
 
 def test_hard_stop_segura_llm_que_nunca_encerra(grafo_mockado):
-    """Se o LLM nunca escolhe FINISH, o hard stop (loop_count >= 6) encerra o grafo."""
+    """Confere que o hard stop (loop_count >= 6) encerra o grafo quando o LLM nunca escolhe FINISH."""
     grafo_mockado["decisoes"].return_value = _decisao("Analyzer", "Busque mais notícias")
 
     resultado = _rodar()
@@ -136,7 +136,7 @@ def test_hard_stop_segura_llm_que_nunca_encerra(grafo_mockado):
 
 
 def test_falha_do_consolidador_nao_perde_a_analise(grafo_mockado):
-    """Erro no LLM do Consolidador: a resposta final vira a junção das respostas dos agentes."""
+    """Confere que, com erro no LLM do Consolidador, a resposta final vira a junção das respostas dos agentes."""
     grafo_mockado["decisoes"].side_effect = [
         _decisao("YFinance", "Colete os dados da VALE3"),
         _decisao("FINISH"),
