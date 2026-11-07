@@ -14,13 +14,8 @@ TOOLS_ESPERADAS = {'buscar_dados_acao_b3', 'calcular_metricas_risco', 'calcular_
 # Estrutura do agent
 # ---------------------------------------------------------------------------
 
-def test_yfinance_agent_exists():
-    """Test that yfinance_agent is properly initialized."""
-    assert yfinance_agent is not None
-
-
 def test_yfinance_agent_tools_tem_nomes_corretos():
-    """Test que as tools têm os nomes que o LLM usa para chamá-las via tool-calling."""
+    """Confere que as tools têm os nomes que o LLM usa para chamá-las via tool-calling."""
     assert buscar_dados_acao_b3.name == 'buscar_dados_acao_b3'
     assert calcular_metricas_risco.name == 'calcular_metricas_risco'
     assert calcular_piotroski_score.name == 'calcular_piotroski_score'
@@ -34,12 +29,12 @@ def _tools_registradas(agent) -> dict:
 
 
 def test_yfinance_agent_tem_3_tools():
-    """Test que exatamente 3 tools estão registradas no nó tools do grafo."""
+    """Confere que exatamente 3 tools estão registradas no nó tools do grafo."""
     assert len(_tools_registradas(yfinance_agent)) == 3
 
 
 def test_yfinance_agent_tools_registradas_por_nome():
-    """Test que as tools corretas estão vinculadas ao agent pelo nome exato."""
+    """Confere que as tools corretas estão vinculadas ao agent pelo nome exato."""
     assert set(_tools_registradas(yfinance_agent)) == TOOLS_ESPERADAS
 
 
@@ -49,7 +44,7 @@ def test_yfinance_agent_tools_registradas_por_nome():
 
 @patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
 def test_buscar_dados_acao_b3_invocavel(mock_ticker):
-    """Test que buscar_dados_acao_b3 retorna string com campos esperados."""
+    """Confere que buscar_dados_acao_b3 retorna string com campos esperados."""
     mock_instance = MagicMock()
     mock_ticker.return_value = mock_instance
     mock_instance.history.return_value = pd.DataFrame(
@@ -74,7 +69,7 @@ def test_buscar_dados_acao_b3_invocavel(mock_ticker):
 @patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
 @patch('fluxo_financeiro.tools.financial_data.requests.get')
 def test_calcular_metricas_risco_invocavel(mock_get, mock_ticker):
-    """Test que calcular_metricas_risco retorna string com todas as métricas."""
+    """Confere que calcular_metricas_risco retorna string com todas as métricas."""
     mock_resp = MagicMock()
     mock_resp.json.return_value = [{'valor': '10.75', 'data': '09/05/2026'}]
     mock_get.return_value = mock_resp
@@ -100,7 +95,7 @@ def test_calcular_metricas_risco_invocavel(mock_get, mock_ticker):
 
 @patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
 def test_calcular_piotroski_score_invocavel(mock_ticker):
-    """Test que calcular_piotroski_score retorna string com score /9."""
+    """Confere que calcular_piotroski_score retorna string com score /9."""
     dates = pd.date_range('2024-01-01', periods=2, freq='QE')
     mock_instance = MagicMock()
     mock_ticker.return_value = mock_instance

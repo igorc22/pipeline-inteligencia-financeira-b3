@@ -18,6 +18,10 @@ pytest_plugins = ["pytester"]
 
 import pytest  # noqa: E402  (depois das variáveis de ambiente, de propósito)
 
+# O langchain_core instala um filtro de avisos próprio ao ser importado. Importado aqui, antes da
+# coleta, o filtro dele fica por baixo dos `filterwarnings` do pyproject.toml, que então valem.
+import langchain_core._api.deprecation  # noqa: E402,F401
+
 
 @pytest.fixture(autouse=True)
 def _reprova_teste_que_tentou_rede(request, recwarn):

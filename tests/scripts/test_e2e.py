@@ -11,30 +11,30 @@ DIAG = "- Causa: impairment\n- Natureza: pontual\n- Evidências: 3T26\n- Impacto
 
 
 def test_conferir_diagnostico_ok():
-    """Test que diagnóstico completo e copiado na íntegra não gera falha."""
+    """Confere que diagnóstico completo e copiado na íntegra não gera falha."""
     final = f"# Relatório\n## Diagnóstico da anomalia\n{DIAG}\n## Riscos"
     assert e2e.conferir_diagnostico(DIAG, final) == []
 
 
 def test_conferir_diagnostico_ignora_espacos_nas_pontas():
-    """Test que o strip() do formatar_relatorio não vira falha."""
+    """Confere que o strip() do formatar_relatorio não vira falha."""
     assert e2e.conferir_diagnostico(DIAG + "\n\n", f"## Diagnóstico\n{DIAG}\n") == []
 
 
 def test_conferir_diagnostico_resumido_falha():
-    """Test que um relatório com as quatro palavras, mas sem o texto do Investigator, falha."""
+    """Confere que um relatório com as quatro palavras, mas sem o texto do Investigator, falha."""
     falhas = e2e.conferir_diagnostico(DIAG, "Causa, Natureza, Evidências e Impacto resumidos.")
     assert falhas == ["o relatório final não traz o diagnóstico do Investigator na íntegra"]
 
 
 def test_conferir_diagnostico_sem_secao():
-    """Test que diagnóstico sem uma seção ainda é acusado."""
+    """Confere que diagnóstico sem uma seção ainda é acusado."""
     diag = DIAG.replace("- Impacto: baixo", "")
     assert "diagnóstico sem as seções: Impacto" in e2e.conferir_diagnostico(diag, diag)
 
 
 def test_conferir_tags_vazadas():
-    """Test que o e2e aponta os agentes cuja resposta repetiu a tag de conteúdo externo, sem repetir nomes."""
+    """Confere que o e2e aponta os agentes cuja resposta repetiu a tag de conteúdo externo, sem repetir nomes."""
     mensagens = [
         ("YFinance", 'Sumário: <conteudo_externo origem="yfinance">...'),
         ("Analyzer", "notícias ok"),

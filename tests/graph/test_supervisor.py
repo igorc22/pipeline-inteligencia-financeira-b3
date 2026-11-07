@@ -43,7 +43,7 @@ def _llm_decide(mock_llm, decision: RouteDecision):
 # ---------------------------------------------------------------------------
 
 def test_supervisor_node_hard_stop(mock_llm):
-    """Test que o supervisor encerra em loop_count >= 6 sem consultar o LLM."""
+    """Confere que o supervisor encerra em loop_count >= 6 sem consultar o LLM."""
     result = supervisor_node(_state([HumanMessage(content="test")], loop_count=6))
     assert result["decidido_por"] == "hard_stop"
     assert result["next_agent"] == "FINISH"
@@ -51,7 +51,7 @@ def test_supervisor_node_hard_stop(mock_llm):
 
 
 def test_supervisor_guard_yfinance_para_analyzer(mock_llm):
-    """Test que, com dados coletados e sem Analyzer, o guard força o Analyzer com tarefa de notícias."""
+    """Confere que, com dados coletados e sem Analyzer, o guard força o Analyzer com tarefa de notícias."""
     state = _state([
         HumanMessage(content="Analise WEGE3"),
         HumanMessage(content="dados...", name="YFinance"),
@@ -67,7 +67,7 @@ def test_supervisor_guard_yfinance_para_analyzer(mock_llm):
 
 
 def test_supervisor_guard_investigator_retorna_finish(mock_llm):
-    """Test que se Investigator já existe no histórico, supervisor retorna FINISH sem LLM."""
+    """Confere que se Investigator já existe no histórico, supervisor retorna FINISH sem LLM."""
     state = _state(
         HISTORICO_ETAPA_4 + [HumanMessage(content="causa identificada...", name="Investigator")],
         loop_count=4,
@@ -83,7 +83,7 @@ QUEDA = SinalAnomalia(tipo="queda_lucro", descricao="Lucro de VALE3.SA caiu 35% 
 
 
 def test_supervisor_guard_sinais_forca_investigator(mock_llm):
-    """Test que, com análise completa e sinal calculado em código, vai ao Investigator sem LLM."""
+    """Confere que, com análise completa e sinal calculado em código, vai ao Investigator sem LLM."""
     state = _state(HISTORICO_ETAPA_4, loop_count=3)
     state["sinais_anomalia"] = [QUEDA]
 
@@ -98,7 +98,7 @@ def test_supervisor_guard_sinais_forca_investigator(mock_llm):
 
 
 def test_supervisor_guard_uma_passagem_do_analyzer_pede_o_setor(mock_llm):
-    """Test que, com 1 passagem do Analyzer, o guard pede o contexto do setor sem consultar o LLM (Etapa 3)."""
+    """Confere que, com 1 passagem do Analyzer, o guard pede o contexto do setor sem consultar o LLM (Etapa 3)."""
     state = _state(HISTORICO_ETAPA_4[:4], loop_count=2)  # só 1 mensagem do Analyzer
 
     result = supervisor_node(state)
@@ -112,7 +112,7 @@ def test_supervisor_guard_uma_passagem_do_analyzer_pede_o_setor(mock_llm):
 
 
 def test_supervisor_guard_sinais_espera_as_duas_passagens_do_analyzer(mock_llm):
-    """Test que o sinal não pula a Etapa 3: com 1 passagem do Analyzer, vai ao setor antes do Investigator."""
+    """Confere que o sinal não pula a Etapa 3: com 1 passagem do Analyzer, vai ao setor antes do Investigator."""
     state = _state(HISTORICO_ETAPA_4[:4], loop_count=2)  # só 1 mensagem do Analyzer
     state["sinais_anomalia"] = [QUEDA]
 
@@ -128,7 +128,7 @@ def test_supervisor_guard_sinais_espera_as_duas_passagens_do_analyzer(mock_llm):
 # ---------------------------------------------------------------------------
 
 def test_supervisor_etapa4_roteia_investigator_com_tarefa(mock_llm):
-    """Test que, quando o LLM detecta anomalia, a task_for_agent entra no histórico como Supervisor."""
+    """Confere que, quando o LLM detecta anomalia, a task_for_agent entra no histórico como Supervisor."""
     tarefa = "Investigue a seguinte anomalia identificada na análise de VALE3: queda de 62% no lucro."
     _llm_decide(mock_llm, RouteDecision(
         reasoning="Queda de lucro sem explicação nas notícias.",
@@ -147,7 +147,7 @@ def test_supervisor_etapa4_roteia_investigator_com_tarefa(mock_llm):
 
 
 def test_supervisor_etapa4_sem_anomalia_finaliza_sem_mensagem(mock_llm):
-    """Test que FINISH não injeta mensagem do Supervisor no histórico, mesmo se o LLM mandar tarefa."""
+    """Confere que FINISH não injeta mensagem do Supervisor no histórico, mesmo se o LLM mandar tarefa."""
     _llm_decide(mock_llm, RouteDecision(
         reasoning="Dados consistentes com as notícias.",
         next_agent="FINISH",
@@ -172,7 +172,7 @@ def test_supervisor_etapa4_sem_anomalia_finaliza_sem_mensagem(mock_llm):
     ("FINISH", "Consolidador"),
 ])
 def test_router(next_agent, destino):
-    """Test que o router mapeia cada decisão para o nó correto (FINISH → Consolidador, que vai ao END)."""
+    """Confere que o router mapeia cada decisão para o nó correto (FINISH → Consolidador, que vai ao END)."""
     assert router(_state([HumanMessage(content="test")], next_agent=next_agent)) == destino
 
 
@@ -181,7 +181,7 @@ def test_router(next_agent, destino):
 # ---------------------------------------------------------------------------
 
 def test_supervisor_prompt_mantem_contratos():
-    """Test que a reescrita em XML manteve o que o pipeline e os guards dependem."""
+    """Confere que a reescrita em XML manteve o que o pipeline e os guards dependem."""
     for trecho in ("SINAIS DE ANOMALIA", "YFinance", "Analyzer", "Investigator", "FINISH",
                    "Um investidor ficaria com dúvida de POR QUE"):
         assert trecho in SUPERVISOR_PROMPT
@@ -190,12 +190,12 @@ def test_supervisor_prompt_mantem_contratos():
 
 
 def test_supervisor_prompt_sem_indentacao_herdada():
-    """Test que nenhuma linha do prompt carrega a indentação de 4 espaços do código antigo."""
+    """Confere que nenhuma linha do prompt carrega a indentação de 4 espaços do código antigo."""
     assert not any(linha.startswith("    -") for linha in SUPERVISOR_PROMPT.splitlines())
 
 
 def test_supervisor_envia_o_prompt_como_system_message(mock_llm):
-    """Test que a etapa 4 sem sinais manda exatamente o SUPERVISOR_PROMPT como primeira mensagem."""
+    """Confere que a etapa 4 sem sinais manda exatamente o SUPERVISOR_PROMPT como primeira mensagem."""
     _llm_decide(mock_llm, RouteDecision(reasoning="ok", next_agent="FINISH"))
 
     supervisor_node(_state(HISTORICO_ETAPA_4, loop_count=3))

@@ -34,3 +34,8 @@ addopts = "--disable-socket"
 markers = [
     "tenta_rede_de_proposito: o teste abre socket de propósito; o conftest não o reprova por isso",
 ]
+# Avisos de depreciação de dentro do LangGraph e do LangSmith, que o projeto não controla
+filterwarnings = [
+    "ignore:The default value of `allowed_objects`",
+    "ignore:langsmith.wrappers._openai_agents is deprecated",
+]

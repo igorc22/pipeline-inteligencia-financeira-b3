@@ -11,13 +11,8 @@ from fluxo_financeiro.agents.investigators import (
 )
 
 
-def test_investigator_agent_existe():
-    """Test que o investigator_agent foi inicializado corretamente."""
-    assert investigator_agent is not None
-
-
 def test_investigator_agent_tem_tools():
-    """Test que o agente tem as 3 tools esperadas."""
+    """Confere que o agente tem as 3 tools esperadas."""
     tool_node = investigator_agent.nodes.get('tools')
     assert tool_node is not None, "Nó 'tools' não encontrado — agent pode estar mal configurado"
 
@@ -59,7 +54,7 @@ class ModeloQueInsisteEmBuscar(BaseChatModel):
 
 @patch('fluxo_financeiro.tools.investigation.pesquisar_na_web', return_value="fato relevante")
 def test_investigator_para_de_buscar_no_limite(mock_pesquisa):
-    """Test que, mesmo com o modelo insistindo, a busca real roda no máximo MAX_BUSCAS vezes
+    """Confere que, mesmo com o modelo insistindo, a busca real roda no máximo MAX_BUSCAS vezes
     e o agente ainda termina com uma conclusão (exit_behavior='continue')."""
     agente = criar_investigator_agent(ModeloQueInsisteEmBuscar())
 

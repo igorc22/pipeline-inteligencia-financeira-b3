@@ -14,7 +14,7 @@ from fluxo_financeiro.tools.financial_data import (
 
 @patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
 def test_buscar_dados_retorna_string(mock_ticker):
-    """Test that buscar_dados_acao_b3 returns a string with expected fields."""
+    """Confere que buscar_dados_acao_b3 traz ticker, preço, P/L, ROE e DY."""
     mock_instance = MagicMock()
     mock_ticker.return_value = mock_instance
     mock_instance.history.return_value = pd.DataFrame(
@@ -35,7 +35,7 @@ def test_buscar_dados_retorna_string(mock_ticker):
 
 @patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
 def test_buscar_dados_envolve_o_sumario(mock_ticker):
-    """Test que o sumário do negócio (texto de terceiros) vai na tag, e indústria e sumário em linhas próprias."""
+    """Confere que o sumário do negócio (texto de terceiros) vai na tag, e indústria e sumário em linhas próprias."""
     mock_instance = MagicMock()
     mock_ticker.return_value = mock_instance
     mock_instance.history.return_value = pd.DataFrame(
@@ -54,7 +54,7 @@ def test_buscar_dados_envolve_o_sumario(mock_ticker):
 
 @patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
 def test_buscar_dados_valida_ticker(mock_ticker):
-    """Test that .SA suffix is handled correctly (not duplicated)."""
+    """Confere que o sufixo .SA é aceito sem ser duplicado."""
     mock_instance = MagicMock()
     mock_ticker.return_value = mock_instance
     mock_instance.history.return_value = pd.DataFrame(
@@ -71,7 +71,7 @@ def test_buscar_dados_valida_ticker(mock_ticker):
 
 @patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
 def test_buscar_dados_ticker_vazio(mock_ticker):
-    """Test behavior when yfinance returns no data."""
+    """Confere a mensagem quando o yfinance não traz dados."""
     mock_instance = MagicMock()
     mock_ticker.return_value = mock_instance
     mock_instance.history.return_value = pd.DataFrame()
@@ -87,7 +87,7 @@ def test_buscar_dados_ticker_vazio(mock_ticker):
 
 @patch('fluxo_financeiro.tools.financial_data.requests.get')
 def test_busca_indicador_bcb_selic(mock_get):
-    """Test que busca_indicador_bcb retorna Selic com unidade anual."""
+    """Confere que busca_indicador_bcb retorna Selic com unidade anual."""
     mock_response = MagicMock()
     mock_response.json.return_value = [{'valor': '10.75', 'data': '09/05/2026'}]
     mock_get.return_value = mock_response
@@ -102,7 +102,7 @@ def test_busca_indicador_bcb_selic(mock_get):
 
 @patch('fluxo_financeiro.tools.financial_data.requests.get')
 def test_busca_indicador_bcb_ipca(mock_get):
-    """Test que IPCA retorna unidade mensal."""
+    """Confere que IPCA retorna unidade mensal."""
     mock_response = MagicMock()
     mock_response.json.return_value = [{'valor': '0.43', 'data': '09/05/2026'}]
     mock_get.return_value = mock_response
@@ -116,7 +116,7 @@ def test_busca_indicador_bcb_ipca(mock_get):
 
 @patch('fluxo_financeiro.tools.financial_data.requests.get')
 def test_busca_indicador_bcb_cdi(mock_get):
-    """Test que CDI retorna unidade anual."""
+    """Confere que CDI retorna unidade anual."""
     mock_response = MagicMock()
     mock_response.json.return_value = [{'valor': '10.65', 'data': '09/05/2026'}]
     mock_get.return_value = mock_response
@@ -129,7 +129,7 @@ def test_busca_indicador_bcb_cdi(mock_get):
 
 @patch('fluxo_financeiro.tools.financial_data.requests.get')
 def test_busca_indicador_bcb_erro_api(mock_get):
-    """Test que retorna dict com 'error' quando API falha."""
+    """Confere que retorna dict com 'error' quando API falha."""
     mock_get.side_effect = Exception("timeout")
 
     result = busca_indicador_bcb.invoke({'input_data': {'indicador': 432}})
@@ -151,7 +151,7 @@ def _hist_fake(n=252):
 @patch('fluxo_financeiro.tools.financial_data.requests.get')
 @patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
 def test_calcular_metricas_risco_retorna_campos(mock_ticker, mock_get):
-    """Test que calcular_metricas_risco retorna string com todas as métricas."""
+    """Confere que calcular_metricas_risco retorna string com todas as métricas."""
     mock_response = MagicMock()
     mock_response.json.return_value = [{'valor': '10.75', 'data': '09/05/2026'}]
     mock_get.return_value = mock_response
@@ -175,7 +175,7 @@ def test_calcular_metricas_risco_retorna_campos(mock_ticker, mock_get):
 @patch('fluxo_financeiro.tools.financial_data.requests.get')
 @patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
 def test_calcular_metricas_risco_usa_selic_bcb(mock_ticker, mock_get):
-    """Test que a Selic buscada no BCB aparece no resultado."""
+    """Confere que a Selic buscada no BCB aparece no resultado."""
     mock_response = MagicMock()
     mock_response.json.return_value = [{'valor': '13.25', 'data': '09/05/2026'}]
     mock_get.return_value = mock_response
@@ -192,7 +192,7 @@ def test_calcular_metricas_risco_usa_selic_bcb(mock_ticker, mock_get):
 @patch('fluxo_financeiro.tools.financial_data.requests.get')
 @patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
 def test_calcular_metricas_risco_fallback_selic(mock_ticker, mock_get):
-    """Test que usa Selic fallback quando BCB está indisponível."""
+    """Confere que usa Selic fallback quando BCB está indisponível."""
     mock_get.side_effect = Exception("timeout")
 
     mock_instance = MagicMock()
@@ -208,7 +208,7 @@ def test_calcular_metricas_risco_fallback_selic(mock_ticker, mock_get):
 @patch('fluxo_financeiro.tools.financial_data.requests.get')
 @patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
 def test_calcular_metricas_risco_ticker_vazio(mock_ticker, mock_get):
-    """Test que retorna mensagem de erro quando ticker não tem dados."""
+    """Confere que retorna mensagem de erro quando ticker não tem dados."""
     mock_response = MagicMock()
     mock_response.json.return_value = [{'valor': '10.75', 'data': '09/05/2026'}]
     mock_get.return_value = mock_response
@@ -228,7 +228,7 @@ def test_calcular_metricas_risco_ticker_vazio(mock_ticker, mock_get):
 
 @patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
 def test_calcular_piotroski_retorna_score(mock_ticker):
-    """Test that calcular_piotroski_score returns a formatted score string."""
+    """Confere que calcular_piotroski_score devolve o score formatado."""
     mock_instance = MagicMock()
     mock_ticker.return_value = mock_instance
 
