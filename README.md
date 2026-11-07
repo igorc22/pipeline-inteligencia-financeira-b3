@@ -16,7 +16,7 @@ Usuário → Supervisor → YFinance → Supervisor → Analyzer (empresa) → S
         → Analyzer (setor) → Supervisor → [Investigator → Supervisor] → FINISH → Consolidador
 ```
 
-Desenhos completos (fluxo, decisões do Supervisor, camadas e serviços) em [`docs/arquitetura.md`](docs/arquitetura.md); o porquê de cada escolha em [`docs/decisoes.md`](docs/decisoes.md).
+Desenhos completos (fluxo, decisões do Supervisor, camadas e serviços) em [`docs/arquitetura.md`](docs/arquitetura.md).
 
 ## Instalação
 
@@ -47,8 +47,6 @@ A busca na web (Google Search) exige faturamento ativo no projeto da chave do Ge
 - **Texto de fora** (busca na web, NewsAPI, descrição da empresa no yfinance): chega aos agentes dentro de `<conteudo_externo>`, com `<` e `>` escapados, e todo prompt diz que esse conteúdo é dado, nunca instrução. Sempre ligado, sem custo.
 - **Checagem por IA** (`SANITIZACAO_ATIVA=true`): antes de chegar aos agentes, o resultado de cada busca passa por um classificador (Gemini Flash-Lite) que diz se o texto tenta dar ordens ao sistema; se sim, ele é trocado por um aviso e entra nas limitações do relatório. Desligada por padrão, para economizar chamadas. O modelo pode ser trocado com `SANITIZACAO_MODELO`.
 
-Detalhes e motivos: D47 a D49 em `docs/decisoes.md`.
-
 ## Limitações conhecidas
 
 - As regras de anomalia (lucro mais de 30% abaixo do mesmo trimestre do ano anterior, prejuízo, Piotroski de 3 ou menos) foram calibradas olhando poucos tickers, basicamente VALE3 e WEGE3. Os limites são constantes em `fluxo_financeiro/tools/anomalias.py`.
@@ -66,6 +64,7 @@ Os atalhos principais estão no `Makefile` (`make help` lista todos). No Windows
 make test          # testes unitários (mockados)
 make streamlit     # dashboard em http://localhost:8501 (cada análise gasta créditos)
 make e2e TICKER=X  # roda o grafo real para um ticker (gasta créditos)
+make e2e-sanitizacao  # VALE3 com a checagem de injeção ligada (uma chamada a mais por busca)
 ```
 
 Sem make:

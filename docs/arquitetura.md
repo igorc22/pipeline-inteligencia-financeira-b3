@@ -1,6 +1,6 @@
 # Arquitetura
 
-Desenho do sistema como ele está hoje. O **porquê** de cada escolha está em [`decisoes.md`](decisoes.md) (as referências `Dxx` abaixo apontam para lá).
+Desenho do sistema como ele está hoje.
 
 Os diagramas são [Mermaid](https://mermaid.js.org/): o GitHub e o VS Code (com a extensão *Markdown Preview Mermaid Support*) desenham direto do texto. Ao mudar a arquitetura, atualize o diagrama no mesmo commit.
 
@@ -8,7 +8,7 @@ Os diagramas são [Mermaid](https://mermaid.js.org/): o GitHub e o VS Code (com 
 
 ## 1. Fluxo do grafo
 
-Um **Supervisor** decide quem trabalha; três **workers** executam e sempre devolvem o controle a ele. Só o Supervisor encerra, e todo encerramento (inclusive o hard stop) passa pelo **Consolidador**, que monta o relatório final (D41).
+Um **Supervisor** decide quem trabalha; três **workers** executam e sempre devolvem o controle a ele. Só o Supervisor encerra, e todo encerramento (inclusive o hard stop) passa pelo **Consolidador**, que monta o relatório final.
 
 ```mermaid
 flowchart TD
@@ -51,18 +51,18 @@ flowchart TD
 |---|---|---|---|
 | 1 | Ainda não há dados do YFinance | YFinance | LLM |
 | 2 | YFinance coletou, Analyzer ainda não rodou | Analyzer (notícias da empresa) | Guard |
-| 3 | Uma passagem do Analyzer | Analyzer (contexto do setor) | Guard (D45) |
-| 4 | Duas passagens do Analyzer **e** sinais de anomalia | Investigator | Guard (D40) |
-| 4 | Duas passagens do Analyzer, **sem** sinais | Investigator ou FINISH | LLM (D25) |
-| fim | Investigator já respondeu | FINISH | Guard (D28) |
-| fim | `loop_count >= 6` | FINISH | Hard stop (D21) |
-| fim | Qualquer FINISH | Consolidador → fim | Router: FINISH sempre vai ao Consolidador (D41) |
+| 3 | Uma passagem do Analyzer | Analyzer (contexto do setor) | Guard |
+| 4 | Duas passagens do Analyzer **e** sinais de anomalia | Investigator | Guard |
+| 4 | Duas passagens do Analyzer, **sem** sinais | Investigator ou FINISH | LLM |
+| fim | Investigator já respondeu | FINISH | Guard |
+| fim | `loop_count >= 6` | FINISH | Hard stop |
+| fim | Qualquer FINISH | Consolidador → fim | Router: FINISH sempre vai ao Consolidador |
 
 ---
 
 ## 2. Como o Supervisor decide
 
-A ordem importa: as regras em código vêm antes e, quando uma delas resolve, o LLM nem é chamado. No trace do LangSmith essas passagens aparecem com **0 tokens** (D36).
+A ordem importa: as regras em código vêm antes e, quando uma delas resolve, o LLM nem é chamado. No trace do LangSmith essas passagens aparecem com **0 tokens**.
 
 ```mermaid
 flowchart TD
@@ -85,7 +85,7 @@ flowchart TD
     class LLM llm
 ```
 
-Sinais calculados em código (`tools/anomalias.py`, D40):
+Sinais calculados em código (`tools/anomalias.py`):
 
 | Sinal | Regra |
 |---|---|
@@ -135,7 +135,7 @@ sequenceDiagram
 
 ## 4. Camadas do código
 
-A dependência flui num único sentido (D03): nenhuma camada importa de uma camada acima dela. A seta tracejada é a única exceção, e ela ainda aponta para baixo: o grafo chama o detector de anomalias direto, porque é cálculo e não agente (D40).
+A dependência flui num único sentido: nenhuma camada importa de uma camada acima dela. A seta tracejada é a única exceção, e ela ainda aponta para baixo: o grafo chama o detector de anomalias direto, porque é cálculo e não agente.
 
 ```mermaid
 flowchart BT
@@ -175,9 +175,9 @@ flowchart BT
     C_AGENTS --> C_SHARED
     C_GRAPH --> C_AGENTS
     C_GRAPH --> C_SHARED
-    GR -.->|"exceção D40"| ANO
+    GR -.->|"exceção: cálculo sem agente"| ANO
     ENTRY --> C_GRAPH
-    ENTRY -->|"validar_ticker (D49)"| C_SHARED
+    ENTRY -->|"validar_ticker"| C_SHARED
 ```
 
 ---
@@ -225,15 +225,15 @@ flowchart LR
 | `next_agent` | Sobrescreve | Decisão do Supervisor: `YFinance`, `Analyzer`, `Investigator` ou `FINISH` (o router troca FINISH pelo Consolidador) |
 | `loop_count` | `operator.add` (soma) | Cada passagem do Supervisor soma 1; hard stop em 6 |
 | `supervisor_reasoning` | Sobrescreve | Justificativa da última decisão (vai para o dashboard) |
-| `decidido_por` | Sobrescreve | Quem decidiu a última passagem do Supervisor: `guard`, `llm` ou `hard_stop` (o dashboard desenha nas setas, D46) |
+| `decidido_por` | Sobrescreve | Quem decidiu a última passagem do Supervisor: `guard`, `llm` ou `hard_stop` (o dashboard desenha nas setas) |
 | `sinais_anomalia` | Sobrescreve | Sinais calculados em código pelo nó do YFinance; alimentam o guard da Etapa 4 |
-| `relatorio` | Sobrescreve | `RelatorioFinal` do Consolidador (resumo, indicadores, contexto, riscos, limitações, diagnóstico copiado do Investigator); `None` se o LLM dele falhou (D42) |
+| `relatorio` | Sobrescreve | `RelatorioFinal` do Consolidador (resumo, indicadores, contexto, riscos, limitações, diagnóstico copiado do Investigator); `None` se o LLM dele falhou |
 
 ---
 
 ## 7. O que ainda não existe
 
-Próximos passos (ver "Próximas decisões em aberto" em [`decisoes.md`](decisoes.md)):
+Próximos passos:
 
-- **Estado estruturado completo**: `sinais_anomalia` e `relatorio` são os campos além das mensagens (D42); dados, notícias e diagnóstico ainda trafegam como texto entre os agentes, e o Supervisor lê o histórico.
+- **Estado estruturado completo**: `sinais_anomalia` e `relatorio` são os campos além das mensagens; dados, notícias e diagnóstico ainda trafegam como texto entre os agentes, e o Supervisor lê o histórico.
 - **Human-in-the-loop, checkpointer e cache de dados**: vindos do desenho de evolução no Excalidraw.
