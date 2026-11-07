@@ -26,7 +26,7 @@ Usuário → Supervisor → YFinance → Supervisor → Analyzer (empresa) → S
         → Analyzer (setor) → Supervisor → [Investigator → Supervisor] → FINISH → Consolidador
 ```
 
-Desenhos completos (fluxo, decisões do Supervisor, camadas e serviços) em [`docs/arquitetura.md`](docs/arquitetura.md).
+Desenhos completos (fluxo, decisões do Supervisor, camadas e serviços) em [`docs/arquitetura.md`](docs/arquitetura.md). A história de por que o projeto ficou assim, decisão por decisão, está em [`docs/decisoes.md`](docs/decisoes.md).
 
 ## Instalação
 
@@ -69,6 +69,15 @@ Onde tirar cada chave: veja [Chaves de API](#chaves-de-api), no topo.
 - Sem faturamento na chave do Gemini, a busca na web falha (erro 429) e as notícias dependem da NewsAPI, que acha pouca coisa sobre ações brasileiras.
 - O classificador da sanitização também é um LLM e pode errar para os dois lados.
 - `busca_indicador_bcb` (SELIC, IPCA e CDI pela API do Banco Central) existe e tem testes, mas nenhum agente a usa por enquanto.
+
+## Próximos passos
+
+- Docker e docker-compose, e deploy na AWS
+- Banco de dados para registrar cada análise (entrada, saída, data e hora)
+- Checkpointer, cache de dados frescos e human-in-the-loop
+- LiteLLM na frente do modelo e busca na web desacoplada do provedor do LLM
+- Grafo mais enxuto e paralelismo com `Send`
+- No fim, expor o pipeline como um agente A2A, para um futuro fluxo de análise de carteira descobrir e chamar
 
 ## Como Usar
 
@@ -140,6 +149,8 @@ fluxo_financeiro/
 scripts/       # e2e.py (teste end-to-end com chamadas reais)
 dashboard/     # app.py (Streamlit) e visao.py (state → o que a tela mostra)
 tests/         # espelha fluxo_financeiro/
+notebooks/     # fluxo_financeiro/01 a 13: cada peça explicada e rodando com as APIs reais
+docs/          # arquitetura.md (diagramas) e decisoes.md (a história das decisões)
 ```
 
 ## Stack
