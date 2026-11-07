@@ -13,7 +13,7 @@ from fluxo_financeiro.shared.utils import extrair_ticker, validar_ticker
     ("ABCDE12 não é ticker", None),              # 5 letras
 ])
 def test_extrair_ticker(texto, esperado):
-    """Test que extrai o ticker da B3 (4 letras + 1-2 dígitos) do pedido do usuário."""
+    """Confere que extrai o ticker da B3 (4 letras + 1-2 dígitos) do pedido do usuário."""
     assert extrair_ticker(texto) == esperado
 
 
@@ -24,5 +24,5 @@ def test_extrair_ticker(texto, esperado):
     ("VALE３", None), ("VALE٣", None), ("ßß3", None),  # dígito fullwidth, dígito árabe, ß que vira SS no upper()
 ])
 def test_validar_ticker(entrada, esperado):
-    """Test que só um ticker da B3 inteiro passa (diferente de extrair_ticker, que procura dentro do texto)."""
+    """Confere que só um ticker da B3 inteiro passa (diferente de extrair_ticker, que procura dentro do texto)."""
     assert validar_ticker(entrada) == esperado

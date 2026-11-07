@@ -29,7 +29,7 @@ REL = RelatorioFinal(
 # ---------------------------------------------------------------------------
 
 def test_formatar_relatorio_tem_secoes_na_ordem():
-    """Test que o relatório tem título com o ticker e as seções na ordem fixa."""
+    """Confere que o relatório tem título com o ticker e as seções na ordem fixa."""
     md = formatar_relatorio(REL, "VALE3")
 
     assert md.startswith("# Relatório: VALE3")
@@ -41,14 +41,14 @@ def test_formatar_relatorio_tem_secoes_na_ordem():
 
 
 def test_formatar_relatorio_sem_diagnostico_omite_secao():
-    """Test que, sem Investigator, a seção de diagnóstico não aparece."""
+    """Confere que, sem Investigator, a seção de diagnóstico não aparece."""
     md = formatar_relatorio(REL.model_copy(update={"diagnostico": None}), "WEGE3")
 
     assert "Diagnóstico" not in md
 
 
 def test_formatar_relatorio_omite_secoes_vazias():
-    """Test que lista vazia não vira título solto no relatório."""
+    """Confere que lista vazia não vira título solto no relatório."""
     md = formatar_relatorio(REL.model_copy(update={"indicadores": [], "riscos": [], "limitacoes": []}), "WEGE3")
 
     assert "## Indicadores" not in md
@@ -57,7 +57,7 @@ def test_formatar_relatorio_omite_secoes_vazias():
 
 
 def test_formatar_relatorio_sem_ticker():
-    """Test que, sem ticker identificado, o título é genérico."""
+    """Confere que, sem ticker identificado, o título é genérico."""
     assert formatar_relatorio(REL, None).startswith("# Relatório da análise")
 
 
@@ -66,7 +66,7 @@ def test_formatar_relatorio_sem_ticker():
 # ---------------------------------------------------------------------------
 
 def test_relatorio_de_emergencia_junta_so_os_agentes():
-    """Test que o fallback junta só as respostas dos workers, sem tarefas nem o pedido."""
+    """Confere que o fallback junta só as respostas dos workers, sem tarefas nem o pedido."""
     msgs = [
         HumanMessage("Analise VALE3"),
         HumanMessage("dados X", name="YFinance"),
@@ -112,7 +112,7 @@ def _enviado(mock_llm):
 
 
 def test_consolidar_envia_so_respostas_dos_agentes(mock_llm):
-    """Test que o LLM recebe o prompt e as respostas dos workers, sem as tarefas do Supervisor."""
+    """Confere que o LLM recebe o prompt e as respostas dos workers, sem as tarefas do Supervisor."""
     consolidar(HIST)
 
     mock_llm.with_structured_output.assert_called_once_with(RelatorioFinal)
@@ -123,7 +123,7 @@ def test_consolidar_envia_so_respostas_dos_agentes(mock_llm):
 
 
 def test_consolidar_copia_diagnostico_do_investigator_literalmente(mock_llm):
-    """Test que o diagnóstico é o texto do Investigator, mesmo se o LLM escrever outro."""
+    """Confere que o diagnóstico é o texto do Investigator, mesmo se o LLM escrever outro."""
     mock_llm.with_structured_output.return_value.invoke.side_effect = (
         lambda _msgs: REL.model_copy(update={"diagnostico": "resumo inventado"})
     )
@@ -134,12 +134,12 @@ def test_consolidar_copia_diagnostico_do_investigator_literalmente(mock_llm):
 
 
 def test_consolidar_sem_investigator_zera_diagnostico(mock_llm):
-    """Test que, sem Investigator no histórico, o diagnóstico fica nulo."""
+    """Confere que, sem Investigator no histórico, o diagnóstico fica nulo."""
     assert consolidar(HIST).diagnostico is None
 
 
 def test_consolidar_aponta_etapas_que_faltaram(mock_llm):
-    """Test que etapas ausentes (hard stop, falha) viram limitações escritas em código."""
+    """Confere que etapas ausentes (hard stop, falha) viram limitações escritas em código."""
     sem_nada = consolidar([HumanMessage("Analise VALE3")])
     assert LIMITACAO_SEM_DADOS in sem_nada.limitacoes
     assert LIMITACAO_SEM_NOTICIAS in sem_nada.limitacoes
@@ -150,7 +150,7 @@ def test_consolidar_aponta_etapas_que_faltaram(mock_llm):
 
 
 def test_consolidar_zera_secoes_de_etapas_que_nao_rodaram(mock_llm):
-    """Test que, sem YFinance/Analyzer, indicadores e contexto do LLM são descartados (não finge ter dados)."""
+    """Confere que, sem YFinance/Analyzer, indicadores e contexto do LLM são descartados (não finge ter dados)."""
     sem_nada = consolidar([HumanMessage("Analise VALE3")])  # REL vem com indicadores e contexto preenchidos
     assert sem_nada.indicadores == []
     assert sem_nada.contexto == ""
@@ -161,7 +161,7 @@ def test_consolidar_zera_secoes_de_etapas_que_nao_rodaram(mock_llm):
 
 
 def test_consolidar_nao_repete_limitacoes(mock_llm):
-    """Test que limitações iguais (a menos de espaços nas pontas) aparecem uma vez, na ordem."""
+    """Confere que limitações iguais (a menos de espaços nas pontas) aparecem uma vez, na ordem."""
     mock_llm.with_structured_output.return_value.invoke.side_effect = lambda _m: REL.model_copy(
         update={"limitacoes": [LIMITACAO_SEM_DADOS + " ", "Sem fatos relevantes", "Sem fatos relevantes"]})
 
@@ -171,7 +171,7 @@ def test_consolidar_nao_repete_limitacoes(mock_llm):
 
 
 def test_consolidar_aponta_setor_que_faltou(mock_llm):
-    """Test que uma passagem só do Analyzer vira limitação de setor; zero ou duas, não."""
+    """Confere que uma passagem só do Analyzer vira limitação de setor; zero ou duas, não."""
     uma = HIST[:4]  # pedido, YFinance, tarefa, 1 Analyzer
     assert LIMITACAO_SEM_SETOR in consolidar(uma).limitacoes
     assert consolidar(uma).contexto == REL.contexto  # o que o Analyzer trouxe continua
@@ -183,7 +183,7 @@ def test_consolidar_aponta_setor_que_faltou(mock_llm):
 
 
 def test_consolidar_erro_do_llm_sobe(mock_llm):
-    """Test que erro do LLM sobe: quem decide o fallback é o nó do grafo."""
+    """Confere que erro do LLM sobe: quem decide o fallback é o nó do grafo."""
     mock_llm.with_structured_output.return_value.invoke.side_effect = Exception("429")
 
     with pytest.raises(Exception, match="429"):

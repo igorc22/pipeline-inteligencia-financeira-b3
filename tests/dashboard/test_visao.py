@@ -43,14 +43,14 @@ FLUXO_NORMAL = [
 
 
 def test_separar_indicador():
-    """Test que separa no primeiro ': ' e devolve None quando não há valor."""
+    """Confere que separa no primeiro ': ' e devolve None quando não há valor."""
     assert separar_indicador("P/L: 5.0x") == ("P/L", "5.0x")
     assert separar_indicador("Abertura: 10:30") == ("Abertura", "10:30")
     assert separar_indicador("Lucro subiu") == ("Lucro subiu", None)
 
 
 def test_montar_passos_fluxo_normal():
-    """Test que cada worker vira um passo com a tarefa e a decisão do Supervisor anterior."""
+    """Confere que cada worker vira um passo com a tarefa e a decisão do Supervisor anterior."""
     passos = montar_passos(FLUXO_NORMAL)
 
     assert [p.rotulo for p in passos] == ["YFinance", "Analyzer (empresa)", "Analyzer (setor)"]
@@ -64,7 +64,7 @@ def test_montar_passos_fluxo_normal():
 
 
 def test_montar_passos_hard_stop():
-    """Test que a 3ª passagem do Analyzer ganha número e que o hard stop é detectado."""
+    """Confere que a 3ª passagem do Analyzer ganha número e que o hard stop é detectado."""
     eventos = [
         _sup("llm", "YFinance", "Colete"),
         _worker("YFinance", "dados"),
@@ -85,7 +85,7 @@ def test_montar_passos_hard_stop():
 
 
 def test_montar_passos_sem_supervisor_antes():
-    """Test que um worker sem Supervisor antes fica sem entrada, decisão e raciocínio."""
+    """Confere que um worker sem Supervisor antes fica sem entrada, decisão e raciocínio."""
     passos = montar_passos([_worker("YFinance", "dados")])
 
     assert passos[0].entrada is None
@@ -102,7 +102,7 @@ def _arestas(dot, origem, destino):
 
 
 def test_dot_do_caminho_supervisor_no_centro():
-    """Test que o Supervisor é o centro: cada ida sai dele, numerada e com quem decidiu; a volta é tracejada."""
+    """Confere que o Supervisor é o centro: cada ida sai dele, numerada e com quem decidiu; a volta é tracejada."""
     dot = dot_do_caminho(montar_passos(FLUXO_NORMAL), decisao_do_fim(FLUXO_NORMAL))
 
     assert len(_arestas(dot, "inicio", "supervisor")) == 1
@@ -117,7 +117,7 @@ def test_dot_do_caminho_supervisor_no_centro():
 
 
 def test_dot_do_caminho_investigator_apagado_so_quando_nao_rodou():
-    """Test que o Investigator aparece apagado, sem seta, quando não rodou; quando roda, ganha a seta numerada."""
+    """Confere que o Investigator aparece apagado, sem seta, quando não rodou; quando roda, ganha a seta numerada."""
     sem = dot_do_caminho(montar_passos(FLUXO_NORMAL), "llm")
     assert "não rodou" in sem
     assert not _arestas(sem, "supervisor", "investigator")
@@ -134,14 +134,14 @@ def test_dot_do_caminho_investigator_apagado_so_quando_nao_rodou():
 
 
 def test_dot_do_caminho_hard_stop_na_seta_final():
-    """Test que o FINISH do hard stop aparece na seta para o Consolidador."""
+    """Confere que o FINISH do hard stop aparece na seta para o Consolidador."""
     dot = dot_do_caminho(montar_passos(FLUXO_NORMAL), "hard_stop")
 
     assert 'label="4 · hard stop"' in _arestas(dot, "supervisor", "consolidador")[0]
 
 
 def test_state_para_json():
-    """Test que o state vira um dict serializável, com mensagens, relatório e sinais."""
+    """Confere que o state vira um dict serializável, com mensagens, relatório e sinais."""
     relatorio = RelatorioFinal(resumo="Lucro caiu.", indicadores=["P/L: 5.0x"], contexto="",
                                riscos=[], limitacoes=[])
     state = {
@@ -161,13 +161,13 @@ def test_state_para_json():
 
 
 def test_escapar_markdown_protege_cifrao():
-    """Test que o $ dos valores em reais não vira fórmula no markdown do Streamlit."""
+    """Confere que o $ dos valores em reais não vira fórmula no markdown do Streamlit."""
     assert escapar_markdown("R$ 3,2 bi contra R$ 5,0 bi") == "R\\$ 3,2 bi contra R\\$ 5,0 bi"
     assert escapar_markdown("sem cifrão") == "sem cifrão"
 
 
 def test_dot_do_caminho_interrompido_nao_desenha_consolidador():
-    """Test que, quando a análise falhou antes do fim, nada chega ao Consolidador e aparece 'Interrompido'."""
+    """Confere que, quando a análise falhou antes do fim, nada chega ao Consolidador e aparece 'Interrompido'."""
     passos = montar_passos(FLUXO_NORMAL[:2])  # só o YFinance rodou
 
     dot = dot_do_caminho(passos, None, consolidou=False)
@@ -179,7 +179,7 @@ def test_dot_do_caminho_interrompido_nao_desenha_consolidador():
 
 
 def test_dividir_indicadores_manda_texto_longo_para_lista():
-    """Test que só valores curtos viram quadro; longos e sem ': ' viram linha de texto inteira."""
+    """Confere que só valores curtos viram quadro; longos e sem ': ' viram linha de texto inteira."""
     longo = "Lucro líquido: R$ 3,2 bi (queda de 45% contra o 2T25)"
     quadros, linhas = dividir_indicadores(["P/L: 5.0x", longo, "Lucro em alta"])
 
@@ -188,7 +188,7 @@ def test_dividir_indicadores_manda_texto_longo_para_lista():
 
 
 def test_dot_do_caminho_raciocinio_vira_tooltip_da_seta():
-    """Test que o raciocínio do Supervisor aparece ao passar o mouse na seta (aspas escapadas no DOT)."""
+    """Confere que o raciocínio do Supervisor aparece ao passar o mouse na seta (aspas escapadas no DOT)."""
     eventos = [_sup("llm", "YFinance", "Colete", 'Sem dados da "PETR4".'), _worker("YFinance", "dados")]
 
     dot = dot_do_caminho(montar_passos(eventos), None)
@@ -197,7 +197,7 @@ def test_dot_do_caminho_raciocinio_vira_tooltip_da_seta():
 
 
 def test_passo_do_consolidador():
-    """Test que o Consolidador vira o último passo, com a decisão de encerrar e o relatório como saída."""
+    """Confere que o Consolidador vira o último passo, com a decisão de encerrar e o relatório como saída."""
     passo = passo_do_consolidador(FLUXO_NORMAL, numero=4)
 
     assert passo.agente == "Consolidador"

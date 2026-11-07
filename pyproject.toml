@@ -4,12 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "estudo-arquitetura-coordenador-langchain"
-version = "0.1.0"
+version = "1.0.0"
 description = "Multi-agent financial intelligence pipeline using LangGraph"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.115.0",
     "ipykernel>=7.2.0",
     "jupyter>=1.1.1",
     "langchain>=1.2.18",
@@ -18,7 +17,6 @@ dependencies = [
     "newsapi-python>=0.2.7",
     "python-dotenv>=1.2.2",
     "streamlit>=1.66.1",
-    "uvicorn>=0.34.0",
     "yfinance>=1.3.0",
 ]
 
@@ -35,4 +33,9 @@ include = ["fluxo_financeiro*", "api*", "dashboard*"]
 addopts = "--disable-socket"
 markers = [
     "tenta_rede_de_proposito: o teste abre socket de propósito; o conftest não o reprova por isso",
+]
+# Avisos de depreciação de dentro do LangGraph e do LangSmith, que o projeto não controla
+filterwarnings = [
+    "ignore:The default value of `allowed_objects`",
+    "ignore:langsmith.wrappers._openai_agents is deprecated",
 ]

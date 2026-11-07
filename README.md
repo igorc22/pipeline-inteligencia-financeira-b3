@@ -1,12 +1,22 @@
-# Pipeline de Inteligência Financeira — B3
+# Pipeline de Inteligência Financeira (B3)
 
 Sistema multi-agente com LLM para análise de ações da B3 usando LangGraph, yfinance e Gemini.
+
+## Chaves de API
+
+| Variável | Onde conseguir | Obrigatória? |
+|---|---|---|
+| `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey): entre com a conta Google e clique em **Create API key** | Sim: é o LLM de todos os agentes e a busca na web |
+| `NEWS_API_KEY` | [newsapi.org/register](https://newsapi.org/register): o plano gratuito (Developer) basta | Só para `buscar_noticias`, a reserva da busca na web |
+| `LANGSMITH_API_KEY` | [smith.langchain.com](https://smith.langchain.com): **Settings → API Keys → Create API Key** | Não: só para ver os traces de cada análise |
+
+A busca na web usa o Google Search pelo Gemini e só funciona com **faturamento ativo** no projeto da chave (crédito pré-pago no AI Studio serve; o crédito de boas-vindas do Google Cloud, não). Sem faturamento, o LLM continua funcionando, mas as buscas devolvem erro e as notícias ficam só com a NewsAPI.
 
 ## Visão Geral
 
 Um **Supervisor** central orquestra três agentes, e um **Consolidador** fecha toda análise com um relatório:
 
-- **YFinance Agent**: coleta dados de mercado (preço, P/L, ROE, DY, histórico), métricas de risco (Sharpe, Sortino, Max Drawdown, VaR, Beta, Alpha) e Piotroski F-Score
+- **YFinance Agent**: coleta dados de mercado (preço, P/L, ROE, DY, histórico) e tem tools para métricas de risco (Sharpe, Sortino, Max Drawdown, VaR, Beta, Alpha) e Piotroski F-Score
 - **Analyzer Agent**: busca notícias (Google Search via Gemini, com a NewsAPI de reserva) em duas passagens, uma sobre a empresa e outra sobre o setor
 - **Investigator Agent** *(condicional)*: acionado só quando o Supervisor detecta uma anomalia; busca fatos relevantes e histórico trimestral para explicar a causa
 - **Consolidador** *(sempre no fim)*: junta dados, notícias, setor e diagnóstico num relatório (resumo, indicadores, riscos e limitações), sem recomendação de compra ou venda
@@ -16,7 +26,7 @@ Usuário → Supervisor → YFinance → Supervisor → Analyzer (empresa) → S
         → Analyzer (setor) → Supervisor → [Investigator → Supervisor] → FINISH → Consolidador
 ```
 
-Desenhos completos (fluxo, decisões do Supervisor, camadas e serviços) em [`docs/arquitetura.md`](docs/arquitetura.md); o porquê de cada escolha em [`docs/decisoes.md`](docs/decisoes.md).
+Desenhos completos (fluxo, decisões do Supervisor, camadas e serviços) em [`docs/arquitetura.md`](docs/arquitetura.md).
 
 ## Instalação
 
@@ -30,7 +40,11 @@ Copie `.env.example` para `.env` e preencha:
 GEMINI_API_KEY=...            # obrigatório (LLM e busca na web)
 NEWS_API_KEY=...               # obrigatório para buscar_noticias
 LOG_LEVEL=INFO                 # opcional
-SANITIZACAO_ATIVA=false        # opcional: true liga a checagem de injeção nas buscas (gasta 1 chamada a mais por busca)
+# LLM_MODEL=gemini-3.5-flash-lite  # opcional: modelo dos agentes (padrão: gemini-3.5-flash-lite)
+
+# opcional: sanitização por IA do texto que volta das buscas
+SANITIZACAO_ATIVA=false        # true liga a checagem de injeção (gasta 1 chamada a mais por busca)
+# SANITIZACAO_MODELO=gemini-3.5-flash-lite  # modelo do classificador (padrão: o mesmo de LLM_MODEL)
 
 # opcional: tracing no LangSmith
 LANGSMITH_TRACING=true
@@ -39,15 +53,22 @@ LANGSMITH_AGENT_ID=pipeline-b3      # não use junto com LANGSMITH_PROJECT
 LANGSMITH_AGENT_ENVIRONMENT=local    # local, development, staging ou production
 ```
 
-A busca na web (Google Search) exige faturamento ativo no projeto da chave do Gemini. Sem isso, as tools de busca devolvem erro e o fluxo segue só com a NewsAPI e os dados do yfinance.
+Onde tirar cada chave: veja [Chaves de API](#chaves-de-api), no topo.
 
 ## Segurança das entradas
 
-- **Ticker:** CLI, API e dashboard só aceitam o código da B3 inteiro (ex: `VALE3`, `TAEE11`, com ou sem `.SA`). Qualquer outra coisa é recusada antes de o grafo rodar (a API responde `400`).
+- **Ticker:** a CLI e o dashboard só aceitam o código da B3 inteiro (ex: `VALE3`, `TAEE11`, com ou sem `.SA`). Qualquer outra coisa é recusada antes de o grafo rodar.
 - **Texto de fora** (busca na web, NewsAPI, descrição da empresa no yfinance): chega aos agentes dentro de `<conteudo_externo>`, com `<` e `>` escapados, e todo prompt diz que esse conteúdo é dado, nunca instrução. Sempre ligado, sem custo.
 - **Checagem por IA** (`SANITIZACAO_ATIVA=true`): antes de chegar aos agentes, o resultado de cada busca passa por um classificador (Gemini Flash-Lite) que diz se o texto tenta dar ordens ao sistema; se sim, ele é trocado por um aviso e entra nas limitações do relatório. Desligada por padrão, para economizar chamadas. O modelo pode ser trocado com `SANITIZACAO_MODELO`.
 
-Detalhes e motivos: D47 a D49 em `docs/decisoes.md`.
+## Limitações conhecidas
+
+- As regras de anomalia (lucro mais de 30% abaixo do mesmo trimestre do ano anterior, prejuízo, Piotroski de 3 ou menos) foram calibradas olhando poucos tickers, basicamente VALE3 e WEGE3. Os limites são constantes em `fluxo_financeiro/tools/anomalias.py`.
+- O yfinance demora para publicar os trimestres: em 02/11/2026, a VALE3 ainda aparecia com o 2T26 como último trimestre, um mês depois do fim do 3T26.
+- O agente YFinance escolhe as tools pelo texto do pedido. Com "Analise a ação X", às vezes ele chama só a de preço e múltiplos, e o relatório sai sem risco e Piotroski.
+- Sem faturamento na chave do Gemini, a busca na web falha (erro 429) e as notícias dependem da NewsAPI, que acha pouca coisa sobre ações brasileiras.
+- O classificador da sanitização também é um LLM e pode errar para os dois lados.
+- `busca_indicador_bcb` (SELIC, IPCA e CDI pela API do Banco Central) existe e tem testes, mas nenhum agente a usa por enquanto.
 
 ## Como Usar
 
@@ -56,8 +77,8 @@ Os atalhos principais estão no `Makefile` (`make help` lista todos). No Windows
 ```bash
 make test          # testes unitários (mockados)
 make streamlit     # dashboard em http://localhost:8501 (cada análise gasta créditos)
-make serve         # API (SSE)
 make e2e TICKER=X  # roda o grafo real para um ticker (gasta créditos)
+make e2e-sanitizacao  # VALE3 com a checagem de injeção ligada (uma chamada a mais por busca)
 ```
 
 Sem make:
@@ -68,14 +89,9 @@ uv run python main.py
 
 # Dashboard → http://localhost:8501
 uv run streamlit run dashboard/app.py
-
-# API → http://127.0.0.1:8000/analyze?ticker=WEGE3
-uv run python serve.py
 ```
 
 O dashboard tem três abas: **Relatório** (resumo, indicadores em quadros, riscos, limitações, notícias e diagnóstico), **Como foi feito** (o caminho da análise desenhado, quem decidiu cada passo e a entrada/saída de cada agente) e **State (JSON)**. Só o botão **Analisar** roda o grafo.
-
-A API expõe `GET /analyze?ticker=WEGE3`: stream SSE com cada passo do grafo.
 
 Via código:
 
@@ -117,11 +133,10 @@ uv run python -c "from fluxo_financeiro.tools.investigation import buscar_histor
 
 ```
 fluxo_financeiro/
-├── shared/    # config, tipos (MessagesState, RouteDecision), logger
-├── tools/     # financial_data, news, investigation
+├── shared/    # config (flags), llm (fábrica do Gemini), types, prompts (tag de conteúdo externo), utils (logger, ticker)
+├── tools/     # financial_data, news, investigation, web_search, anomalias, sanitizacao
 ├── agents/    # collectors (YFinance), analysts (Analyzer), investigators (Investigator), consolidator
 └── graph/     # supervisor (guards + LLM) e StateGraph
-api/           # FastAPI com streaming SSE
 scripts/       # e2e.py (teste end-to-end com chamadas reais)
 dashboard/     # app.py (Streamlit) e visao.py (state → o que a tela mostra)
 tests/         # espelha fluxo_financeiro/
@@ -136,7 +151,6 @@ tests/         # espelha fluxo_financeiro/
 | Dados de mercado | yfinance, API SGS do Banco Central |
 | Notícias | NewsAPI, Google Search (Gemini) |
 | Dashboard | Streamlit (graphviz para o caminho da análise) |
-| API | FastAPI + uvicorn (SSE) |
 | Observabilidade | LangSmith (tracing de agentes, tools e buscas) |
 | Testes | pytest |
 | Ambiente | uv, python-dotenv |
