@@ -3,6 +3,7 @@ from unittest.mock import patch, MagicMock
 import pandas as pd
 from fluxo_financeiro.tools.investigation import buscar_historico_trimestral, buscar_fatos_relevantes
 from fluxo_financeiro.tools.sanitizacao import VereditoInjecao
+from tests.tools.yahoo_falso import com_moeda
 
 
 # ---------------------------------------------------------------------------
@@ -23,6 +24,7 @@ def test_buscar_historico_trimestral_retorna_string(mock_ticker):
     """Confere que retorna string formatada com métricas trimestrais."""
     mock_instance = MagicMock()
     mock_ticker.return_value = mock_instance
+    com_moeda(mock_instance, 'BRL')
     mock_instance.quarterly_financials = _df_trimestral_fake()
 
     result = buscar_historico_trimestral.invoke("VALE3")
@@ -38,6 +40,7 @@ def test_buscar_historico_trimestral_adiciona_sa(mock_ticker):
     """Confere que .SA é adicionado automaticamente ao ticker."""
     mock_instance = MagicMock()
     mock_ticker.return_value = mock_instance
+    com_moeda(mock_instance, 'BRL')
     mock_instance.quarterly_financials = _df_trimestral_fake()
 
     buscar_historico_trimestral.invoke("VALE3")
@@ -50,6 +53,7 @@ def test_buscar_historico_trimestral_sem_dados(mock_ticker):
     """Confere que retorna mensagem amigável quando yfinance não tem dados."""
     mock_instance = MagicMock()
     mock_ticker.return_value = mock_instance
+    com_moeda(mock_instance, 'BRL')
     mock_instance.quarterly_financials = pd.DataFrame()
 
     result = buscar_historico_trimestral.invoke("FAKE99")
@@ -65,6 +69,58 @@ def test_buscar_historico_trimestral_erro_yfinance(mock_ticker):
     result = buscar_historico_trimestral.invoke("VALE3")
 
     assert "Erro" in result
+
+
+def _acao_trimestral(mock_ticker, moeda):
+    mock_instance = com_moeda(MagicMock(), moeda)
+    mock_ticker.return_value = mock_instance
+    mock_instance.quarterly_financials = _df_trimestral_fake()
+    return mock_instance
+
+
+@patch('fluxo_financeiro.tools.investigation.yf.Ticker')
+def test_buscar_historico_trimestral_em_dolar(mock_ticker):
+    """Confere que o histórico avisa que os valores estão em bilhões de US$ quando o demonstrativo é em dólar."""
+    _acao_trimestral(mock_ticker, 'USD')
+
+    result = buscar_historico_trimestral.invoke("VALE3")
+
+    assert "Valores em bilhões de US$" in result
+    assert "R$" not in result.replace("US$", "")
+
+
+@patch('fluxo_financeiro.tools.investigation.yf.Ticker')
+def test_buscar_historico_trimestral_em_real(mock_ticker):
+    """Confere que o histórico avisa que os valores estão em bilhões de R$ quando o demonstrativo é em real."""
+    _acao_trimestral(mock_ticker, 'BRL')
+
+    result = buscar_historico_trimestral.invoke("WEGE3")
+
+    assert "Valores em bilhões de R$" in result
+
+
+@patch('fluxo_financeiro.tools.investigation.yf.Ticker')
+def test_buscar_historico_trimestral_sem_moeda(mock_ticker):
+    """Confere que, sem a moeda na série do Yahoo, o histórico diz que a moeda não foi informada, sem fingir que é real."""
+    _acao_trimestral(mock_ticker, None)
+
+    result = buscar_historico_trimestral.invoke("XPTO3")
+
+    assert "moeda não informada" in result
+    assert "$" not in result
+
+
+@patch('fluxo_financeiro.tools.investigation.yf.Ticker')
+def test_buscar_historico_trimestral_com_moeda_falhando(mock_ticker):
+    """Confere que falha ao buscar a moeda não vira erro: a tabela sai, com a moeda não informada."""
+    _acao_trimestral(mock_ticker, Exception("timeout"))
+
+    result = buscar_historico_trimestral.invoke("VALE3")
+
+    assert "Net Income" in result
+    assert "Erro" not in result
+    assert "moeda não informada" in result
+    mock_ticker.assert_called_once_with("VALE3.SA")
 
 
 # ---------------------------------------------------------------------------

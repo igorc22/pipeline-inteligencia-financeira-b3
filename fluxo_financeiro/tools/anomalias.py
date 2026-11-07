@@ -10,6 +10,7 @@ Regras (calibradas em 02/11/2026 com VALE3, WEGE3, PETR4, ITUB4, MGLU3, BBAS3, A
 - prejuizo: o último trimestre fechou com lucro líquido negativo.
 - piotroski_fraco: Piotroski F-Score anual <= PIOTROSKI_FRACO (faixa "fraca" do projeto).
 Quando o yfinance não traz o dado (trimestre faltando, NaN), a regra é pulada, nunca acusa.
+Os valores saem na moeda dos demonstrativos (financialCurrency), que pode não ser o real.
 """
 import math
 
@@ -18,6 +19,7 @@ import yfinance as yf
 from fluxo_financeiro.shared.types import SinalAnomalia
 from fluxo_financeiro.shared.utils import logger
 from fluxo_financeiro.tools.financial_data import _calcular_score
+from fluxo_financeiro.tools.moeda import com_simbolo, ler_simbolo_moeda
 
 QUEDA_LUCRO_LIMITE = 0.30
 PIOTROSKI_FRACO = 3
@@ -31,7 +33,8 @@ def detectar_sinais_anomalia(ticker: str) -> list[SinalAnomalia]:
     logger.info(f"[anomalias] detectando sinais para {ticker}")
     try:
         acao = yf.Ticker(ticker)
-        sinais = _sinais_trimestrais(ticker, acao.quarterly_financials)
+        simbolo = ler_simbolo_moeda(acao, ticker)
+        sinais = _sinais_trimestrais(ticker, acao.quarterly_financials, simbolo)
         sinais += _sinal_piotroski(ticker, acao)
     except Exception:
         logger.exception(f"[anomalias] falha ao detectar sinais de {ticker}; seguindo sem sinais")
@@ -44,7 +47,11 @@ def _valido(valor) -> bool:
     return valor is not None and not (isinstance(valor, float) and math.isnan(valor))
 
 
-def _sinais_trimestrais(ticker, trimestral) -> list[SinalAnomalia]:
+def _bilhoes(valor: float, simbolo: str) -> str:
+    return com_simbolo(f"{valor / 1e9:.2f} bi", simbolo)
+
+
+def _sinais_trimestrais(ticker, trimestral, simbolo="") -> list[SinalAnomalia]:
     if trimestral is None or trimestral.empty or "Net Income" not in trimestral.index:
         return []
     lucro = trimestral.sort_index(axis=1, ascending=False).loc["Net Income"]
@@ -56,7 +63,7 @@ def _sinais_trimestrais(ticker, trimestral) -> list[SinalAnomalia]:
     if atual < 0:
         sinais.append(SinalAnomalia(
             tipo="prejuizo",
-            descricao=f"{ticker} teve prejuízo líquido de R$ {abs(atual) / 1e9:.2f} bi no trimestre encerrado em {data}.",
+            descricao=f"{ticker} teve prejuízo líquido de {_bilhoes(abs(atual), simbolo)} no trimestre encerrado em {data}.",
         ))
 
     if len(lucro) > TRIMESTRES_NUM_ANO and _valido(lucro.iloc[TRIMESTRES_NUM_ANO]):
@@ -69,7 +76,7 @@ def _sinais_trimestrais(ticker, trimestral) -> list[SinalAnomalia]:
                     descricao=(
                         f"O lucro líquido de {ticker} no trimestre encerrado em {data} caiu {abs(variacao):.0%} "
                         f"em relação ao mesmo trimestre do ano anterior "
-                        f"(R$ {atual / 1e9:.2f} bi contra R$ {ano_anterior / 1e9:.2f} bi)."
+                        f"({_bilhoes(atual, simbolo)} contra {_bilhoes(ano_anterior, simbolo)})."
                     ),
                 ))
     return sinais
