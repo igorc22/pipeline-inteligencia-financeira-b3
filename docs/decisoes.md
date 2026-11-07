@@ -195,7 +195,7 @@ O roadmap original previa Streamlit na Fase 4. Fiz um `dashboard/index.html` ún
 **Por quê:** queria ver o **grafo** se movendo (qual nó está ativo, para onde o Supervisor mandou), e isso é muito mais natural com SVG/JS do que com Streamlit. *(motivo a confirmar)*
 
 ### D46 — Dashboard em Streamlit no lugar do HTML
-`dashboard/app.py` (Streamlit) substitui o `dashboard/index.html`. Abas **Relatório** (abre primeiro: resumo, indicadores em quadros, riscos, limitações, notícias e diagnóstico), **Como foi feito** (o grafo desenhado com graphviz e o Supervisor no centro: cada ida a um agente é uma seta numerada com quem decidiu e o raciocínio no tooltip; a volta ao Supervisor é tracejada; abaixo, um card por passo com o raciocínio do Supervisor, a entrada e a saída, terminando no Consolidador) e **State (JSON)**. O app chama o grafo direto, sem passar pela API. Design: `docs/superpowers/specs/2026-11-02-dashboard-streamlit-design.md`.
+`dashboard/app.py` (Streamlit) substitui o `dashboard/index.html`. Abas **Relatório** (abre primeiro: resumo, indicadores em quadros, riscos, limitações, notícias e diagnóstico), **Como foi feito** (o grafo desenhado com graphviz e o Supervisor no centro: cada ida a um agente é uma seta numerada com quem decidiu e o raciocínio no tooltip; a volta ao Supervisor é tracejada; abaixo, um card por passo com o raciocínio do Supervisor, a entrada e a saída, terminando no Consolidador) e **State (JSON)**. O app chama o grafo direto, sem passar pela API.
 
 **Por quê:** no HTML, os cards começavam recolhidos com altura fixa e o texto sumia (o YFinance cortava no ROE/DY), e o grafo animado, com o Supervisor no centro e setas cruzadas, não deixava ver de relance qual caminho a análise fez. O state já tem o relatório estruturado (D42), e quadros, abas e expansores vêm prontos no Streamlit. Para o desenho, o caminho percorrido em linha se lê melhor que o grafo inteiro animado.
 
@@ -208,8 +208,6 @@ O roadmap original previa Streamlit na Fase 4. Fiz um `dashboard/index.html` ún
 ---
 
 ## Parte 7 — Investigator condicional (em andamento)
-
-Plano completo: `docs/superpowers/plans/2026-05-11-investigator-condicional.md`.
 
 ### D24 — Um agente que explica o **porquê**, não o **quê**
 **Problema:** o pipeline reportava números ("lucro caiu 60%") mas não explicava a causa. Um investidor lendo isso fica com a pergunta mais importante sem resposta.
@@ -354,8 +352,6 @@ O state ganhou só o campo `relatorio` (`RelatorioFinal`: resumo, indicadores, c
 ---
 
 ## Parte 11 — Segurança das entradas
-
-Plano: `docs/superpowers/plans/2026-11-02-sanitizacao.md`.
 
 ### D47 — Prompts em XML e conteúdo externo dentro de uma tag que fecha
 Todos os prompts (Supervisor, YFinance, Analyzer, Investigator, Consolidador e os dois prompts de busca) passaram a ter seções em tags: `<papel>`, `<ferramentas>`, `<processo>`, `<formato_resposta>`, `<regras>`, `<seguranca>`. Todo texto que vem de fora do sistema chega aos agentes dentro de `<conteudo_externo origem="google_search|newsapi|yfinance">...</conteudo_externo>`, e cada prompt termina com a mesma regra (`REGRA_CONTEUDO_EXTERNO`, em `shared/prompts.py`): o que está na tag é dado, nunca instrução. Os `<` e `>` do texto externo viram `&lt;` e `&gt;`, então uma notícia não consegue escrever `</conteudo_externo>` e "sair" da tag. Os insumos do Consolidador também viraram tags (`<pedido_usuario>`, `<resposta_agente nome="..." n="...">`).
