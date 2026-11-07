@@ -6,6 +6,7 @@ from langchain_core.tools import tool
 from fluxo_financeiro.shared.prompts import envolver_conteudo_externo
 from fluxo_financeiro.shared.types import ConsultaBCBInput
 from fluxo_financeiro.shared.utils import logger
+from fluxo_financeiro.tools.moeda import com_simbolo, ler_simbolo_moeda
 from typing import Any, Dict
 
 @tool
@@ -186,8 +187,11 @@ def calcular_metricas_risco(ticker: str) -> str:
         return f"Erro ao calcular métricas de risco para {ticker}: {e}"
 
 
-def _calcular_score(df_demonstrativo, df_balanco, df_fluxo_caixa) -> dict:
-    """Implementa os 9 critérios do Piotroski F-Score com dados anuais do yfinance."""
+def _calcular_score(df_demonstrativo, df_balanco, df_fluxo_caixa, simbolo: str = "") -> dict:
+    """Implementa os 9 critérios do Piotroski F-Score com dados anuais do yfinance.
+
+    `simbolo` é o da moeda dos demonstrativos (ver tools/moeda.py); vazio, os valores saem sem símbolo.
+    """
     score = 0
     details = {}
 
@@ -208,23 +212,23 @@ def _calcular_score(df_demonstrativo, df_balanco, df_fluxo_caixa) -> dict:
     # 1. Net Income > 0
     if ni > 0:
         score += 1
-        details['net_income'] = f"[OK] Net Income positivo (R$ {ni/1e9:.2f}B)"
+        details['net_income'] = f"[OK] Net Income positivo ({com_simbolo(f'{ni/1e9:.2f}B', simbolo)})"
     else:
-        details['net_income'] = f"[NAO] Net Income negativo (R$ {ni/1e9:.2f}B)"
+        details['net_income'] = f"[NAO] Net Income negativo ({com_simbolo(f'{ni/1e9:.2f}B', simbolo)})"
 
     # 2. OCF > 0
     if ocf > 0:
         score += 1
-        details['ocf'] = f"[OK] Operating Cash Flow positivo (R$ {ocf/1e9:.2f}B)"
+        details['ocf'] = f"[OK] Operating Cash Flow positivo ({com_simbolo(f'{ocf/1e9:.2f}B', simbolo)})"
     else:
-        details['ocf'] = f"[NAO] Operating Cash Flow negativo (R$ {ocf/1e9:.2f}B)"
+        details['ocf'] = f"[NAO] Operating Cash Flow negativo ({com_simbolo(f'{ocf/1e9:.2f}B', simbolo)})"
 
     # 3. Net Income crescente
     if ni > prv_ni:
         score += 1
-        details['ni_growth'] = f"[OK] Net Income cresceu ({ni/1e9:.2f}B vs {prv_ni/1e9:.2f}B)"
+        details['ni_growth'] = f"[OK] Net Income cresceu ({com_simbolo(f'{ni/1e9:.2f}B', simbolo)} vs {com_simbolo(f'{prv_ni/1e9:.2f}B', simbolo)})"
     else:
-        details['ni_growth'] = f"[NAO] Net Income diminuiu ({ni/1e9:.2f}B vs {prv_ni/1e9:.2f}B)"
+        details['ni_growth'] = f"[NAO] Net Income diminuiu ({com_simbolo(f'{ni/1e9:.2f}B', simbolo)} vs {com_simbolo(f'{prv_ni/1e9:.2f}B', simbolo)})"
 
     # 4. Qualidade do lucro: OCF > NI
     if ocf > ni:
@@ -330,7 +334,8 @@ def calcular_piotroski_score(ticker: str) -> str:
             logger.warning(f"[tool] calcular_piotroski_score: dados insuficientes para {ticker}")
             return f"Dados financeiros insuficientes para calcular Piotroski de {ticker}."
 
-        resultado = _calcular_score(df_demonstrativo, df_balanco, df_fluxo_caixa)
+        simbolo = ler_simbolo_moeda(acao, ticker)
+        resultado = _calcular_score(df_demonstrativo, df_balanco, df_fluxo_caixa, simbolo)
 
         score = resultado['piotroski_score']
         interpretation = resultado['interpretation']

@@ -4,6 +4,7 @@ from langchain_core.tools import tool
 
 from fluxo_financeiro.shared.prompts import escapar_tags
 from fluxo_financeiro.shared.utils import logger
+from fluxo_financeiro.tools.moeda import ler_simbolo_moeda
 from fluxo_financeiro.tools.sanitizacao import tratar_conteudo_externo
 from fluxo_financeiro.tools.web_search import pesquisar_na_web, registrar_falha_busca
 
@@ -37,7 +38,12 @@ def buscar_historico_trimestral(ticker: str) -> str:
         linhas_interesse = ['Net Income', 'Total Revenue', 'Gross Profit']
         df_filtrado = df.loc[df.index.isin(linhas_interesse), colunas]
 
-        resultado = f"Histórico Trimestral de {ticker} (últimos {len(colunas)} trimestres):\n\n"
+        simbolo = ler_simbolo_moeda(acao, ticker)
+        resultado = f"Histórico Trimestral de {ticker} (últimos {len(colunas)} trimestres):\n"
+        resultado += (
+            f"Valores em bilhões de {simbolo} (moeda dos demonstrativos).\n\n" if simbolo
+            else "Valores em bilhões (moeda não informada pelo yfinance).\n\n"
+        )
         resultado += f"{'Métrica':<20}"
         for col in colunas:
             resultado += f"{str(col.date()):<14}"

@@ -4,15 +4,17 @@ import pandas as pd
 import pytest
 
 from fluxo_financeiro.tools.anomalias import PIOTROSKI_FRACO, detectar_sinais_anomalia
+from tests.tools.yahoo_falso import com_moeda
 
 NAN = float("nan")
 NAO_VAZIO = pd.DataFrame({"x": [1.0]})
 
 
-def _acao(lucros, piotroski=7):
+def _acao(lucros, piotroski=7, moeda="BRL"):
     """Ação fake: `lucros` do trimestre mais recente para o mais antigo, em bilhões."""
     datas = pd.date_range(end="2026-06-30", periods=len(lucros), freq="QE")[::-1]
     acao = MagicMock()
+    com_moeda(acao, moeda)
     acao.quarterly_financials = pd.DataFrame([[v * 1e9 for v in lucros]], index=["Net Income"], columns=datas)
     acao.financials = acao.balance_sheet = acao.cashflow = NAO_VAZIO
     return acao, {"piotroski_score": piotroski, "interpretation": "", "details": {}}
@@ -22,10 +24,11 @@ def _acao(lucros, piotroski=7):
 def mock_yf():
     with patch("fluxo_financeiro.tools.anomalias.yf.Ticker") as ticker, \
          patch("fluxo_financeiro.tools.anomalias._calcular_score") as score:
-        def configurar(lucros, piotroski=7):
-            acao, resultado = _acao(lucros, piotroski)
+        def configurar(lucros, piotroski=7, moeda="BRL"):
+            acao, resultado = _acao(lucros, piotroski, moeda)
             ticker.return_value = acao
             score.return_value = resultado
+            return acao
         yield configurar
 
 
@@ -99,3 +102,47 @@ def test_erro_no_yfinance_devolve_lista_vazia():
     """Confere que falha de rede ou ticker inexistente não derruba o fluxo: segue sem sinais."""
     with patch("fluxo_financeiro.tools.anomalias.yf.Ticker", side_effect=Exception("timeout")):
         assert detectar_sinais_anomalia("VALE3") == []
+
+
+def test_queda_de_lucro_em_dolar_usa_us(mock_yf):
+    """Confere que demonstrativo em dólar (caso VALE3) sai como US$, não como R$."""
+    mock_yf([1.26, 1.5, 1.6, 1.7, 2.69, 2.0], moeda="USD")
+
+    descricao = detectar_sinais_anomalia("VALE3")[0].descricao
+
+    assert "US$ 1.26 bi contra US$ 2.69 bi" in descricao
+    assert "R$" not in descricao.replace("US$", "")
+
+
+def test_queda_de_lucro_em_real_usa_r(mock_yf):
+    """Confere que demonstrativo em real continua saindo como R$."""
+    mock_yf([1.38, 1.5, 1.6, 1.7, 2.12, 2.0], moeda="BRL")
+
+    assert "R$ 1.38 bi contra R$ 2.12 bi" in detectar_sinais_anomalia("WEGE3")[0].descricao
+
+
+def test_queda_de_lucro_sem_moeda_nao_finge_real(mock_yf):
+    """Confere que, sem a moeda na série do Yahoo, sai só o número, sem símbolo de moeda."""
+    mock_yf([1.38, 1.5, 1.6, 1.7, 2.12, 2.0], moeda=None)
+
+    descricao = detectar_sinais_anomalia("XPTO3")[0].descricao
+
+    assert "(1.38 bi contra 2.12 bi)" in descricao
+    assert "$" not in descricao
+
+
+def test_prejuizo_em_dolar_usa_us(mock_yf):
+    """Confere que o prejuízo em dólar sai como US$."""
+    mock_yf([-0.07, -0.05, 0.01, -0.03, -0.02, 0.0], moeda="USD")
+
+    assert "prejuízo líquido de US$ 0.07 bi" in detectar_sinais_anomalia("XPTO3")[0].descricao
+
+
+def test_falha_ao_ler_moeda_mantem_os_sinais(mock_yf):
+    """Confere que falha ao buscar a moeda não apaga os sinais: eles saem sem símbolo."""
+    mock_yf([1.38, 1.5, 1.6, 1.7, 2.12, 2.0], moeda=Exception("timeout"))
+
+    sinais = detectar_sinais_anomalia("VALE3")
+
+    assert _tipos(sinais) == ["queda_lucro"]
+    assert "$" not in sinais[0].descricao

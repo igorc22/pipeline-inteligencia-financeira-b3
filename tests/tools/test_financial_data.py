@@ -6,6 +6,7 @@ from fluxo_financeiro.tools.financial_data import (
     calcular_metricas_risco,
     calcular_piotroski_score,
 )
+from tests.tools.yahoo_falso import com_moeda
 
 
 # ---------------------------------------------------------------------------
@@ -226,11 +227,9 @@ def test_calcular_metricas_risco_ticker_vazio(mock_ticker, mock_get):
 # calcular_piotroski_score
 # ---------------------------------------------------------------------------
 
-@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
-def test_calcular_piotroski_retorna_score(mock_ticker):
-    """Confere que calcular_piotroski_score devolve o score formatado."""
-    mock_instance = MagicMock()
-    mock_ticker.return_value = mock_instance
+def _acao_piotroski(moeda='BRL'):
+    """Ação fake com demonstrativos anuais de dois anos e a série do Yahoo com a moeda (BRL se não informada)."""
+    mock_instance = com_moeda(MagicMock(), moeda)
 
     dates = pd.date_range('2024-01-01', periods=2, freq='QE')
 
@@ -249,9 +248,64 @@ def test_calcular_piotroski_retorna_score(mock_ticker):
         index=['Operating Cash Flow'],
         columns=dates
     )
+    return mock_instance
+
+
+@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
+def test_calcular_piotroski_retorna_score(mock_ticker):
+    """Confere que calcular_piotroski_score devolve o score formatado."""
+    mock_ticker.return_value = _acao_piotroski()
 
     result = calcular_piotroski_score.invoke("WEGE3")
 
     assert isinstance(result, str)
     assert "Piotroski F-Score" in result
     assert "/9" in result
+
+
+@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
+def test_calcular_piotroski_em_dolar_usa_us(mock_ticker):
+    """Confere que Net Income, OCF e a variação do lucro em dólar (caso VALE3) saem como US$, não como R$."""
+    mock_ticker.return_value = _acao_piotroski('USD')
+
+    result = calcular_piotroski_score.invoke("VALE3")
+
+    assert "Net Income positivo (US$ 0.80B)" in result
+    assert "Operating Cash Flow positivo (US$ 1.00B)" in result
+    assert "Net Income diminuiu (US$ 0.80B vs US$ 1.00B)" in result
+    assert "R$" not in result.replace("US$", "")
+
+
+@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
+def test_calcular_piotroski_em_real_usa_r(mock_ticker):
+    """Confere que Net Income, OCF e a variação do lucro em real continuam saindo como R$."""
+    mock_ticker.return_value = _acao_piotroski('BRL')
+
+    result = calcular_piotroski_score.invoke("WEGE3")
+
+    assert "Net Income positivo (R$ 0.80B)" in result
+    assert "Operating Cash Flow positivo (R$ 1.00B)" in result
+    assert "Net Income diminuiu (R$ 0.80B vs R$ 1.00B)" in result
+
+
+@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
+def test_calcular_piotroski_sem_moeda_nao_finge_real(mock_ticker):
+    """Confere que, sem a moeda na série do Yahoo, os valores saem sem símbolo de moeda."""
+    mock_ticker.return_value = _acao_piotroski(None)
+
+    result = calcular_piotroski_score.invoke("XPTO3")
+
+    assert "Net Income positivo (0.80B)" in result
+    assert "$" not in result
+
+
+@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
+def test_calcular_piotroski_com_moeda_falhando(mock_ticker):
+    """Confere que falha ao buscar a moeda não vira erro: o score sai, sem símbolo de moeda."""
+    mock_ticker.return_value = _acao_piotroski(Exception("timeout"))
+
+    result = calcular_piotroski_score.invoke("VALE3")
+
+    assert "Piotroski F-Score" in result
+    assert "Erro" not in result
+    assert "$" not in result
