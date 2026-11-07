@@ -12,6 +12,8 @@ os.environ["LANGCHAIN_TRACING_V2"] = "false"
 # Com SANITIZACAO_ATIVA=true no .env, cada tool de busca chamaria o classificador (Gemini) nos testes.
 # Os testes que precisam da flag ligada fazem patch no módulo e mockam o LLM.
 os.environ["SANITIZACAO_ATIVA"] = "false"
+# A deepeval manda telemetria por padrão (PostHog e OpenTelemetry) ao ser importada; aqui fica desligada.
+os.environ["DEEPEVAL_TELEMETRY_OPT_OUT"] = "1"
 
 pytest_plugins = ["pytester"]
 
