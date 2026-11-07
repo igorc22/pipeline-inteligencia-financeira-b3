@@ -4,7 +4,7 @@
 TICKER ?= VALE3
 
 .DEFAULT_GOAL := help
-.PHONY: help install test test-tools test-agents test-graph check run streamlit e2e e2e-anomalia e2e-estavel e2e-sanitizacao notebook clean
+.PHONY: help install test test-tools test-agents test-graph check run streamlit e2e e2e-anomalia e2e-estavel e2e-sanitizacao eval-fixtures notebook clean
 
 help:
 	@echo Alvos disponiveis:
@@ -20,6 +20,7 @@ help:
 	@echo   make e2e-anomalia    - e2e com VALE3, espera o Investigator ativado
 	@echo   make e2e-estavel     - e2e com WEGE3, espera o Investigator NAO ativado
 	@echo   make e2e-sanitizacao - e2e com VALE3 e a sanitizacao por IA ligada, uma chamada a mais por busca
+	@echo   make eval-fixtures   - gera as fixtures dos evals com analises reais de VALE3 e WEGE3, GASTA CREDITOS
 	@echo   make notebook        - abre o Jupyter
 	@echo   make clean           - apaga os caches __pycache__ e .pytest_cache
 
@@ -60,6 +61,10 @@ e2e-estavel:
 e2e-sanitizacao: export SANITIZACAO_ATIVA = true
 e2e-sanitizacao:
 	uv run python scripts/e2e.py VALE3 --espera-investigator
+
+eval-fixtures:
+	uv run python scripts/gerar_fixture_eval.py VALE3
+	uv run python scripts/gerar_fixture_eval.py WEGE3
 
 notebook:
 	uv run jupyter notebook
