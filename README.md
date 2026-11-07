@@ -2,6 +2,16 @@
 
 Sistema multi-agente com LLM para análise de ações da B3 usando LangGraph, yfinance e Gemini.
 
+## Chaves de API
+
+| Variável | Onde conseguir | Obrigatória? |
+|---|---|---|
+| `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey): entre com a conta Google e clique em **Create API key** | Sim: é o LLM de todos os agentes e a busca na web |
+| `NEWS_API_KEY` | [newsapi.org/register](https://newsapi.org/register): o plano gratuito (Developer) basta | Só para `buscar_noticias`, a reserva da busca na web |
+| `LANGSMITH_API_KEY` | [smith.langchain.com](https://smith.langchain.com): **Settings → API Keys → Create API Key** | Não: só para ver os traces de cada análise |
+
+A busca na web usa o Google Search pelo Gemini e só funciona com **faturamento ativo** no projeto da chave (crédito pré-pago no AI Studio serve; o crédito de boas-vindas do Google Cloud, não). Sem faturamento, o LLM continua funcionando, mas as buscas devolvem erro e as notícias ficam só com a NewsAPI.
+
 ## Visão Geral
 
 Um **Supervisor** central orquestra três agentes, e um **Consolidador** fecha toda análise com um relatório:
@@ -30,7 +40,11 @@ Copie `.env.example` para `.env` e preencha:
 GEMINI_API_KEY=...            # obrigatório (LLM e busca na web)
 NEWS_API_KEY=...               # obrigatório para buscar_noticias
 LOG_LEVEL=INFO                 # opcional
-SANITIZACAO_ATIVA=false        # opcional: true liga a checagem de injeção nas buscas (gasta 1 chamada a mais por busca)
+# LLM_MODEL=gemini-3.5-flash-lite  # opcional: modelo dos agentes (padrão: gemini-3.5-flash-lite)
+
+# opcional: sanitização por IA do texto que volta das buscas
+SANITIZACAO_ATIVA=false        # true liga a checagem de injeção (gasta 1 chamada a mais por busca)
+# SANITIZACAO_MODELO=gemini-3.5-flash-lite  # modelo do classificador (padrão: o mesmo de LLM_MODEL)
 
 # opcional: tracing no LangSmith
 LANGSMITH_TRACING=true
@@ -39,7 +53,7 @@ LANGSMITH_AGENT_ID=pipeline-b3      # não use junto com LANGSMITH_PROJECT
 LANGSMITH_AGENT_ENVIRONMENT=local    # local, development, staging ou production
 ```
 
-A busca na web (Google Search) exige faturamento ativo no projeto da chave do Gemini. Sem isso, as tools de busca devolvem erro e o fluxo segue só com a NewsAPI e os dados do yfinance.
+Onde tirar cada chave: veja [Chaves de API](#chaves-de-api), no topo.
 
 ## Segurança das entradas
 
