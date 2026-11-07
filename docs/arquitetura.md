@@ -1,6 +1,6 @@
 # Arquitetura
 
-Desenho do sistema como ele está hoje.
+Desenho do sistema como ele está hoje. A história de por que ele ficou assim está em [`decisoes.md`](decisoes.md).
 
 Os diagramas são [Mermaid](https://mermaid.js.org/): o GitHub e o VS Code (com a extensão *Markdown Preview Mermaid Support*) desenham direto do texto. Ao mudar a arquitetura, atualize o diagrama no mesmo commit.
 
@@ -233,7 +233,20 @@ flowchart LR
 
 ## 7. O que ainda não existe
 
+Limites do desenho atual:
+
+- **Estado estruturado incompleto**: `sinais_anomalia` e `relatorio` são os campos além das mensagens. Dados, notícias e diagnóstico ainda trafegam como texto entre os agentes, e o Supervisor lê o histórico.
+- **Erros como texto**: uma tool que falha devolve `"Erro ao ..."`, e o Supervisor não distingue falha de "sem dados" sem ler a mensagem.
+- **Pesquisas sobrepostas**: o Analyzer (duas passagens) e o Investigator pesquisam na web com focos diferentes.
+
 Próximos passos:
 
-- **Estado estruturado completo**: `sinais_anomalia` e `relatorio` são os campos além das mensagens; dados, notícias e diagnóstico ainda trafegam como texto entre os agentes, e o Supervisor lê o histórico.
-- **Human-in-the-loop, checkpointer e cache de dados**: vindos do desenho de evolução no Excalidraw.
+- **Infraestrutura**: Docker e docker-compose, e deploy na AWS em cima do container.
+- **Persistência**: um banco de dados para registrar as chamadas (entrada e saída de cada análise, com data e hora).
+- **Checkpointer e cache de dados frescos**: o checkpointer guarda o estado de uma análise para ela poder ser retomada, e o cache evita buscar de novo no yfinance um dado que acabou de chegar.
+- **Human-in-the-loop**: a análise pausa (`interrupt()`) para esperar uma resposta e continua de onde parou, o que depende do checkpointer.
+- **Provedor genérico**: um LiteLLM na frente do modelo.
+- **Busca desacoplada do modelo**: uma API de busca dedicada (Tavily, Brave, Serper), para a troca de LLM não quebrar a busca.
+- **Grafo mais enxuto**: menos nós e etapas, talvez juntando as pesquisas que hoje se sobrepõem.
+- **Paralelismo com `Send`**: dados primeiro, depois analista e pesquisa ao mesmo tempo.
+- **A2A**: no fim, expor o fluxo como um agente A2A, que um futuro fluxo de análise de carteira consiga descobrir e chamar, com o `relatorio` em JSON como resposta.
