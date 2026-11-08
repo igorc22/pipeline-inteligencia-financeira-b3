@@ -19,6 +19,10 @@ from fluxo_financeiro.shared.config import BRAPI_API_KEY
 from fluxo_financeiro.shared.utils import SUGESTAO_TICKER, TICKER_NAO_ENCONTRADO, logger
 
 TIMEOUT_SEGUNDOS = 10
+# O SDK repete 2 vezes por padrão em timeout, 429 e 5xx: com a Brapi fora do ar, a entrada esperaria
+# mais de 30 s antes de a análise começar, e no 429 as repetições gastariam a cota. Uma tentativa só:
+# se falhar, o yfinance é a reserva.
+MAX_RETENTATIVAS = 0
 # A lista do setor vem paginada; 3 páginas de 100 cobrem os setores da B3 com folga.
 MAX_PAGINAS_SETOR = 3
 ITENS_POR_PAGINA = 100
@@ -33,7 +37,7 @@ def criar_cliente() -> brapi.Brapi:
     """
     if not BRAPI_API_KEY:
         raise brapi.BrapiError("BRAPI_API_KEY não configurada")
-    return brapi.Brapi(api_key=BRAPI_API_KEY, timeout=TIMEOUT_SEGUNDOS)
+    return brapi.Brapi(api_key=BRAPI_API_KEY, timeout=TIMEOUT_SEGUNDOS, max_retries=MAX_RETENTATIVAS)
 
 
 @dataclass(frozen=True)

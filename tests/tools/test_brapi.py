@@ -109,6 +109,22 @@ def test_ticker_existe_sem_chave_nao_levanta(monkeypatch):
         brapi_mod.criar_cliente.cache_clear()
 
 
+def test_criar_cliente_sem_retentativas():
+    """Confere que o cliente não repete a chamada (o SDK repete 2 vezes por padrão em timeout, 429 e 5xx).
+
+    Com a Brapi fora do ar, cada repetição seguraria a entrada por mais 10 s antes da análise começar.
+    Criar o cliente não faz chamada de rede.
+    """
+    brapi_mod.criar_cliente.cache_clear()
+    try:
+        with patch("fluxo_financeiro.tools.brapi.BRAPI_API_KEY", "token-falso"):
+            cliente_real = brapi_mod.criar_cliente()
+        assert cliente_real.max_retries == brapi_mod.MAX_RETENTATIVAS == 0
+        assert cliente_real.timeout == brapi_mod.TIMEOUT_SEGUNDOS
+    finally:
+        brapi_mod.criar_cliente.cache_clear()
+
+
 def test_importar_nao_cria_cliente():
     """Confere que importar o módulo não cria o cliente (nem exige o token)."""
     brapi_mod.criar_cliente.cache_clear()

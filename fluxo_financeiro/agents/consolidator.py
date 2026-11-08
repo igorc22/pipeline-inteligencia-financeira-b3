@@ -97,7 +97,7 @@ def consolidar(messages: list[BaseMessage]) -> RelatorioFinal:
     elif sum(getattr(m, "name", None) == "Analyzer" for m in messages) == 1:
         # Só a passagem da empresa rodou (ex: hard stop): o contexto dela fica, mas falta o setor.
         limitacoes.append(LIMITACAO_SEM_SETOR)
-    # A tool termina com o aviso quando a Brapi não respondeu; o prompt do YFinance manda repassar a linha.
+    # A tool termina com o aviso quando a Brapi não respondeu; o yfinance_node garante a linha na mensagem.
     if any(getattr(m, "name", None) == "YFinance" and AVISO_PERFIL_RESERVA in m.text for m in messages):
         limitacoes.append(LIMITACAO_PERFIL_RESERVA)
     # O LLM pode repetir uma limitação escrita aqui: remove repetidas, mantendo a ordem.
