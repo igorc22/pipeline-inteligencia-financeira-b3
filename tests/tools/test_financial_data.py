@@ -302,13 +302,14 @@ def test_buscar_dados_ticker_vazio(mock_ticker):
 
 @patch('fluxo_financeiro.tools.financial_data.requests.get')
 def test_busca_indicador_bcb_selic(mock_get):
-    """Confere que busca_indicador_bcb retorna Selic com unidade anual."""
+    """Confere que busca_indicador_bcb retorna Selic com unidade anual e usa o timeout de 5 s."""
     mock_response = MagicMock()
     mock_response.json.return_value = [{'valor': '10.75', 'data': '09/05/2026'}]
     mock_get.return_value = mock_response
 
     result = busca_indicador_bcb.invoke({'input_data': {'indicador': 432}})
 
+    assert mock_get.call_args.kwargs['timeout'] == 5
     assert result['indicador'] == 'SELIC_META'
     assert result['valor'] == 10.75
     assert result['unidade'] == '% a.a.'

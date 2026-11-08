@@ -18,6 +18,7 @@ FONTE_COM_BRAPI = "Fonte: cotação e perfil da Brapi; P/L, ROE, DY e histórico
 # e o P/L dizia 77,2. Mostrar os dois lado a lado seria contraditório, e a fidelidade dos evals não pega
 # (o número está na fonte). O LPA só aparece quando preço / LPA fica a até 10% do P/L.
 TOLERANCIA_LPA = 0.10
+TIMEOUT_BCB = 5
 
 
 def _numero(valor) -> Optional[float]:
@@ -165,7 +166,7 @@ def busca_indicador_bcb(input_data: ConsultaBCBInput) -> Dict[str, Any]:
 
     logger.info(f"[tool] busca_indicador_bcb: indicador={input_data.indicador.name}")
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=TIMEOUT_BCB)
         response.raise_for_status()
         dados = response.json()[0]
 
@@ -231,7 +232,7 @@ def calcular_metricas_risco(ticker: str) -> str:
     try:
         resp = requests.get(
             "https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json",
-            timeout=5,
+            timeout=TIMEOUT_BCB,
         )
         SELIC_ANUAL = float(resp.json()[0]["valor"]) / 100
     except Exception:
