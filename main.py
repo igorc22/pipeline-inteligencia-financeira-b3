@@ -4,6 +4,9 @@ from fluxo_financeiro.shared.utils import TICKER_INVALIDO, validar_ticker
 
 
 def main():
+    # Importado aqui para o patch no módulo de origem valer nos testes.
+    from fluxo_financeiro.tools.brapi import mensagem_ticker_inexistente, ticker_existe
+
     print("=== Financial Pipeline Analysis ===\n")
 
     digitado = input("Digite o ticker para analisar (ex: WEGE3): ").strip()
@@ -13,6 +16,9 @@ def main():
     ticker = validar_ticker(digitado)
     if not ticker:
         print(TICKER_INVALIDO)
+        return
+    if ticker_existe(ticker) is False:  # None (Brapi sem resposta) segue
+        print(mensagem_ticker_inexistente(ticker))
         return
 
     print(f"\nAnalisando {ticker}...\n")

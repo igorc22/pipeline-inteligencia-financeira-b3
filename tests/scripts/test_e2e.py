@@ -1,6 +1,9 @@
 """Checagens do scripts/e2e.py que não dependem de chamada real."""
 import importlib.util
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 _CAMINHO = Path(__file__).resolve().parents[2] / "scripts" / "e2e.py"
 _spec = importlib.util.spec_from_file_location("e2e", _CAMINHO)
@@ -8,6 +11,34 @@ e2e = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(e2e)
 
 DIAG = "- Causa: impairment\n- Natureza: pontual\n- Evidências: 3T26\n- Impacto: baixo"
+
+
+@pytest.fixture(autouse=True)
+def _ticker_existe():
+    """A Brapi confere o ticker na entrada: aqui ela é sempre falsa (a rede é bloqueada nos testes)."""
+    with patch("fluxo_financeiro.tools.brapi.ticker_existe", return_value=True) as existe, \
+         patch("fluxo_financeiro.tools.brapi.sugerir_ticker", return_value=None) as sugere:
+        yield existe, sugere
+
+
+def test_main_recusa_formato_invalido_sem_rodar_o_grafo(_ticker_existe, capsys):
+    """Confere que um texto fora do formato da B3 sai com 2 e a mensagem padrão, sem Brapi e sem grafo."""
+    existe, _ = _ticker_existe
+    with patch.object(e2e, "app") as app_falso:
+        assert e2e.main(["XXXX"]) == 2
+        app_falso.stream.assert_not_called()
+    assert "Ticker inválido: use o código da B3, ex: VALE3." in capsys.readouterr().out
+    existe.assert_not_called()
+
+
+def test_main_recusa_ticker_inexistente_sem_rodar_o_grafo(_ticker_existe, capsys):
+    """Confere que o ticker que a Brapi diz não existir sai com 2 e a mensagem nova, sem rodar o grafo."""
+    existe, _ = _ticker_existe
+    existe.return_value = False
+    with patch.object(e2e, "app") as app_falso:
+        assert e2e.main(["XXXX3"]) == 2
+        app_falso.stream.assert_not_called()
+    assert "Ticker não encontrado na B3: XXXX3." in capsys.readouterr().out
 
 
 def test_conferir_diagnostico_ok():
