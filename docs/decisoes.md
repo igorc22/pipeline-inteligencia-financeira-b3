@@ -261,6 +261,36 @@ Desde o Streamlit nenhuma tela consumia a API, e ela só dava manutenção. Na h
 
 Com isso, fechei a versão 1.0.
 
+## Dois projetos viram um
+
+Enquanto este projeto crescia, eu tinha um segundo, o Fluxo Pesquisa, estudando a mesma coisa: um coordenador em LangGraph que analisa ações da B3. Cada um foi mais longe numa direção. Lá existem paralelismo com `Send`, um subgrafo de pesquisa, retry pelo coordenador, human-in-the-loop, checkpointer com cache, a Brapi como fonte de dados e evals com a `deepeval`. Aqui ficaram os guards, o detector de anomalias, a sanitização e o dashboard. Decidi que este repositório é a casa e que as peças de lá entram reescritas, uma por branch, sem misturar os históricos do git.
+
+### Medir antes de mexer
+
+A primeira peça a vir foram os evals *(motivo a confirmar)*: as fases seguintes vão mexer no estado, no retry e na busca, e sem uma nota de antes não tenho como dizer se alguma delas piorou a análise. O texto do relatório muda a cada execução, então um teste com mock não responde isso.
+
+Um eval aqui é um segundo LLM, o juiz, lendo o texto de um agente e conferindo contra o que aquele agente tinha em mãos. Para isso preciso de uma análise gravada, a fixture. O state final não basta, porque cada nó devolve só a última mensagem do agente e as saídas das tools se perdem lá dentro. Um script roda o grafo com `subgraphs=True` e guarda as mensagens de tool de cada agente, passagem por passagem. Gerei duas fixtures, a VALE3, que aciona o Investigator, e a WEGE3, que não aciona.
+
+O contexto de cada agente é o que ele leu: as saídas das tools dele, o pedido, a resposta do YFinance e as tarefas do supervisor. As respostas anteriores de outros LLMs ficam de fora, porque um número inventado pelo Analyzer na primeira passagem contaria como confirmado na segunda. O Consolidador é medido contra a mesma função que monta a entrada dele, e não contra uma cópia aproximada.
+
+### Um juiz que não é o julgado
+
+O juiz é um Gemini diferente do Flash-Lite que roda os agentes, para o modelo não corrigir a própria prova *(motivo a confirmar)*. Escolhi o `gemini-2.5-flash` com temperatura 0, e a API recusou, porque o modelo não está mais disponível para chaves novas. Fiquei com o `gemini-3.8-flash`, sem mandar temperatura. Lendo a `deepeval`, vi que ela não envia temperatura para os Gemini mais novos quando recebe `None`, e o Google recomenda o padrão nessa geração. O preço disso é um juiz que não repete a nota exata, então a mesma fixture pode sair com notas um pouco diferentes.
+
+A instalação mexeu numa dependência: a `deepeval` exige o `rich` abaixo da versão 15, e ele voltou para a 14. Só o `curl-cffi` do yfinance usava, e a suíte e o dashboard passaram iguais.
+
+Os evals ficam fora do `pytest` comum, que continua sem rede, e rodam com `make eval`. Cada nota vai para um `notas.csv`, passando ou não, com o custo que a `deepeval` calcula.
+
+### O que a primeira rodada mostrou
+
+Passaram 7 de 7 na VALE3 e 5 de 5 na WEGE3 (sem Investigator, os dois evals dele não rodam), por US$ 0,19 no total e cerca de 5 minutos. As fidelidades ficaram entre 0,83 e 1,0, e a neutralidade deu 1,0 nas duas.
+
+A nota baixa foi a cobertura do Consolidador, 0,31 na VALE3 e 0,20 na WEGE3. Li os 14 vereditos de "não confirmado" e 13 eram erro do juiz, com o trecho presente na entrada (fluxo de caixa, dívida, China, recompra). As perguntas de cobertura saíam do sumário do Yahoo, como o ano de fundação da Vale, que o relatório não tem por que repetir. Deixei esse eval registrando a nota sem reprovar a suíte.
+
+Um achado era real, e pequeno: o relatório da WEGE3 cita "pressões cambiais" como risco, e nenhuma fonte falou de câmbio. Corrigir o prompt fica para outra branch.
+
+E um detalhe da biblioteca mudou como eu leio a nota. Na fidelidade, só a afirmação que a fonte contradiz derruba a nota, e a que a fonte não menciona conta como aprovada. Nota 1,0 quer dizer que nada contradiz a fonte, não que tudo foi confirmado, e um número inventado que nenhuma fonte cita passaria. Por isso cada falha despeja os vereditos num arquivo, e ler esses vereditos diz mais do que a nota.
+
 ## O que ainda não resolvi
 
 Algumas escolhas antigas estão chegando no limite. Duas tensões já se resolveram: a resposta final que era só a última mensagem virou o Consolidador, e o custo que eu não enxergava apareceu no LangSmith. As outras continuam aqui.

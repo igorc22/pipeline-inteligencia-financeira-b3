@@ -51,6 +51,10 @@ LANGSMITH_TRACING=true
 LANGSMITH_API_KEY=lsv2_...
 LANGSMITH_AGENT_ID=pipeline-b3      # não use junto com LANGSMITH_PROJECT
 LANGSMITH_AGENT_ENVIRONMENT=local    # local, development, staging ou production
+
+# evals (grupo dev)
+DEEPEVAL_TELEMETRY_OPT_OUT=1         # desliga a telemetria da deepeval
+# EVAL_MODELO=gemini-3.8-flash       # opcional: modelo do juiz (padrão: gemini-3.8-flash)
 ```
 
 Onde tirar cada chave: veja [Chaves de API](#chaves-de-api), no topo.
@@ -127,6 +131,18 @@ uv run python scripts/e2e.py WEGE3 --espera-sem-investigator  # ticker estável
 ```
 
 Mostra o caminho que o grafo percorreu, as decisões do Supervisor e sai com código 1 se o comportamento não for o esperado.
+
+### Evals (chamadas reais)
+
+Um LLM-juiz (`gemini-3.8-flash`, com a `deepeval`) confere o texto de cada agente contra o que ele tinha em mãos: fidelidade do Analyzer, do Investigator e do Consolidador, diagnóstico do Investigator, cobertura e relevância do relatório e a neutralidade (sem recomendação de compra ou venda). Ficam fora do `pytest` comum (marcador `eval`).
+
+```bash
+make eval-fixtures        # grava uma análise real da VALE3 e da WEGE3 em tests/evals/fixtures/ (~US$ 0,02 cada)
+make eval FIXTURE=vale3   # roda os evals numa fixture (~US$ 0,12 na VALE3, ~US$ 0,07 na WEGE3)
+make -k eval-todos        # as duas fixtures (o -k deixa a WEGE3 rodar mesmo se a VALE3 reprovar)
+```
+
+Toda nota vai para `tests/evals/notas.csv` (passando ou não, com o custo e o juiz). Uma reprovação grava entrada, saída, vereditos e contexto em `tests/evals/_falhas/`. A cobertura do Consolidador registra a nota mas não reprova a suíte: na primeira rodada, quase todos os itens que ela apontou eram erro do juiz.
 
 ### Testar tools individualmente (chamadas reais)
 

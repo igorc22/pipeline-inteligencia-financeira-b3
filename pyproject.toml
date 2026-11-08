@@ -22,6 +22,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "deepeval==4.3.3",
     "pytest>=8.0",
     "pytest-socket>=0.8.1",
 ]
@@ -30,9 +31,10 @@ dev = [
 include = ["fluxo_financeiro*", "api*", "dashboard*"]
 
 [tool.pytest.ini_options]
-addopts = "--disable-socket"
+addopts = "--disable-socket -m 'not eval' -p no:deepeval"
 markers = [
     "tenta_rede_de_proposito: o teste abre socket de propósito; o conftest não o reprova por isso",
+    "eval: usa LLM-juiz e rede; custa dinheiro e a nota varia entre execuções",
 ]
 # Avisos de depreciação de dentro do LangGraph e do LangSmith, que o projeto não controla
 filterwarnings = [
