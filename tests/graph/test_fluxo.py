@@ -16,6 +16,8 @@ from fluxo_financeiro.tools.financial_data import AVISO_PERFIL_RESERVA
 WORKERS = {"YFinance", "Analyzer", "Investigator"}
 RELATORIO = RelatorioFinal(resumo="Resumo da análise.", indicadores=["P/L: 74,7x"], contexto="notícias",
                            riscos=["minério"], limitacoes=[])
+BLOCO_BCB = ("INDICADORES ECONÔMICOS (Banco Central, buscados em código):\n"
+             "- SELIC (meta): 13.75% a.a. (BCB, 08/12/2026)")
 
 
 def _agente(texto):
@@ -35,7 +37,8 @@ def grafo_mockado():
     O detector por padrão não acha nada (o LLM decide a Etapa 4); cada teste pode trocar o
     return_value de mocks["sinais"]. Sem esse mock, o nó do YFinance iria ao yfinance de verdade.
     O LLM do Consolidador também é mockado (mocks["consolidador"]): sem ele, todo teste daqui
-    chamaria o Gemini de verdade no fim do fluxo.
+    chamaria o Gemini de verdade no fim do fluxo. O bloco do Banco Central (mocks["indicadores"])
+    devolve BLOCO_BCB: sem esse mock, o nó do YFinance iria à API do BCB.
     """
     mocks = {
         "YFinance": _agente("Dados para VALE3.SA: P/L 74.7x, ROE 0.3%"),
@@ -46,10 +49,13 @@ def grafo_mockado():
          patch("fluxo_financeiro.graph.graph.analyzer_agent", mocks["Analyzer"]), \
          patch("fluxo_financeiro.graph.graph.investigator_agent", mocks["Investigator"]), \
          patch("fluxo_financeiro.graph.graph.detectar_sinais_anomalia", return_value=[]) as sinais, \
-         patch("fluxo_financeiro.graph.supervisor.llm") as llm,          patch("fluxo_financeiro.agents.consolidator.llm") as llm_consolidador:
+         patch("fluxo_financeiro.graph.graph.indicadores_economicos_em_texto", return_value=BLOCO_BCB) as indicadores, \
+         patch("fluxo_financeiro.graph.supervisor.llm") as llm, \
+         patch("fluxo_financeiro.agents.consolidator.llm") as llm_consolidador:
         llm_consolidador.with_structured_output.return_value.invoke.return_value = RELATORIO
         mocks["consolidador"] = llm_consolidador
         mocks["sinais"] = sinais
+        mocks["indicadores"] = indicadores
         mocks["decisoes"] = llm.with_structured_output.return_value.invoke
         yield mocks
 
@@ -152,6 +158,32 @@ def test_aviso_da_reserva_nao_repete_nem_aparece_com_a_brapi(grafo_mockado):
     msg_yfinance = next(m for m in resultado["messages"] if m.name == "YFinance")
     assert AVISO_PERFIL_RESERVA not in msg_yfinance.text
     assert LIMITACAO_PERFIL_RESERVA not in resultado["relatorio"].limitacoes
+
+
+def test_yfinance_anexa_indicadores(grafo_mockado):
+    """Confere que a mensagem do YFinance termina com o bloco do Banco Central, depois dos sinais de anomalia."""
+    grafo_mockado["sinais"].return_value = [SinalAnomalia(tipo="prejuizo", descricao="prejuízo no trimestre")]
+    grafo_mockado["decisoes"].side_effect = [_decisao("YFinance", "Colete os dados da VALE3")]
+
+    resultado = _rodar()
+
+    msg_yfinance = next(m for m in resultado["messages"] if m.name == "YFinance")
+    assert msg_yfinance.text.endswith("\n\n" + BLOCO_BCB)
+    assert msg_yfinance.text.index("SINAIS DE ANOMALIA") < msg_yfinance.text.index("INDICADORES ECONÔMICOS")
+    grafo_mockado["indicadores"].assert_called_once_with()
+
+
+def test_yfinance_sem_indicadores_nao_anexa(grafo_mockado):
+    """Confere que, com o BCB fora do ar (bloco vazio), a mensagem do YFinance segue sem o bloco."""
+    grafo_mockado["indicadores"].return_value = ""
+    grafo_mockado["decisoes"].side_effect = [_decisao("YFinance", "Colete os dados da VALE3"), _decisao("FINISH")]
+
+    resultado = _rodar()
+
+    msg_yfinance = next(m for m in resultado["messages"] if m.name == "YFinance")
+    assert "INDICADORES ECONÔMICOS" not in msg_yfinance.text
+    assert msg_yfinance.text == "Dados para VALE3.SA: P/L 74.7x, ROE 0.3%"
+    assert resultado["messages"][-1].name == "Consolidador"
 
 
 def test_fluxo_sem_anomalia_nao_chama_o_investigator(grafo_mockado):

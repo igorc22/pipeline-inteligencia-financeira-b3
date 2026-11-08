@@ -11,8 +11,9 @@ from fluxo_financeiro.shared.utils import extrair_ticker, logger
 # Exceção à regra de camadas (graph ← agents): o detector é cálculo em código, sem agente,
 # então o grafo o chama direto da camada tools. A dependência continua num sentido só.
 from fluxo_financeiro.tools.anomalias import detectar_sinais_anomalia
-# Mesma exceção: o aviso é a string que a tool escreve quando a Brapi não respondeu.
-from fluxo_financeiro.tools.financial_data import AVISO_PERFIL_RESERVA
+# Mesma exceção: o aviso é a string que a tool escreve quando a Brapi não respondeu, e os
+# indicadores do Banco Central entram em código (o LLM do YFinance nem sempre chamaria a tool).
+from fluxo_financeiro.tools.financial_data import AVISO_PERFIL_RESERVA, indicadores_economicos_em_texto
 
 
 def _ticker_da_conversa(state: MessagesState):
@@ -42,6 +43,10 @@ def yfinance_node(state: MessagesState):
         conteudo += "\n\n" + AVISO_PERFIL_RESERVA
     if sinais:
         conteudo += "\n\nSINAIS DE ANOMALIA (calculados em código):\n" + "\n".join(f"- {s.descricao}" for s in sinais)
+    # SELIC, CDI e IPCA de 12 meses: a régua da renda fixa. BCB fora do ar devolve "" e a análise segue sem o bloco.
+    bloco_bcb = indicadores_economicos_em_texto()
+    if bloco_bcb:
+        conteudo += "\n\n" + bloco_bcb
 
     return {
         "messages": [HumanMessage(content=conteudo, name="YFinance")],

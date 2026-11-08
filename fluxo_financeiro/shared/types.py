@@ -58,10 +58,14 @@ class RouteDecision(BaseModel):
 class IndicadorEconomico(IntEnum):
     SELIC_META = 432
     IPCA = 433
-    CDI = 12
+    CDI = 4389  # CDI anualizado (base 252). A série 12 é o CDI diário, ~0,05% ao dia
+    IPCA_12M = 13522
 
 class ConsultaBCBInput(BaseModel):
     indicador: IndicadorEconomico = Field(
-        ..., 
-        description="O indicador econômico que deseja consultar: 432 para Selic, 433 para IPCA ou 12 para CDI."
+        ...,
+        description=(
+            "O indicador econômico que deseja consultar: 432 para Selic meta, 433 para IPCA do mês, "
+            "4389 para CDI anualizado ou 13522 para IPCA acumulado em 12 meses."
+        ),
     )

@@ -85,12 +85,15 @@ def _agente_falso(ferramenta):
 
 @pytest.fixture
 def grafo_com_agentes_falsos():
-    """Troca os 3 agentes por create_agent com modelo falso, o detector (devolve [SINAL]) e os LLMs
-    do Supervisor (só decide a etapa 1) e do Consolidador (devolve REL), no molde do grafo_mockado."""
+    """Troca os 3 agentes por create_agent com modelo falso, o detector (devolve [SINAL]), o bloco do
+    Banco Central (fixo, sem rede) e os LLMs do Supervisor (só decide a etapa 1) e do Consolidador
+    (devolve REL), no molde do grafo_mockado."""
     with patch("fluxo_financeiro.graph.graph.yfinance_agent", _agente_falso(dados_falsos)), \
          patch("fluxo_financeiro.graph.graph.analyzer_agent", _agente_falso(noticias_falsas)), \
          patch("fluxo_financeiro.graph.graph.investigator_agent", _agente_falso(fatos_falsos)), \
          patch("fluxo_financeiro.graph.graph.detectar_sinais_anomalia", return_value=[SINAL]), \
+         patch("fluxo_financeiro.graph.graph.indicadores_economicos_em_texto",
+               return_value="INDICADORES ECONÔMICOS (Banco Central, buscados em código):\n- CDI: 13.65% a.a."), \
          patch("fluxo_financeiro.graph.supervisor.llm") as llm, \
          patch("fluxo_financeiro.agents.consolidator.llm") as llm_consolidador:
         llm.with_structured_output.return_value.invoke.side_effect = [
