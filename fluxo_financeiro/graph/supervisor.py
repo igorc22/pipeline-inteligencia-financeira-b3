@@ -129,14 +129,15 @@ def supervisor_node(state: MessagesState):
 
 
 def _tarefa_setor(messages) -> str:
-    """Tarefa da Etapa 3. O setor sai da indústria que o YFinance trouxe; o ticker, do pedido do usuário."""
+    """Tarefa da Etapa 3. O setor sai do setor/subsetor (ou da indústria) que o YFinance trouxe; o ticker, do pedido."""
     pedido = next((m.text for m in messages if not getattr(m, "name", None)), "")
     ticker = extrair_ticker(pedido)
     empresa = f"da empresa ({ticker})" if ticker else "da empresa"
     return (
-        f"Busque informações sobre o setor de atuação {empresa}, usando a indústria informada nos dados "
-        "do YFinance, e o posicionamento dela nesse setor. Foque em tendências, concorrentes principais "
-        "e fatores macroeconômicos relevantes."
+        f"Busque informações sobre o setor de atuação {empresa}, usando o setor e subsetor (ou a indústria) "
+        "informados nos dados do YFinance, e o posicionamento dela nesse setor. Foque em tendências, "
+        "concorrentes principais e fatores macroeconômicos relevantes. "
+        "Se os dados trazem os maiores do setor, compare a empresa com eles."
     )
 
 

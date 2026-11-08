@@ -1,5 +1,6 @@
 from unittest.mock import patch, MagicMock
 import pandas as pd
+import pytest
 from fluxo_financeiro.agents.collectors import yfinance_agent
 from fluxo_financeiro.tools.financial_data import (
     buscar_dados_acao_b3,
@@ -8,6 +9,14 @@ from fluxo_financeiro.tools.financial_data import (
 )
 
 TOOLS_ESPERADAS = {'buscar_dados_acao_b3', 'calcular_metricas_risco', 'calcular_piotroski_score'}
+
+
+@pytest.fixture(autouse=True)
+def _sem_brapi():
+    """Brapi sem resposta: a tool real é invocada aqui e não pode tentar rede."""
+    with patch('fluxo_financeiro.tools.financial_data.buscar_perfil', return_value=None), \
+         patch('fluxo_financeiro.tools.financial_data.buscar_pares_do_setor', return_value=None):
+        yield
 
 
 # ---------------------------------------------------------------------------

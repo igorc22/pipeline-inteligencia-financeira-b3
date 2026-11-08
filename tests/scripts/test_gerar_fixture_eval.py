@@ -23,6 +23,14 @@ REL = RelatorioFinal(resumo="Resumo da análise.", indicadores=["P/L: 74,7x"], c
 SINAL = SinalAnomalia(tipo="queda_lucro", descricao="lucro caiu 45%")
 
 
+@pytest.fixture(autouse=True)
+def _ticker_existe():
+    """A Brapi confere o ticker na entrada: aqui ela é sempre falsa (a rede é bloqueada nos testes)."""
+    with patch("fluxo_financeiro.tools.brapi.ticker_existe", return_value=True) as existe, \
+         patch("fluxo_financeiro.tools.brapi.sugerir_ticker", return_value=None) as sugere:
+        yield existe, sugere
+
+
 # ---------------------------------------------------------------------------
 # Agentes falsos: create_agent de verdade com um modelo que pede uma tool e conclui
 # ---------------------------------------------------------------------------
@@ -192,3 +200,14 @@ def test_main_recusa_ticker_invalido_sem_rodar_o_grafo(tmp_path):
     with patch.object(gerar, "app") as app_falso:
         assert gerar.main(["isso nao e ticker"], pasta=tmp_path) == 2
         app_falso.stream.assert_not_called()
+
+
+def test_main_recusa_ticker_inexistente_sem_rodar(_ticker_existe, tmp_path, capsys):
+    """Confere que o ticker que a Brapi diz não existir sai com 2, com a mensagem, sem rodar a análise."""
+    existe, _ = _ticker_existe
+    existe.return_value = False
+    with patch.object(gerar, "rodar") as rodar_falso:
+        assert gerar.main(["XXXX3"], pasta=tmp_path) == 2
+        rodar_falso.assert_not_called()
+    assert "Ticker não encontrado na B3: XXXX3." in capsys.readouterr().out
+    assert not list(tmp_path.glob("*.json"))

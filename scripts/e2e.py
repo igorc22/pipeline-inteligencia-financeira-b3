@@ -15,6 +15,7 @@ from langchain_core.messages import HumanMessage
 from fluxo_financeiro import app
 from fluxo_financeiro.shared.config import SANITIZACAO_ATIVA
 from fluxo_financeiro.shared.prompts import TAG_CONTEUDO_EXTERNO
+from fluxo_financeiro.shared.utils import TICKER_INVALIDO, validar_ticker
 
 SECOES_DIAGNOSTICO = ["Causa", "Natureza", "Evidências", "Impacto"]
 HARD_STOP = 6
@@ -51,7 +52,7 @@ def rodar(ticker: str) -> dict:
     relatorio = None
     loops = 0
 
-    initial = {"messages": [HumanMessage(content=f"Analise a ação {ticker.upper()}")]}
+    initial = {"messages": [HumanMessage(content=f"Analise a ação {ticker}")]}
     for event in app.stream(initial):
         for node, update in event.items():
             update = update or {}
@@ -76,19 +77,30 @@ def rodar(ticker: str) -> dict:
     return {"caminho": caminho, "mensagens": mensagens, "todas": todas, "relatorio": relatorio, "loops": loops}
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    # Importado aqui para o patch no módulo de origem valer nos testes.
+    from fluxo_financeiro.tools.brapi import mensagem_ticker_inexistente, ticker_existe
+
     parser = argparse.ArgumentParser()
     parser.add_argument("ticker")
     grupo = parser.add_mutually_exclusive_group()
     grupo.add_argument("--espera-investigator", action="store_true")
     grupo.add_argument("--espera-sem-investigator", action="store_true")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    resultado = rodar(args.ticker)
+    ticker = validar_ticker(args.ticker)
+    if ticker is None:
+        print(TICKER_INVALIDO)
+        return 2
+    if ticker_existe(ticker) is False:  # None (Brapi sem resposta) segue
+        print(mensagem_ticker_inexistente(ticker))
+        return 2
+
+    resultado = rodar(ticker)
     ativou = "Investigator" in resultado["mensagens"]
 
     print("\n" + "=" * 60)
-    print(f"Ticker:        {args.ticker.upper()}")
+    print(f"Ticker:        {ticker}")
     print(f"Caminho:       {' | '.join(resultado['caminho'])}")
     print(f"Loops:         {resultado['loops']} (hard stop em {HARD_STOP})")
     print(f"Investigator:  {'ATIVADO' if ativou else 'não ativado'}")

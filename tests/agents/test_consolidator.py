@@ -5,6 +5,7 @@ from langchain_core.messages import HumanMessage
 
 from fluxo_financeiro.agents.consolidator import (
     CONSOLIDADOR_PROMPT,
+    LIMITACAO_PERFIL_RESERVA,
     LIMITACAO_SEM_DADOS,
     LIMITACAO_SEM_NOTICIAS,
     LIMITACAO_SEM_SETOR,
@@ -14,6 +15,7 @@ from fluxo_financeiro.agents.consolidator import (
     relatorio_de_emergencia,
 )
 from fluxo_financeiro.shared.types import RelatorioFinal
+from fluxo_financeiro.tools.financial_data import AVISO_PERFIL_RESERVA
 
 REL = RelatorioFinal(
     resumo="Lucro caiu.",
@@ -198,6 +200,18 @@ def test_consolidar_aponta_setor_que_faltou(mock_llm):
 
     sem_analyzer = consolidar([HumanMessage("Analise VALE3")]).limitacoes
     assert LIMITACAO_SEM_SETOR not in sem_analyzer and LIMITACAO_SEM_NOTICIAS in sem_analyzer
+
+
+def test_consolidar_anota_perfil_da_reserva(mock_llm):
+    """Confere que o aviso da reserva na mensagem do YFinance vira limitação escrita em código."""
+    hist = [HumanMessage("Analise VALE3"), HumanMessage(f"P/L 74,7x\n{AVISO_PERFIL_RESERVA}", name="YFinance")] + HIST[2:]
+
+    assert LIMITACAO_PERFIL_RESERVA in consolidar(hist).limitacoes
+
+
+def test_consolidar_sem_aviso_nao_anota_reserva(mock_llm):
+    """Confere que, com a Brapi tendo respondido (sem o aviso), a limitação da reserva não aparece."""
+    assert LIMITACAO_PERFIL_RESERVA not in consolidar(HIST).limitacoes
 
 
 def test_consolidar_erro_do_llm_sobe(mock_llm):

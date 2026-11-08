@@ -6,10 +6,12 @@ END, e conferimos o caminho percorrido: é o mesmo que o scripts/e2e.py valida c
 from unittest.mock import MagicMock, patch
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
+from fluxo_financeiro.agents.consolidator import LIMITACAO_PERFIL_RESERVA
 from fluxo_financeiro.graph.graph import app
 from fluxo_financeiro.shared.types import RelatorioFinal, RouteDecision, SinalAnomalia
+from fluxo_financeiro.tools.financial_data import AVISO_PERFIL_RESERVA
 
 WORKERS = {"YFinance", "Analyzer", "Investigator"}
 RELATORIO = RelatorioFinal(resumo="Resumo da análise.", indicadores=["P/L: 74,7x"], contexto="notícias",
@@ -105,6 +107,51 @@ def test_llm_pode_acionar_investigator_mesmo_sem_sinal(grafo_mockado):
     historico = grafo_mockado["Investigator"].invoke.call_args.args[0]["messages"]
     assert historico[-1].name == "Supervisor"
     assert historico[-1].content == "Investigue o ROE de 0,3% da VALE3"
+
+
+def _yfinance_com_saida_da_tool(saida_da_tool, resposta_final):
+    """Agente do YFinance falso cuja resposta final pode ter perdido a linha "Fonte:" da tool.
+
+    Como o create_agent, devolve o histórico recebido seguido das mensagens novas.
+    """
+    agente = MagicMock()
+    agente.invoke.side_effect = lambda entrada: {"messages": [
+        *entrada["messages"],
+        ToolMessage(content=saida_da_tool, tool_call_id="1", name="buscar_dados_acao_b3"),
+        AIMessage(content=resposta_final),
+    ]}
+    return agente
+
+
+def test_aviso_da_reserva_chega_ao_relatorio_mesmo_se_o_agente_resumir(grafo_mockado):
+    """Confere que o aviso da reserva vai para a mensagem e para as limitações mesmo que o LLM do YFinance o omita."""
+    grafo_mockado["decisoes"].side_effect = [_decisao("YFinance", "Colete os dados da VALE3"), _decisao("FINISH")]
+    agente = _yfinance_com_saida_da_tool(f"Dados para VALE3.SA: P/L 74.7x\n{AVISO_PERFIL_RESERVA}\n",
+                                         "Dados para VALE3.SA: P/L 74.7x")
+
+    with patch("fluxo_financeiro.graph.graph.yfinance_agent", agente):
+        resultado = _rodar()
+
+    msg_yfinance = next(m for m in resultado["messages"] if m.name == "YFinance")
+    assert msg_yfinance.text.count(AVISO_PERFIL_RESERVA) == 1
+    assert LIMITACAO_PERFIL_RESERVA in resultado["relatorio"].limitacoes
+
+
+def test_aviso_da_reserva_nao_repete_nem_aparece_com_a_brapi(grafo_mockado):
+    """Confere que o aviso não é duplicado quando o agente já o repassou, nem acrescentado quando a Brapi respondeu."""
+    grafo_mockado["decisoes"].side_effect = [_decisao("YFinance", "Colete os dados da VALE3"), _decisao("FINISH")] * 2
+    copiado = f"Dados para VALE3.SA: P/L 74.7x\n{AVISO_PERFIL_RESERVA}"
+    with patch("fluxo_financeiro.graph.graph.yfinance_agent", _yfinance_com_saida_da_tool(copiado, copiado)):
+        resultado = _rodar()
+    msg_yfinance = next(m for m in resultado["messages"] if m.name == "YFinance")
+    assert msg_yfinance.text.count(AVISO_PERFIL_RESERVA) == 1
+
+    com_brapi = "Dados para VALE3.SA: P/L 74.7x\nFonte: cotação e perfil da Brapi; P/L, ROE, DY e histórico do yfinance."
+    with patch("fluxo_financeiro.graph.graph.yfinance_agent", _yfinance_com_saida_da_tool(com_brapi, "P/L 74.7x")):
+        resultado = _rodar()
+    msg_yfinance = next(m for m in resultado["messages"] if m.name == "YFinance")
+    assert AVISO_PERFIL_RESERVA not in msg_yfinance.text
+    assert LIMITACAO_PERFIL_RESERVA not in resultado["relatorio"].limitacoes
 
 
 def test_fluxo_sem_anomalia_nao_chama_o_investigator(grafo_mockado):

@@ -205,9 +205,15 @@ def _pedir_analise() -> None:
     Guarda o ticker aqui: quando o campo muda de travado para destravado, o Streamlit o trata
     como outro widget e zera o valor.
     """
+    # Importado aqui para o patch no módulo de origem valer nos testes.
+    from fluxo_financeiro.tools.brapi import mensagem_ticker_inexistente, ticker_existe
+
     digitado = st.session_state.get("ticker", "").strip()
     ticker = validar_ticker(digitado)
     if ticker:
+        if ticker_existe(ticker) is False:  # só o 404 da Brapi recusa; None (sem resposta) segue
+            st.session_state["aviso_ticker_inexistente"] = mensagem_ticker_inexistente(ticker)
+            return
         st.session_state["ticker_pedido"] = ticker
         st.session_state["rodando"] = True
     elif digitado:
@@ -231,6 +237,9 @@ if st.session_state.pop("aviso_ticker_vazio", False):
     st.warning("Digite um ticker antes de analisar.")
 if st.session_state.pop("aviso_ticker_invalido", False):
     st.warning(TICKER_INVALIDO)
+aviso_inexistente = st.session_state.pop("aviso_ticker_inexistente", None)
+if aviso_inexistente:
+    st.warning(escapar_markdown(aviso_inexistente))
 
 if rodando:
     try:

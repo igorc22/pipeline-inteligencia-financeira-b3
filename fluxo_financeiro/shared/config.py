@@ -25,5 +25,7 @@ SANITIZACAO_MODELO = os.getenv("SANITIZACAO_MODELO", MODEL)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or None
 
 NEWS_API_KEY = os.getenv("NEWS_API_KEY")
+# Token da Brapi (plano gratuito): cotação, perfil e conferência do ticker. Vazio conta como ausente.
+BRAPI_API_KEY = os.getenv("BRAPI_API_KEY") or None
 DATABASE_URL = os.getenv("DATABASE_URL")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

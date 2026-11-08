@@ -8,6 +8,7 @@ Sistema multi-agente com LLM para análise de ações da B3 usando LangGraph, yf
 |---|---|---|
 | `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey): entre com a conta Google e clique em **Create API key** | Sim: é o LLM de todos os agentes e a busca na web |
 | `NEWS_API_KEY` | [newsapi.org/register](https://newsapi.org/register): o plano gratuito (Developer) basta | Só para `buscar_noticias`, a reserva da busca na web |
+| `BRAPI_API_KEY` | [brapi.dev](https://brapi.dev): crie uma conta e gere o token no painel; o plano gratuito basta | Não: confere se o ticker existe e traz cotação, setor da B3 e descrição em português. Sem ele, tudo vem do yfinance |
 | `LANGSMITH_API_KEY` | [smith.langchain.com](https://smith.langchain.com): **Settings → API Keys → Create API Key** | Não: só para ver os traces de cada análise |
 
 A busca na web usa o Google Search pelo Gemini e só funciona com **faturamento ativo** no projeto da chave (crédito pré-pago no AI Studio serve; o crédito de boas-vindas do Google Cloud, não). Sem faturamento, o LLM continua funcionando, mas as buscas devolvem erro e as notícias ficam só com a NewsAPI.
@@ -16,7 +17,7 @@ A busca na web usa o Google Search pelo Gemini e só funciona com **faturamento 
 
 Um **Supervisor** central orquestra três agentes, e um **Consolidador** fecha toda análise com um relatório:
 
-- **YFinance Agent**: coleta dados de mercado (preço, P/L, ROE, DY, histórico) e tem tools para métricas de risco (Sharpe, Sortino, Max Drawdown, VaR, Beta, Alpha) e Piotroski F-Score
+- **YFinance Agent**: coleta dados de mercado (cotação, setor, valor de mercado e os maiores do setor pela Brapi; P/L, ROE, DY e histórico pelo yfinance) e tem tools para métricas de risco (Sharpe, Sortino, Max Drawdown, VaR, Beta, Alpha) e Piotroski F-Score
 - **Analyzer Agent**: busca notícias (Google Search via Gemini, com a NewsAPI de reserva) em duas passagens, uma sobre a empresa e outra sobre o setor
 - **Investigator Agent** *(condicional)*: acionado só quando o Supervisor detecta uma anomalia; busca fatos relevantes e histórico trimestral para explicar a causa
 - **Consolidador** *(sempre no fim)*: junta dados, notícias, setor e diagnóstico num relatório (resumo, indicadores, riscos e limitações), sem recomendação de compra ou venda
@@ -39,6 +40,7 @@ Copie `.env.example` para `.env` e preencha:
 ```
 GEMINI_API_KEY=...            # obrigatório (LLM e busca na web)
 NEWS_API_KEY=...               # obrigatório para buscar_noticias
+BRAPI_API_KEY=...              # opcional: token da Brapi (plano gratuito); sem ele, tudo vem do yfinance
 LOG_LEVEL=INFO                 # opcional
 # LLM_MODEL=gemini-3.5-flash-lite  # opcional: modelo dos agentes (padrão: gemini-3.5-flash-lite)
 
@@ -61,13 +63,14 @@ Onde tirar cada chave: veja [Chaves de API](#chaves-de-api), no topo.
 
 ## Segurança das entradas
 
-- **Ticker:** a CLI e o dashboard só aceitam o código da B3 inteiro (ex: `VALE3`, `TAEE11`, com ou sem `.SA`). Qualquer outra coisa é recusada antes de o grafo rodar.
+- **Ticker:** a CLI e o dashboard só aceitam o código da B3 inteiro (ex: `VALE3`, `TAEE11`, com ou sem `.SA`). Qualquer outra coisa é recusada antes de o grafo rodar. Um código no formato certo que a Brapi diz não existir também é recusado, com uma sugestão quando ela acha uma (`WEGE4` → "Você quis dizer WEGE3?"). Se a Brapi não responde, a análise segue.
 - **Texto de fora** (busca na web, NewsAPI, descrição da empresa no yfinance): chega aos agentes dentro de `<conteudo_externo>`, com `<` e `>` escapados, e todo prompt diz que esse conteúdo é dado, nunca instrução. Sempre ligado, sem custo.
 - **Checagem por IA** (`SANITIZACAO_ATIVA=true`): antes de chegar aos agentes, o resultado de cada busca passa por um classificador (Gemini Flash-Lite) que diz se o texto tenta dar ordens ao sistema; se sim, ele é trocado por um aviso e entra nas limitações do relatório. Desligada por padrão, para economizar chamadas. O modelo pode ser trocado com `SANITIZACAO_MODELO`.
 
 ## Limitações conhecidas
 
 - As regras de anomalia (lucro mais de 30% abaixo do mesmo trimestre do ano anterior, prejuízo, Piotroski de 3 ou menos) foram calibradas olhando poucos tickers, basicamente VALE3 e WEGE3. Os limites são constantes em `fluxo_financeiro/tools/anomalias.py`.
+- No plano gratuito da Brapi, os demonstrativos, os dividendos e os indicadores voltam com 403 (só PETR4, VALE3, MGLU3 e ITUB4, os tickers de teste, trazem tudo). Por isso trimestrais, Piotroski, anomalias e métricas de risco vêm só do yfinance.
 - O yfinance demora para publicar os trimestres: em 02/11/2026, a VALE3 ainda aparecia com o 2T26 como último trimestre, um mês depois do fim do 3T26.
 - O agente YFinance escolhe as tools pelo texto do pedido. Com "Analise a ação X", às vezes ele chama só a de preço e múltiplos, e o relatório sai sem risco e Piotroski.
 - Sem faturamento na chave do Gemini, a busca na web falha (erro 429) e as notícias dependem da NewsAPI, que acha pouca coisa sobre ações brasileiras.
@@ -138,7 +141,7 @@ Um LLM-juiz (`gemini-3.8-flash`, com a `deepeval`) confere o texto de cada agent
 
 ```bash
 make eval-fixtures        # grava uma análise real da VALE3 e da WEGE3 em tests/evals/fixtures/ (~US$ 0,02 cada)
-make eval FIXTURE=vale3   # roda os evals numa fixture (~US$ 0,12 na VALE3, ~US$ 0,07 na WEGE3)
+make eval FIXTURE=vale3   # roda os evals numa fixture (~US$ 0,12 a 0,16 na VALE3, ~US$ 0,07 a 0,09 na WEGE3)
 make -k eval-todos        # as duas fixtures (o -k deixa a WEGE3 rodar mesmo se a VALE3 reprovar)
 ```
 
@@ -159,13 +162,13 @@ uv run python -c "from fluxo_financeiro.tools.investigation import buscar_histor
 ```
 fluxo_financeiro/
 ├── shared/    # config (flags), llm (fábrica do Gemini), types, prompts (tag de conteúdo externo), utils (logger, ticker)
-├── tools/     # financial_data, news, investigation, web_search, anomalias, sanitizacao
+├── tools/     # financial_data, news, investigation, web_search, anomalias, sanitizacao, moeda, brapi
 ├── agents/    # collectors (YFinance), analysts (Analyzer), investigators (Investigator), consolidator
 └── graph/     # supervisor (guards + LLM) e StateGraph
-scripts/       # e2e.py (teste end-to-end com chamadas reais)
+scripts/       # e2e.py (teste end-to-end com chamadas reais) e gerar_fixture_eval.py (fixtures dos evals)
 dashboard/     # app.py (Streamlit) e visao.py (state → o que a tela mostra)
 tests/         # espelha fluxo_financeiro/
-notebooks/     # fluxo_financeiro/01 a 13: cada peça explicada e rodando com as APIs reais
+notebooks/     # fluxo_financeiro/01 a 15: cada peça explicada e rodando com as APIs reais
 docs/          # arquitetura.md (diagramas) e decisoes.md (a história das decisões)
 ```
 
@@ -175,7 +178,7 @@ docs/          # arquitetura.md (diagramas) e decisoes.md (a história das decis
 |--------|-----------|
 | Orquestração | LangGraph 1.x |
 | LLM | Gemini 3.5 Flash-Lite (langchain-google-genai) |
-| Dados de mercado | yfinance, API SGS do Banco Central |
+| Dados de mercado | Brapi (plano gratuito: ticker, cotação, perfil), yfinance (múltiplos, histórico, demonstrativos), API SGS do Banco Central |
 | Notícias | NewsAPI, Google Search (Gemini) |
 | Dashboard | Streamlit (graphviz para o caminho da análise) |
 | Observabilidade | LangSmith (tracing de agentes, tools e buscas) |

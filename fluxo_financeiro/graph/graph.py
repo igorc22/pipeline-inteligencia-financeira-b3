@@ -1,4 +1,4 @@
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 from langgraph.graph import StateGraph, START, END
 
 from fluxo_financeiro.shared.types import MessagesState
@@ -11,6 +11,8 @@ from fluxo_financeiro.shared.utils import extrair_ticker, logger
 # Exceção à regra de camadas (graph ← agents): o detector é cálculo em código, sem agente,
 # então o grafo o chama direto da camada tools. A dependência continua num sentido só.
 from fluxo_financeiro.tools.anomalias import detectar_sinais_anomalia
+# Mesma exceção: o aviso é a string que a tool escreve quando a Brapi não respondeu.
+from fluxo_financeiro.tools.financial_data import AVISO_PERFIL_RESERVA
 
 
 def _ticker_da_conversa(state: MessagesState):
@@ -32,6 +34,12 @@ def yfinance_node(state: MessagesState):
     ticker = _ticker_da_conversa(state)
     sinais = detectar_sinais_anomalia(ticker) if ticker else []
     conteudo = last_message.text
+    # O Consolidador anota a limitação da reserva lendo o aviso na mensagem do YFinance. O prompt
+    # manda o agente repassar a linha, mas o LLM pode resumir: o aviso é conferido na saída da tool.
+    mensagens_novas = response["messages"][len(state["messages"]):]
+    reserva = any(isinstance(m, ToolMessage) and AVISO_PERFIL_RESERVA in m.text for m in mensagens_novas)
+    if reserva and AVISO_PERFIL_RESERVA not in conteudo:
+        conteudo += "\n\n" + AVISO_PERFIL_RESERVA
     if sinais:
         conteudo += "\n\nSINAIS DE ANOMALIA (calculados em código):\n" + "\n".join(f"- {s.descricao}" for s in sinais)
 

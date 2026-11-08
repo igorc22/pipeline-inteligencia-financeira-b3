@@ -1,6 +1,10 @@
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 import pandas as pd
+import pytest
+from fluxo_financeiro.tools.brapi import ParesDoSetor, PerfilBrapi
 from fluxo_financeiro.tools.financial_data import (
+    AVISO_PERFIL_RESERVA,
     buscar_dados_acao_b3,
     busca_indicador_bcb,
     calcular_metricas_risco,
@@ -9,9 +13,218 @@ from fluxo_financeiro.tools.financial_data import (
 from tests.tools.yahoo_falso import com_moeda
 
 
+@pytest.fixture(autouse=True)
+def brapi():
+    """Brapi sem resposta por padrão (os testes de antes valem como o caminho da reserva); cada teste pode trocar."""
+    with patch('fluxo_financeiro.tools.financial_data.buscar_perfil', return_value=None) as perfil, \
+         patch('fluxo_financeiro.tools.financial_data.buscar_pares_do_setor', return_value=None) as pares:
+        yield SimpleNamespace(perfil=perfil, pares=pares)
+
+
 # ---------------------------------------------------------------------------
 # buscar_dados_acao_b3
 # ---------------------------------------------------------------------------
+
+PERFIL_WEGE3 = PerfilBrapi(
+    nome="WEG SA",
+    preco=48.19,
+    variacao_pct=-0.23,
+    minima_52s=41.15,
+    maxima_52s=54.53,
+    valor_mercado=210010383322,
+    lpa=1.4940624,
+    setor="Bens Industriais",
+    subsetor="Máquinas e Equipamentos",
+    sumario="A WEG fabrica motores elétricos.",
+)
+
+PARES_WEGE3 = ParesDoSetor(
+    setor="Producer Manufacturing",
+    posicao=1,
+    total=36,
+    pares=[
+        ("WEGE3", "WEG S.A.", 210010383322),
+        ("FRAS3", "FRASLE MOBILITY S.A.", 5.9e9),
+        ("SHUL4", "SCHULZ S.A.", 1.2e9),
+    ],
+)
+
+
+# P/L do yfinance coerente com preço / LPA da Brapi (48,19 / 1,494 = 32,3), como na WEGE3 real
+INFO_WEGE3 = {
+    'currentPrice': 48.19, 'trailingPE': 32.3, 'returnOnEquity': 0.30, 'dividendYield': 0.02,
+    'industry': 'Electrical Equipment', 'longBusinessSummary': 'WEG makes motors.',
+}
+
+
+def _acao_yf(mock_ticker, info=None):
+    """Ação falsa do yfinance com 5 fechamentos e o info pedido."""
+    mock_instance = MagicMock()
+    mock_ticker.return_value = mock_instance
+    mock_instance.history.return_value = pd.DataFrame(
+        {'Close': [38.0, 38.5, 39.0, 39.5, 40.0]},
+        index=pd.date_range('2024-01-01', periods=5)
+    )
+    mock_instance.info = info if info is not None else {
+        'currentPrice': 40.0, 'trailingPE': 5.2, 'returnOnEquity': 0.18, 'dividendYield': 0.06,
+        'industry': 'Oil & Gas', 'longBusinessSummary': 'Petrobras explora petróleo.',
+    }
+    return mock_instance
+
+
+@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
+def test_dados_b3_usa_cotacao_e_perfil_da_brapi(mock_ticker, brapi):
+    """Confere que, com a Brapi respondendo, nome, cotação, setor e sumário vêm dela e o P/L continua do yfinance."""
+    _acao_yf(mock_ticker)
+    brapi.perfil.return_value = PERFIL_WEGE3
+
+    result = buscar_dados_acao_b3.invoke("WEGE3")
+
+    assert "Dados para WEGE3.SA:" in result
+    assert "Empresa: WEG SA" in result
+    assert "Preço Atual: R$ 48.19 (no dia: -0.23%)" in result
+    assert "Faixa de 52 semanas: R$ 41.15 a R$ 54.53" in result
+    assert "P/L:  5.2x" in result
+    assert "Setor: Bens Industriais | Subsetor: Máquinas e Equipamentos" in result
+    assert "Industria:" not in result
+    assert '<conteudo_externo origem="brapi">' in result
+    assert "A WEG fabrica motores elétricos." in result
+    assert "Fonte: cotação e perfil da Brapi" in result
+    assert AVISO_PERFIL_RESERVA not in result
+
+
+@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
+def test_dados_b3_normaliza_ticker_para_brapi(mock_ticker, brapi):
+    """Confere que ticker minúsculo e com .sa chega à Brapi como PETR4 e ao yfinance como PETR4.SA."""
+    _acao_yf(mock_ticker)
+
+    result = buscar_dados_acao_b3.invoke("petr4.sa")
+
+    brapi.perfil.assert_called_once_with("PETR4")
+    mock_ticker.assert_called_once_with("PETR4.SA")
+    assert "Dados para PETR4.SA:" in result
+
+
+@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
+def test_dados_b3_perfil_sem_setor_cai_no_yfinance(mock_ticker, brapi):
+    """Confere que, sem summaryProfile na Brapi, setor e sumário vêm do yfinance e o nome e a cotação da Brapi."""
+    _acao_yf(mock_ticker)
+    brapi.perfil.return_value = PerfilBrapi(
+        nome="PETROBRAS", preco=38.5, variacao_pct=None, minima_52s=None, maxima_52s=None,
+        valor_mercado=None, lpa=None, setor=None, subsetor=None, sumario=None,
+    )
+
+    result = buscar_dados_acao_b3.invoke("PETR4")
+
+    assert "Empresa: PETROBRAS" in result
+    assert "Preço Atual: R$ 38.50\n" in result
+    assert "Faixa de 52 semanas" not in result
+    assert "Industria: Oil & Gas" in result
+    assert '<conteudo_externo origem="yfinance">' in result
+    assert "Fonte: cotação e perfil da Brapi" in result
+
+
+@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
+def test_dados_b3_sem_brapi_avisa_reserva(mock_ticker, brapi):
+    """Confere que, sem a Brapi, a saída é a do yfinance e termina com o aviso da reserva."""
+    _acao_yf(mock_ticker)
+
+    result = buscar_dados_acao_b3.invoke("PETR4")
+
+    assert result.rstrip().endswith(AVISO_PERFIL_RESERVA)
+    assert "Preço Atual: R$ 40.0\n" in result
+    assert "Empresa:" not in result
+    assert "Fonte: cotação e perfil da Brapi" not in result
+    brapi.pares.assert_not_called()
+
+
+@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
+def test_dados_b3_valor_de_mercado_e_lpa(mock_ticker, brapi):
+    """Confere as linhas de valor de mercado e LPA, que somem quando a Brapi não traz os dois."""
+    _acao_yf(mock_ticker, info=INFO_WEGE3)
+    brapi.perfil.return_value = PERFIL_WEGE3
+
+    result = buscar_dados_acao_b3.invoke("WEGE3")
+    assert "Valor de mercado: R$ 210.0 bi" in result
+    assert "LPA: R$ 1.49" in result
+
+    brapi.perfil.return_value = PerfilBrapi(**{**PERFIL_WEGE3.__dict__, "valor_mercado": None, "lpa": None})
+    result = buscar_dados_acao_b3.invoke("WEGE3")
+    assert "Valor de mercado" not in result
+    assert "LPA" not in result
+
+
+@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
+def test_dados_b3_lpa_some_quando_nao_bate_com_o_pl(mock_ticker, brapi):
+    """Confere que o LPA da Brapi some quando preço / LPA não bate com o P/L do yfinance (caso real da VALE3)."""
+    _acao_yf(mock_ticker, info={**INFO_WEGE3, 'trailingPE': 77.16})
+    brapi.perfil.return_value = PerfilBrapi(**{**PERFIL_WEGE3.__dict__, "preco": 64.04, "lpa": 0.5177})
+
+    result = buscar_dados_acao_b3.invoke("VALE3")
+
+    assert "LPA" not in result
+    assert "P/L:  77.2x" in result
+
+
+@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
+def test_dados_b3_lpa_some_sem_pl_para_conferir(mock_ticker, brapi):
+    """Confere que, sem P/L no yfinance, o LPA da Brapi não aparece (não há com o que conferir)."""
+    _acao_yf(mock_ticker, info={**INFO_WEGE3, 'trailingPE': None})
+    brapi.perfil.return_value = PERFIL_WEGE3
+
+    result = buscar_dados_acao_b3.invoke("WEGE3")
+
+    assert "LPA" not in result
+    assert "P/L:  N/A" in result
+
+
+@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
+def test_dados_b3_pares_do_setor(mock_ticker, brapi):
+    """Confere o bloco dos maiores do setor, com a posição da empresa, e que ele some sem os pares."""
+    _acao_yf(mock_ticker)
+    brapi.perfil.return_value = PERFIL_WEGE3
+    brapi.pares.return_value = PARES_WEGE3
+
+    result = buscar_dados_acao_b3.invoke("WEGE3")
+    brapi.pares.assert_called_once_with("WEGE3")
+    assert "Maiores do setor na Brapi (Producer Manufacturing, por valor de mercado): WEGE3 é a 1ª de 36." in result
+    assert "  1. WEGE3 WEG S.A.: R$ 210.0 bi" in result
+    assert "2. FRAS3 FRASLE MOBILITY S.A.: R$ 5.9 bi" in result
+
+    brapi.pares.return_value = None
+    result = buscar_dados_acao_b3.invoke("WEGE3")
+    assert "Maiores do setor" not in result
+
+
+@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
+def test_dados_b3_pares_sem_posicao_e_valor_faltando(mock_ticker, brapi):
+    """Confere que, sem a posição da empresa e com valor de mercado faltando num par, a lista sai sem erro."""
+    _acao_yf(mock_ticker)
+    brapi.perfil.return_value = PERFIL_WEGE3
+    brapi.pares.return_value = ParesDoSetor(
+        setor="Producer Manufacturing", posicao=None, total=2,
+        pares=[("FRAS3", "FRASLE MOBILITY S.A.", 5.9e9), ("SHUL4", "SCHULZ S.A.", None)],
+    )
+
+    result = buscar_dados_acao_b3.invoke("WEGE3")
+
+    assert "Maiores do setor na Brapi (Producer Manufacturing, por valor de mercado):\n" in result
+    assert "é a" not in result
+    assert "  2. SHUL4 SCHULZ S.A.: N/A" in result
+    assert "Erro" not in result
+
+
+@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
+def test_dados_b3_campos_da_brapi_faltando_nao_viram_erro(mock_ticker, brapi):
+    """Confere que preço e faixa incompletos da Brapi não derrubam a saída: o preço cai no yfinance e a faixa some."""
+    _acao_yf(mock_ticker)
+    brapi.perfil.return_value = PerfilBrapi(**{**PERFIL_WEGE3.__dict__, "preco": None, "maxima_52s": None})
+
+    result = buscar_dados_acao_b3.invoke("WEGE3")
+
+    assert "Preço Atual: R$ 40.0 (no dia: -0.23%)" in result
+    assert "Faixa de 52 semanas" not in result
+    assert "Erro" not in result
 
 @patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
 def test_buscar_dados_retorna_string(mock_ticker):

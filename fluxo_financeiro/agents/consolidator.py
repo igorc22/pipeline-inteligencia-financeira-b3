@@ -10,6 +10,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from fluxo_financeiro.shared.llm import criar_llm
 from fluxo_financeiro.shared.prompts import REGRA_CONTEUDO_EXTERNO, escapar_tags
 from fluxo_financeiro.shared.types import RelatorioFinal
+from fluxo_financeiro.tools.financial_data import AVISO_PERFIL_RESERVA
 
 llm = criar_llm()
 
@@ -23,6 +24,7 @@ AVISO_EMERGENCIA = "> Não foi possível consolidar o relatório; seguem as resp
 LIMITACAO_SEM_DADOS = "Os dados de mercado não foram coletados."
 LIMITACAO_SEM_NOTICIAS = "A pesquisa de notícias e de setor não foi feita."
 LIMITACAO_SEM_SETOR = "O contexto do setor não foi pesquisado."
+LIMITACAO_PERFIL_RESERVA = "A cotação e o perfil da empresa vieram do yfinance, a reserva: a Brapi não respondeu."
 
 CONSOLIDADOR_PROMPT = f"""<papel>
 Você escreve o relatório final de uma análise de ação da B3 para um investidor pessoa física.
@@ -35,6 +37,7 @@ Você recebe o pedido do usuário (em <pedido_usuario>) e as respostas de agente
 
 <regras>
 - Use APENAS números que aparecem nas respostas dos agentes. Nunca invente, arredonde de outro jeito ou estime.
+- Cada risco precisa vir de um insumo: um número do YFinance, uma notícia ou o diagnóstico. Não acrescente riscos genéricos do setor (câmbio, juros, regulação) que nenhum agente citou.
 - Explique jargão em poucas palavras quando usá-lo (ex: "P/L, quantos anos de lucro pagam o preço da ação").
 - Não recomende compra ou venda e não dê preço-alvo: descreva o que os dados mostram.
 - Registre em limitacoes tudo o que faltou ou falhou: respostas com "Erro", "Não foram encontrados dados",
@@ -94,6 +97,9 @@ def consolidar(messages: list[BaseMessage]) -> RelatorioFinal:
     elif sum(getattr(m, "name", None) == "Analyzer" for m in messages) == 1:
         # Só a passagem da empresa rodou (ex: hard stop): o contexto dela fica, mas falta o setor.
         limitacoes.append(LIMITACAO_SEM_SETOR)
+    # A tool termina com o aviso quando a Brapi não respondeu; o yfinance_node garante a linha na mensagem.
+    if any(getattr(m, "name", None) == "YFinance" and AVISO_PERFIL_RESERVA in m.text for m in messages):
+        limitacoes.append(LIMITACAO_PERFIL_RESERVA)
     # O LLM pode repetir uma limitação escrita aqui: remove repetidas, mantendo a ordem.
     ajustes["limitacoes"] = list(dict.fromkeys(l.strip() for l in limitacoes if l.strip()))
 

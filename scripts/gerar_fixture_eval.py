@@ -101,9 +101,15 @@ def main(argv: list[str] | None = None, pasta: Path = PASTA_FIXTURES) -> int:
     parser.add_argument("ticker", help="Ticker da B3, ex: VALE3")
     args = parser.parse_args(argv)
 
+    # Importado aqui para o patch no módulo de origem valer nos testes.
+    from fluxo_financeiro.tools.brapi import mensagem_ticker_inexistente, ticker_existe
+
     ticker = validar_ticker(args.ticker)
     if ticker is None:
         print(TICKER_INVALIDO)
+        return 2
+    if ticker_existe(ticker) is False:  # None (Brapi sem resposta) segue
+        print(mensagem_ticker_inexistente(ticker))
         return 2
 
     estado_final, passagens = rodar(ticker)

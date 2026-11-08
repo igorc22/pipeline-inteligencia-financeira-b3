@@ -28,6 +28,9 @@ def extrair_ticker(texto: str) -> Optional[str]:
 
 
 TICKER_INVALIDO = "Ticker inválido: use o código da B3, ex: VALE3."
+# Formato válido, mas a Brapi diz que o ticker não existe (404). A sugestão entra quando há uma.
+TICKER_NAO_ENCONTRADO = "Ticker não encontrado na B3: {ticker}."
+SUGESTAO_TICKER = " Você quis dizer {sugestao}?"
 
 
 def validar_ticker(texto: str) -> Optional[str]:

@@ -55,6 +55,14 @@ def test_consolidador_lista_remocao_nas_limitacoes():
     assert "sanitização" in CONSOLIDADOR_PROMPT
 
 
+def test_consolidador_exige_origem_de_cada_risco():
+    """Confere que o prompt e o campo riscos pedem que cada risco venha de um insumo (a WEGE3 citou câmbio sem fonte)."""
+    from fluxo_financeiro.agents.consolidator import CONSOLIDADOR_PROMPT
+    from fluxo_financeiro.shared.types import RelatorioFinal
+    assert "Cada risco precisa vir de um insumo" in CONSOLIDADOR_PROMPT
+    assert "nenhum agente citou" in RelatorioFinal.model_fields["riscos"].description
+
+
 def test_insumos_do_consolidador_usam_tags():
     """Confere que pedido e respostas vão em tags, com o texto escapado e sem as tarefas do Supervisor."""
     texto = "\n\n".join(montar_insumos([

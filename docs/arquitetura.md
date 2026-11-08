@@ -23,7 +23,7 @@ flowchart TD
 
     subgraph Y["YFinance (coletor)"]
         direction TB
-        Y1["yfinance_agent<br/>preço, P/L, ROE, DY<br/>risco, Piotroski"]
+        Y1["yfinance_agent<br/>cotação e perfil (Brapi), P/L, ROE, DY<br/>risco, Piotroski"]
         Y2["detectar_sinais_anomalia<br/>(código, sem LLM)"]
         Y1 --> Y2
     end
@@ -105,6 +105,7 @@ Exemplo real (VALE3, 02/11/2026): ~25 s, ~30 mil tokens, ~US$ 0,016 antes do Con
 sequenceDiagram
     autonumber
     actor U as Usuário
+    participant B as Brapi
     participant S as Supervisor
     participant Y as YFinance
     participant D as Detector de anomalias
@@ -113,8 +114,12 @@ sequenceDiagram
     participant W as Google Search
     participant C as Consolidador
 
+    U->>B: (entrada) VALE3 existe?
+    B-->>U: sim (só um 404 recusa)
     U->>S: Analise a ação VALE3
     S->>Y: (LLM) colete os dados
+    Y->>B: cotação, perfil e maiores do setor
+    B-->>Y: nome, preço, setor da B3, sumário
     Y->>D: ticker VALE3
     D-->>Y: queda_lucro: lucro caiu 35% contra o ano anterior
     Y-->>S: dados + SINAIS DE ANOMALIA
@@ -135,7 +140,7 @@ sequenceDiagram
 
 ## 4. Camadas do código
 
-A dependência flui num único sentido: nenhuma camada importa de uma camada acima dela. A seta tracejada é a única exceção, e ela ainda aponta para baixo: o grafo chama o detector de anomalias direto, porque é cálculo e não agente.
+A dependência flui num único sentido: nenhuma camada importa de uma camada acima dela. As setas tracejadas são as duas exceções, e as duas ainda apontam para baixo: o grafo chama o detector de anomalias direto, porque é cálculo e não agente, e as entradas (CLI, dashboard, e2e e o gerador de fixture) chamam `tools/brapi.py` para recusar um ticker que não existe antes de rodar o grafo.
 
 ```mermaid
 flowchart BT
@@ -154,6 +159,7 @@ flowchart BT
         WS["web_search.py"]
         ANO["anomalias.py"]
         SAN["sanitizacao.py<br/>flag SANITIZACAO_ATIVA"]
+        BRP["brapi.py<br/>ticker_existe(), buscar_perfil()"]
     end
 
     subgraph C_AGENTS["agents/"]
@@ -168,7 +174,7 @@ flowchart BT
         GR["graph.py → app"]
     end
 
-    ENTRY["main.py · dashboard/app.py ·<br/>scripts/e2e.py"]
+    ENTRY["main.py · dashboard/app.py ·<br/>scripts/e2e.py · scripts/gerar_fixture_eval.py"]
 
     C_TOOLS --> C_SHARED
     C_AGENTS --> C_TOOLS
@@ -178,6 +184,7 @@ flowchart BT
     GR -.->|"exceção: cálculo sem agente"| ANO
     ENTRY --> C_GRAPH
     ENTRY -->|"validar_ticker"| C_SHARED
+    ENTRY -.->|"exceção: ticker_existe"| BRP
 ```
 
 ---
@@ -197,7 +204,8 @@ flowchart LR
     subgraph externos["Serviços externos"]
         GEM["Gemini 3.5 Flash-Lite<br/>LLM de todos os agentes"]
         GS["Google Search<br/>(via Gemini, exige faturamento)"]
-        YF["yfinance<br/>preços, demonstrativos, IBOV"]
+        BRAPI["Brapi (plano gratuito)<br/>conferência do ticker, cotação,<br/>perfil, maiores do setor"]
+        YF["yfinance<br/>P/L, ROE, DY, histórico,<br/>demonstrativos, IBOV"]
         BCB["API do Banco Central<br/>SELIC"]
         NAPI["NewsAPI<br/>notícias"]
         LS["LangSmith<br/>agente pipeline-b3"]
@@ -206,9 +214,11 @@ flowchart LR
     CLI --> APP
     E2E --> APP
     DASH --> APP
+    entrada -.->|"o ticker existe?<br/>(CLI, dashboard e e2e)"| BRAPI
 
     APP --> GEM
     APP --> GS
+    APP --> BRAPI
     APP --> YF
     APP --> BCB
     APP --> NAPI
