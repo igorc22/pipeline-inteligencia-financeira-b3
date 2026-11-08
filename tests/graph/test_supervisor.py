@@ -8,12 +8,13 @@ from fluxo_financeiro.shared.prompts import REGRA_CONTEUDO_EXTERNO
 from fluxo_financeiro.shared.types import MessagesState, RouteDecision, SinalAnomalia
 
 
-def _state(messages, loop_count=0, next_agent="YFinance") -> MessagesState:
+def _state(messages, loop_count=0, next_agent="YFinance", **campos) -> MessagesState:
     return {
         "messages": messages,
         "next_agent": next_agent,
         "loop_count": loop_count,
         "supervisor_reasoning": "",
+        **campos,
     }
 
 
@@ -25,6 +26,11 @@ HISTORICO_ETAPA_4 = [
     HumanMessage(content="Busque informações sobre o setor de mineração...", name="Supervisor"),
     HumanMessage(content="contexto setorial...", name="Analyzer"),
 ]
+
+# Campos que os nós gravam no state (Task 1), no ponto correspondente do histórico acima.
+CAMPOS_ETAPA_2 = {"dados_mercado": "Lucro líquido caiu 62% no trimestre..."}
+CAMPOS_ETAPA_3 = {**CAMPOS_ETAPA_2, "noticias": "noticias da empresa..."}
+CAMPOS_ETAPA_4 = {**CAMPOS_ETAPA_3, "contexto_setor": "contexto setorial..."}
 
 
 @pytest.fixture
@@ -55,7 +61,7 @@ def test_supervisor_guard_yfinance_para_analyzer(mock_llm):
     state = _state([
         HumanMessage(content="Analise WEGE3"),
         HumanMessage(content="dados...", name="YFinance"),
-    ], loop_count=1)
+    ], loop_count=1, dados_mercado="dados...")
 
     result = supervisor_node(state)
     assert result["decidido_por"] == "guard"
@@ -67,11 +73,13 @@ def test_supervisor_guard_yfinance_para_analyzer(mock_llm):
 
 
 def test_supervisor_guard_investigator_retorna_finish(mock_llm):
-    """Confere que se Investigator já existe no histórico, supervisor retorna FINISH sem LLM."""
+    """Confere que, com o diagnóstico do Investigator no state, o supervisor retorna FINISH sem LLM."""
     state = _state(
         HISTORICO_ETAPA_4 + [HumanMessage(content="causa identificada...", name="Investigator")],
         loop_count=4,
         next_agent="Investigator",
+        **CAMPOS_ETAPA_4,
+        diagnostico="causa identificada...",
     )
     result = supervisor_node(state)
     assert result["decidido_por"] == "guard"
@@ -84,7 +92,7 @@ QUEDA = SinalAnomalia(tipo="queda_lucro", descricao="Lucro de VALE3.SA caiu 35% 
 
 def test_supervisor_guard_sinais_forca_investigator(mock_llm):
     """Confere que, com análise completa e sinal calculado em código, vai ao Investigator sem LLM."""
-    state = _state(HISTORICO_ETAPA_4, loop_count=3)
+    state = _state(HISTORICO_ETAPA_4, loop_count=3, **CAMPOS_ETAPA_4)
     state["sinais_anomalia"] = [QUEDA]
 
     result = supervisor_node(state)
@@ -99,7 +107,7 @@ def test_supervisor_guard_sinais_forca_investigator(mock_llm):
 
 def test_supervisor_guard_uma_passagem_do_analyzer_pede_o_setor(mock_llm):
     """Confere que, com 1 passagem do Analyzer, o guard pede o contexto do setor sem consultar o LLM (Etapa 3)."""
-    state = _state(HISTORICO_ETAPA_4[:4], loop_count=2)  # só 1 mensagem do Analyzer
+    state = _state(HISTORICO_ETAPA_4[:4], loop_count=2, **CAMPOS_ETAPA_3)  # só noticias, sem contexto_setor
 
     result = supervisor_node(state)
     assert result["decidido_por"] == "guard"
@@ -115,13 +123,76 @@ def test_supervisor_guard_uma_passagem_do_analyzer_pede_o_setor(mock_llm):
 
 def test_supervisor_guard_sinais_espera_as_duas_passagens_do_analyzer(mock_llm):
     """Confere que o sinal não pula a Etapa 3: com 1 passagem do Analyzer, vai ao setor antes do Investigator."""
-    state = _state(HISTORICO_ETAPA_4[:4], loop_count=2)  # só 1 mensagem do Analyzer
+    state = _state(HISTORICO_ETAPA_4[:4], loop_count=2, **CAMPOS_ETAPA_3)  # só noticias, sem contexto_setor
     state["sinais_anomalia"] = [QUEDA]
 
     result = supervisor_node(state)
     assert result["decidido_por"] == "guard"
 
     assert result["next_agent"] == "Analyzer"
+    mock_llm.with_structured_output.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Guards lendo os campos do state, não as mensagens
+# ---------------------------------------------------------------------------
+
+def test_guard_le_campos_e_nao_mensagens(mock_llm):
+    """Confere que, com dados_mercado e noticias e nenhuma mensagem do Analyzer, o guard vai à Etapa 3."""
+    state = _state([HumanMessage(content="Analise VALE3")], loop_count=2, **CAMPOS_ETAPA_3)
+
+    result = supervisor_node(state)
+    assert result["decidido_por"] == "guard"
+    assert result["next_agent"] == "Analyzer"
+    assert "setor" in result["messages"][0].content and "VALE3" in result["messages"][0].content
+    mock_llm.with_structured_output.assert_not_called()
+
+
+def test_investigator_finish_pelo_campo(mock_llm):
+    """Confere que o diagnostico no state basta para o FINISH, mesmo sem mensagem do Investigator."""
+    state = _state(HISTORICO_ETAPA_4, loop_count=4, next_agent="Investigator",
+                   **CAMPOS_ETAPA_4, diagnostico="- Causa identificada: impairment")
+
+    result = supervisor_node(state)
+    assert result["decidido_por"] == "guard"
+    assert result["next_agent"] == "FINISH"
+    mock_llm.with_structured_output.assert_not_called()
+
+
+def test_estado_inicial_sem_campos_vai_ao_llm(mock_llm):
+    """Confere que o estado inicial, sem loop_count nem campos de agente, chega ao LLM sem KeyError."""
+    _llm_decide(mock_llm, RouteDecision(reasoning="sem dados ainda", next_agent="YFinance",
+                                        task_for_agent="Colete os dados de VALE3."))
+
+    result = supervisor_node({"messages": [HumanMessage("Analise VALE3")]})
+    assert result["decidido_por"] == "llm"
+    assert result["next_agent"] == "YFinance"
+    mock_llm.with_structured_output.return_value.invoke.assert_called_once()
+
+
+def test_mensagem_duplicada_nao_engana_o_guard(mock_llm):
+    """Confere que duas mensagens do Analyzer com só noticias preenchido levam à Etapa 3, não ao Investigator."""
+    state = _state(HISTORICO_ETAPA_4, loop_count=3, **CAMPOS_ETAPA_3)  # retry: 2 mensagens, 1 campo
+    state["sinais_anomalia"] = [QUEDA]
+
+    result = supervisor_node(state)
+    assert result["decidido_por"] == "guard"
+    assert result["next_agent"] == "Analyzer"
+    assert "setor" in result["messages"][0].content
+    mock_llm.with_structured_output.assert_not_called()
+
+
+def test_campo_vazio_conta_como_preenchido(mock_llm):
+    """Confere que um campo gravado vazio (agente sem resposta) faz o guard avançar como se a etapa tivesse rodado."""
+    noticias_vazia = supervisor_node(_state([HumanMessage(content="Analise VALE3")], loop_count=2,
+                                            **CAMPOS_ETAPA_2, noticias=""))
+    assert noticias_vazia["next_agent"] == "Analyzer"
+    assert "setor" in noticias_vazia["messages"][0].content
+
+    diagnostico_vazio = supervisor_node(_state([HumanMessage(content="Analise VALE3")], loop_count=4,
+                                               **CAMPOS_ETAPA_4, diagnostico=""))
+    assert diagnostico_vazio["next_agent"] == "FINISH"
+    assert diagnostico_vazio["decidido_por"] == "guard"
     mock_llm.with_structured_output.assert_not_called()
 
 
@@ -138,7 +209,7 @@ def test_supervisor_etapa4_roteia_investigator_com_tarefa(mock_llm):
         task_for_agent=tarefa,
     ))
 
-    result = supervisor_node(_state(HISTORICO_ETAPA_4, loop_count=3))
+    result = supervisor_node(_state(HISTORICO_ETAPA_4, loop_count=3, **CAMPOS_ETAPA_4))
     assert result["decidido_por"] == "llm"
 
     assert result["next_agent"] == "Investigator"
@@ -156,7 +227,7 @@ def test_supervisor_etapa4_sem_anomalia_finaliza_sem_mensagem(mock_llm):
         task_for_agent="(ignorado)",
     ))
 
-    result = supervisor_node(_state(HISTORICO_ETAPA_4, loop_count=3))
+    result = supervisor_node(_state(HISTORICO_ETAPA_4, loop_count=3, **CAMPOS_ETAPA_4))
     assert result["decidido_por"] == "llm"
 
     assert result["next_agent"] == "FINISH"
@@ -200,7 +271,7 @@ def test_supervisor_envia_o_prompt_como_system_message(mock_llm):
     """Confere que a etapa 4 sem sinais manda exatamente o SUPERVISOR_PROMPT como primeira mensagem."""
     _llm_decide(mock_llm, RouteDecision(reasoning="ok", next_agent="FINISH"))
 
-    supervisor_node(_state(HISTORICO_ETAPA_4, loop_count=3))
+    supervisor_node(_state(HISTORICO_ETAPA_4, loop_count=3, **CAMPOS_ETAPA_4))
 
     mensagens = mock_llm.with_structured_output.return_value.invoke.call_args.args[0]
     assert mensagens[0].content == SUPERVISOR_PROMPT

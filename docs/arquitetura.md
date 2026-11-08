@@ -50,12 +50,12 @@ flowchart TD
 
 | Etapa | Condição | Vai para | Quem decide |
 |---|---|---|---|
-| 1 | Ainda não há dados do YFinance | YFinance | LLM |
-| 2 | YFinance coletou, Analyzer ainda não rodou | Analyzer (notícias da empresa) | Guard |
-| 3 | Uma passagem do Analyzer | Analyzer (contexto do setor) | Guard |
-| 4 | Duas passagens do Analyzer **e** sinais de anomalia | Investigator | Guard |
-| 4 | Duas passagens do Analyzer, **sem** sinais | Investigator ou FINISH | LLM |
-| fim | Investigator já respondeu | FINISH | Guard |
+| 1 | Ainda não há `dados_mercado` | YFinance | LLM |
+| 2 | `dados_mercado` gravado, `noticias` não | Analyzer (notícias da empresa) | Guard |
+| 3 | `noticias` gravado, `contexto_setor` não | Analyzer (contexto do setor) | Guard |
+| 4 | `noticias` e `contexto_setor` gravados **e** sinais de anomalia | Investigator | Guard |
+| 4 | `noticias` e `contexto_setor` gravados, **sem** sinais | Investigator ou FINISH | LLM |
+| fim | `diagnostico` gravado | FINISH | Guard |
 | fim | `loop_count >= 6` | FINISH | Hard stop |
 | fim | Qualquer FINISH | Consolidador → fim | Router: FINISH sempre vai ao Consolidador |
 
@@ -65,17 +65,19 @@ flowchart TD
 
 A ordem importa: as regras em código vêm antes e, quando uma delas resolve, o LLM nem é chamado. No trace do LangSmith essas passagens aparecem com **0 tokens**.
 
+Os guards leem os campos que cada agente grava no state (seção 6), não contam mensagens pelo `name`. "Gravado" quer dizer que o campo existe, mesmo vazio ou com uma resposta de erro: a etapa rodou e o fluxo avança como antes.
+
 ```mermaid
 flowchart TD
     E(["Supervisor recebe o state"]) --> H{"loop_count >= 6?"}
     H -->|sim| FIN1(["FINISH: hard stop"])
-    H -->|não| G1{"YFinance coletou e<br/>Analyzer não rodou?"}
+    H -->|não| G1{"dados_mercado gravado<br/>e noticias ausente?"}
     G1 -->|sim| AN(["Analyzer + tarefa: notícias da empresa"])
-    G1 -->|não| G2{"Investigator já respondeu?"}
+    G1 -->|não| G2{"diagnostico gravado?"}
     G2 -->|sim| FIN2(["FINISH"])
-    G2 -->|não| G4{"Analyzer rodou<br/>só 1x?"}
+    G2 -->|não| G4{"noticias gravado<br/>e contexto_setor ausente?"}
     G4 -->|sim| SET(["Analyzer + tarefa: contexto do setor"])
-    G4 -->|não| G3{"Analyzer rodou 2x e há<br/>sinais_anomalia?"}
+    G4 -->|não| G3{"noticias e contexto_setor<br/>gravados e há sinais_anomalia?"}
     G3 -->|sim| INV(["Investigator + tarefa montada com os números"])
     G3 -->|não| LLM["LLM com saída estruturada<br/>RouteDecision: reasoning, next_agent, task_for_agent"]
     LLM --> D(["Decisão do LLM; task_for_agent vira<br/>mensagem name='Supervisor' no histórico"])
@@ -243,6 +245,12 @@ flowchart LR
 | `decidido_por` | Sobrescreve | Quem decidiu a última passagem do Supervisor: `guard`, `llm` ou `hard_stop` (o dashboard desenha nas setas) |
 | `sinais_anomalia` | Sobrescreve | Sinais calculados em código pelo nó do YFinance; alimentam o guard da Etapa 4 |
 | `relatorio` | Sobrescreve | `RelatorioFinal` do Consolidador (resumo, indicadores, contexto, riscos, limitações, diagnóstico copiado do Investigator); `None` se o LLM dele falhou |
+| `dados_mercado` | Sobrescreve | Texto final do YFinance, o mesmo da mensagem (com o aviso da reserva, os sinais e o bloco do Banco Central) |
+| `noticias` | Sobrescreve | Primeira passagem do Analyzer (notícias da empresa); gravado uma vez só |
+| `contexto_setor` | Sobrescreve | Passagens seguintes do Analyzer (setor); uma terceira passagem cai aqui e não apaga `noticias` |
+| `diagnostico` | Sobrescreve | Resposta do Investigator, que o Consolidador copia literalmente |
+
+Os quatro últimos são texto livre, um campo por saída de agente. Servem para decidir sem contar mensagens: os guards do Supervisor e as limitações do Consolidador (sem `noticias` → "sem notícias", sem `contexto_setor` → "sem setor") leem só se o campo existe, e um campo ausente é uma etapa que não rodou. As `messages` continuam com as mesmas mensagens: os agentes recebem o histórico, e o texto que vai ao LLM do Consolidador ainda sai de `montar_insumos(messages)`, a função que os evals medem.
 
 ---
 
@@ -275,7 +283,7 @@ As respostas anteriores de outros agentes ficam fora do contexto: um número inv
 
 Limites do desenho atual:
 
-- **Estado estruturado incompleto**: `sinais_anomalia` e `relatorio` são os campos além das mensagens. Dados, notícias e diagnóstico ainda trafegam como texto entre os agentes, e o Supervisor lê o histórico.
+- **Estado estruturado só pela metade**: cada agente já grava a saída num campo (`dados_mercado`, `noticias`, `contexto_setor`, `diagnostico`) e o Supervisor decide por eles, mas o conteúdo continua texto livre, e os agentes ainda leem uns aos outros pelo histórico de mensagens. O Analyzer ainda roda duas vezes em sequência: a troca completa (analista e pesquisa em paralelo) fica para a fase do `Send`.
 - **Erros como texto**: uma tool que falha devolve `"Erro ao ..."`, e o Supervisor não distingue falha de "sem dados" sem ler a mensagem.
 - **Pesquisas sobrepostas**: o Analyzer (duas passagens) e o Investigator pesquisam na web com focos diferentes.
 

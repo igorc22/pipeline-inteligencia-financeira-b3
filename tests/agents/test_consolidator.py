@@ -98,6 +98,9 @@ HIST = [
     HumanMessage("Setor fraco", name="Analyzer"),
 ]
 DIAG = "- Causa identificada: impairment de níquel\n- Natureza do evento: pontual"
+# Os campos são escritos à mão (não derivados das mensagens): o Consolidador decide por eles.
+ESTADO = {"messages": HIST, "dados_mercado": "P/L 74,7x", "noticias": "Minério caiu", "contexto_setor": "Setor fraco"}
+VAZIO = {"messages": [HumanMessage("Analise VALE3")]}
 
 
 @pytest.fixture
@@ -116,7 +119,7 @@ def _enviado(mock_llm):
 
 def test_consolidar_envia_so_respostas_dos_agentes(mock_llm):
     """Confere que o LLM recebe o prompt e as respostas dos workers, sem as tarefas do Supervisor."""
-    consolidar(HIST)
+    consolidar(ESTADO)
 
     mock_llm.with_structured_output.assert_called_once_with(RelatorioFinal)
     system, insumos = _enviado(mock_llm)
@@ -137,7 +140,7 @@ def test_montar_insumos_um_bloco_por_resposta(mock_llm):
 def test_consolidar_envia_os_insumos_juntos(mock_llm):
     """Confere que o texto que vai ao LLM é a junção dos blocos de montar_insumos (os evals medem contra ela)."""
     messages = [HumanMessage("Analise VALE3"), HumanMessage("d", name="YFinance")]
-    consolidar(messages)
+    consolidar({"messages": messages, "dados_mercado": "d"})
     _, insumos = _enviado(mock_llm)
     assert insumos == "\n\n".join(montar_insumos(messages))
 
@@ -148,36 +151,53 @@ def test_consolidar_copia_diagnostico_do_investigator_literalmente(mock_llm):
         lambda _msgs: REL.model_copy(update={"diagnostico": "resumo inventado"})
     )
 
-    relatorio = consolidar(HIST + [HumanMessage(DIAG, name="Investigator")])
+    relatorio = consolidar({**ESTADO, "messages": HIST + [HumanMessage(DIAG, name="Investigator")],
+                            "diagnostico": DIAG})
 
     assert relatorio.diagnostico == DIAG
 
 
 def test_consolidar_sem_investigator_zera_diagnostico(mock_llm):
-    """Confere que, sem Investigator no histórico, o diagnóstico fica nulo."""
-    assert consolidar(HIST).diagnostico is None
+    """Confere que, sem o campo diagnostico, o diagnóstico fica nulo."""
+    assert consolidar(ESTADO).diagnostico is None
+
+
+def test_diagnostico_vem_do_campo(mock_llm):
+    """Confere que o diagnóstico vem do campo do state, não de existir mensagem do Investigator."""
+    so_campo = consolidar({**ESTADO, "diagnostico": DIAG})
+    assert so_campo.diagnostico == DIAG
+
+    so_mensagem = consolidar({**ESTADO, "messages": HIST + [HumanMessage(DIAG, name="Investigator")]})
+    assert so_mensagem.diagnostico is None
 
 
 def test_consolidar_aponta_etapas_que_faltaram(mock_llm):
     """Confere que etapas ausentes (hard stop, falha) viram limitações escritas em código."""
-    sem_nada = consolidar([HumanMessage("Analise VALE3")])
+    sem_nada = consolidar(VAZIO)
     assert LIMITACAO_SEM_DADOS in sem_nada.limitacoes
     assert LIMITACAO_SEM_NOTICIAS in sem_nada.limitacoes
 
-    completo = consolidar(HIST)
+    completo = consolidar(ESTADO)
     assert LIMITACAO_SEM_DADOS not in completo.limitacoes
     assert LIMITACAO_SEM_NOTICIAS not in completo.limitacoes
 
 
 def test_consolidar_zera_secoes_de_etapas_que_nao_rodaram(mock_llm):
     """Confere que, sem YFinance/Analyzer, indicadores e contexto do LLM são descartados (não finge ter dados)."""
-    sem_nada = consolidar([HumanMessage("Analise VALE3")])  # REL vem com indicadores e contexto preenchidos
+    sem_nada = consolidar(VAZIO)  # REL vem com indicadores e contexto preenchidos
     assert sem_nada.indicadores == []
     assert sem_nada.contexto == ""
 
-    completo = consolidar(HIST)
+    completo = consolidar(ESTADO)
     assert completo.indicadores == REL.indicadores
     assert completo.contexto == REL.contexto
+
+
+def test_consolidar_campo_vazio_conta_como_etapa_feita(mock_llm):
+    """Confere que um campo gravado vazio (agente respondeu nada) conta como etapa feita, como a mensagem contava."""
+    vazio = consolidar({**ESTADO, "dados_mercado": "", "noticias": "", "contexto_setor": ""})
+
+    assert not {LIMITACAO_SEM_DADOS, LIMITACAO_SEM_NOTICIAS, LIMITACAO_SEM_SETOR} & set(vazio.limitacoes)
 
 
 def test_consolidar_nao_repete_limitacoes(mock_llm):
@@ -185,33 +205,48 @@ def test_consolidar_nao_repete_limitacoes(mock_llm):
     mock_llm.with_structured_output.return_value.invoke.side_effect = lambda _m: REL.model_copy(
         update={"limitacoes": [LIMITACAO_SEM_DADOS + " ", "Sem fatos relevantes", "Sem fatos relevantes"]})
 
-    lim = consolidar([HumanMessage("Analise VALE3")]).limitacoes
+    lim = consolidar(VAZIO).limitacoes
 
     assert lim == [LIMITACAO_SEM_DADOS, "Sem fatos relevantes", LIMITACAO_SEM_NOTICIAS]
 
 
 def test_consolidar_aponta_setor_que_faltou(mock_llm):
-    """Confere que uma passagem só do Analyzer vira limitação de setor; zero ou duas, não."""
-    uma = HIST[:4]  # pedido, YFinance, tarefa, 1 Analyzer
+    """Confere que notícias sem contexto do setor vira limitação de setor; sem notícias ou com os dois, não."""
+    uma = {"messages": HIST[:4], "dados_mercado": "P/L 74,7x", "noticias": "Minério caiu"}
     assert LIMITACAO_SEM_SETOR in consolidar(uma).limitacoes
     assert consolidar(uma).contexto == REL.contexto  # o que o Analyzer trouxe continua
 
-    assert LIMITACAO_SEM_SETOR not in consolidar(HIST).limitacoes
+    assert LIMITACAO_SEM_SETOR not in consolidar(ESTADO).limitacoes
 
-    sem_analyzer = consolidar([HumanMessage("Analise VALE3")]).limitacoes
+    sem_analyzer = consolidar(VAZIO).limitacoes
     assert LIMITACAO_SEM_SETOR not in sem_analyzer and LIMITACAO_SEM_NOTICIAS in sem_analyzer
 
 
-def test_consolidar_anota_perfil_da_reserva(mock_llm):
-    """Confere que o aviso da reserva na mensagem do YFinance vira limitação escrita em código."""
-    hist = [HumanMessage("Analise VALE3"), HumanMessage(f"P/L 74,7x\n{AVISO_PERFIL_RESERVA}", name="YFinance")] + HIST[2:]
+def test_limitacoes_pelos_campos_hard_stop(mock_llm):
+    """Confere que, num hard stop antes do Analyzer terminar, as limitações saem dos campos e não das mensagens."""
+    # Só os dados de mercado: faltam notícias e setor, mesmo com mensagens do Analyzer no histórico.
+    so_dados = consolidar({"messages": HIST, "dados_mercado": "P/L 74,7x"})
+    assert LIMITACAO_SEM_NOTICIAS in so_dados.limitacoes
+    assert LIMITACAO_SEM_SETOR not in so_dados.limitacoes
+    assert so_dados.contexto == ""
 
-    assert LIMITACAO_PERFIL_RESERVA in consolidar(hist).limitacoes
+    # Dados e notícias, com duas mensagens do Analyzer (retry) mas sem o campo do setor.
+    sem_setor = consolidar({"messages": HIST, "dados_mercado": "P/L 74,7x", "noticias": "Minério caiu"})
+    assert LIMITACAO_SEM_SETOR in sem_setor.limitacoes
+    assert LIMITACAO_SEM_NOTICIAS not in sem_setor.limitacoes
+
+
+def test_consolidar_anota_perfil_da_reserva(mock_llm):
+    """Confere que o aviso da reserva nos dados de mercado vira limitação escrita em código."""
+    dados = f"P/L 74,7x\n{AVISO_PERFIL_RESERVA}"
+    hist = [HumanMessage("Analise VALE3"), HumanMessage(dados, name="YFinance")] + HIST[2:]
+
+    assert LIMITACAO_PERFIL_RESERVA in consolidar({**ESTADO, "messages": hist, "dados_mercado": dados}).limitacoes
 
 
 def test_consolidar_sem_aviso_nao_anota_reserva(mock_llm):
     """Confere que, com a Brapi tendo respondido (sem o aviso), a limitação da reserva não aparece."""
-    assert LIMITACAO_PERFIL_RESERVA not in consolidar(HIST).limitacoes
+    assert LIMITACAO_PERFIL_RESERVA not in consolidar(ESTADO).limitacoes
 
 
 def test_consolidar_erro_do_llm_sobe(mock_llm):
@@ -219,4 +254,4 @@ def test_consolidar_erro_do_llm_sobe(mock_llm):
     mock_llm.with_structured_output.return_value.invoke.side_effect = Exception("429")
 
     with pytest.raises(Exception, match="429"):
-        consolidar(HIST)
+        consolidar(ESTADO)

@@ -35,6 +35,16 @@ class MessagesState(TypedDict):
     sinais_anomalia: list[SinalAnomalia]
     # Preenchido pelo Consolidador no fim do fluxo; None se o LLM dele falhou (fallback em texto).
     relatorio: Optional[RelatorioFinal]
+    # Saída de cada agente num campo próprio (sobrescreve). `messages` continua com as mesmas mensagens;
+    # os campos existem para decidir sem contar mensagens pelo `name`. Ausente = o agente ainda não rodou.
+    # Texto final do YFinance, igual ao da mensagem: já com o aviso da reserva, os sinais e o bloco do BCB.
+    dados_mercado: Optional[str]
+    # Primeira passagem do Analyzer (notícias da empresa). Gravado uma vez só.
+    noticias: Optional[str]
+    # Passagens seguintes do Analyzer (contexto do setor); uma terceira passagem sobrescreve esta.
+    contexto_setor: Optional[str]
+    # Resposta do Investigator (o diagnóstico que o Consolidador copia literalmente).
+    diagnostico: Optional[str]
 
 
 class RouteDecision(BaseModel):
