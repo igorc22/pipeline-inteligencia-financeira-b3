@@ -18,7 +18,7 @@ class RelatorioFinal(BaseModel):
     resumo: str = Field(description="2 a 3 frases dizendo o que os dados, as notícias e o diagnóstico (se houver) mostram juntos.")
     indicadores: list[str] = Field(description="Números presentes nos insumos, um por item, no formato 'Nome: valor' (ex: 'P/L: 74,7x'). Nunca invente nem estime.")
     contexto: str = Field(description="Resumo das notícias da empresa e do contexto do setor.")
-    riscos: list[str] = Field(description="Riscos apontados pelos dados ou pelas notícias, um por item.")
+    riscos: list[str] = Field(description="Riscos apontados pelos dados, pelas notícias ou pelo diagnóstico, um por item. Só o que algum agente citou: nada genérico do setor que nenhum agente citou.")
     limitacoes: list[str] = Field(description="O que faltou ou falhou na coleta (dados ausentes, buscas sem resultado ou com erro).")
     diagnostico: Optional[str] = Field(default=None, description="Preenchido pelo sistema com o texto do Investigator. Deixe nulo.")
 

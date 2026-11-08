@@ -35,6 +35,7 @@ Você recebe o pedido do usuário (em <pedido_usuario>) e as respostas de agente
 
 <regras>
 - Use APENAS números que aparecem nas respostas dos agentes. Nunca invente, arredonde de outro jeito ou estime.
+- Cada risco precisa vir de um insumo: um número do YFinance, uma notícia ou o diagnóstico. Não acrescente riscos genéricos do setor (câmbio, juros, regulação) que nenhum agente citou.
 - Explique jargão em poucas palavras quando usá-lo (ex: "P/L, quantos anos de lucro pagam o preço da ação").
 - Não recomende compra ou venda e não dê preço-alvo: descreva o que os dados mostram.
 - Registre em limitacoes tudo o que faltou ou falhou: respostas com "Erro", "Não foram encontrados dados",
