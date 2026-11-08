@@ -265,6 +265,14 @@ Com isso, fechei a versão 1.0.
 
 Enquanto este projeto crescia, eu tinha um segundo, o Fluxo Pesquisa, estudando a mesma coisa: um coordenador em LangGraph que analisa ações da B3. Cada um foi mais longe numa direção. Lá existem paralelismo com `Send`, um subgrafo de pesquisa, retry pelo coordenador, human-in-the-loop, checkpointer com cache, a Brapi como fonte de dados e evals com a `deepeval`. Aqui ficaram os guards, o detector de anomalias, a sanitização e o dashboard. Decidi que este repositório é a casa e que as peças de lá entram reescritas, uma por branch, sem misturar os históricos do git.
 
+### O lucro da Vale estava em dólar
+
+O yfinance entrega os demonstrativos na moeda em que a empresa publica, e a VALE3 publica em dólar. O código escrevia R$ na frente de todo número, então o lucro da Vale aparecia como "R$ 2,35 bi" quando eram dólares, e esse erro chegava ao detector de anomalias, ao Piotroski e ao histórico trimestral que o Investigator lê.
+
+O `info` do yfinance tem um campo para isso, o `financialCurrency`, só que ele dizia BRL para a VALE3. A moeda certa estava na série de lucro trimestral do Yahoo, em que cada valor vem com um `currencyCode` que o yfinance joga fora ao montar a tabela. Passei a pedir essa série de novo e ler o código dali: BRL vira R$, USD vira US$ e qualquer outro sai como está. Quando a leitura falha, o número sai sem símbolo, nunca com R$ por padrão, porque um R$ chutado era justamente o erro que eu estava corrigindo *(motivo a confirmar)*.
+
+O preço da ação não passa por isso, porque a cotação na B3 é sempre em reais. O custo é depender de uma função interna do yfinance para pedir a série, e ela pode mudar numa versão nova.
+
 ### Medir antes de mexer
 
 A primeira peça a vir foram os evals *(motivo a confirmar)*: as fases seguintes vão mexer no estado, no retry e na busca, e sem uma nota de antes não tenho como dizer se alguma delas piorou a análise. O texto do relatório muda a cada execução, então um teste com mock não responde isso.
@@ -290,6 +298,34 @@ A nota baixa foi a cobertura do Consolidador, 0,31 na VALE3 e 0,20 na WEGE3. Li 
 Um achado era real, e pequeno: o relatório da WEGE3 cita "pressões cambiais" como risco, e nenhuma fonte falou de câmbio. Corrigir o prompt fica para outra branch.
 
 E um detalhe da biblioteca mudou como eu leio a nota. Na fidelidade, só a afirmação que a fonte contradiz derruba a nota, e a que a fonte não menciona conta como aprovada. Nota 1,0 quer dizer que nada contradiz a fonte, não que tudo foi confirmado, e um número inventado que nenhuma fonte cita passaria. Por isso cada falha despeja os vereditos num arquivo, e ler esses vereditos diz mais do que a nota.
+
+## A Brapi no plano gratuito
+
+A segunda peça do Fluxo Pesquisa foi a Brapi, uma API brasileira de dados da B3. A ideia era trocar o yfinance por ela em tudo, da cotação aos demonstrativos e ao Piotroski, deixando o yfinance de reserva *(motivo a confirmar)*. Conferi com a VALE3 e veio tudo, trimestrais, balanço e indicadores. Só depois descobri que a VALE3 é ticker de teste da Brapi, junto com PETR4, MGLU3 e ITUB4, e responde até sem token. Com a WEGE3 e o meu token do plano gratuito, todo módulo de demonstrativo voltou com 403, e só a cotação e o perfil da empresa passaram. A conferência tinha usado justamente o caso que não provava nada.
+
+Fiquei no gratuito, "sem flag pra modo premium do brapi porque não vai ter". Os demonstrativos continuam no yfinance, e com eles o Piotroski, o detector de anomalias e a leitura da moeda. As métricas de risco também ficam lá, porque usam um ano de preços e o gratuito só dá três meses de histórico.
+
+O que a Brapi faz agora cabe em duas frentes. Na entrada, a CLI, o dashboard, o e2e e o gerador de fixture perguntam se o ticker existe antes de rodar o grafo, e a XXXX3 volta com "Ticker não encontrado na B3" sem gastar uma chamada ao Gemini. Antes, um ticker assim rodava a análise inteira e terminava sem indicadores, como aconteceu com a ABCD3. Nos dados da ação, ela traz nome, cotação, faixa de 52 semanas, setor e subsetor da B3 e o sumário do negócio em português, enquanto P/L, ROE, DY e o histórico de fechamento seguem do yfinance.
+
+Pedi para explorar "algo extra no grátis que seja útil" e escolhi três: valor de mercado e LPA, sugestão quando o ticker não existe (WEGE4 volta com "Você quis dizer WEGE3?") e os maiores do setor por valor de mercado, com a posição da empresa. A lista de setores da Brapi vem em inglês e mistura os papéis fracionários, então o código tira os que terminam em F e fica com um papel por empresa. A WEGE3 saiu em primeiro de 27.
+
+Só um 404 recusa o ticker. Cota, timeout, token ausente ou recusado deixam a análise seguir com uma linha de log, e se a Brapi não responde na hora dos dados tudo vem do yfinance como antes. Nesse caso o Consolidador anota nas limitações que a cotação e o perfil vieram da reserva, e quem decide isso é o código, como nas outras limitações.
+
+Para a entrada conferir o ticker, a CLI, o dashboard e os scripts passaram a importar direto de `tools/`, pulando o grafo. É a segunda exceção à regra de camadas, depois do detector de anomalias no grafo.
+
+### O risco que ninguém citou
+
+Na mesma branch corrigi o achado da primeira rodada. O prompt do Consolidador ganhou uma regra dizendo que cada risco precisa vir de um insumo, seja um número do YFinance, uma notícia ou o diagnóstico, e a descrição do campo de riscos repete isso. No relatório novo da WEGE3 não aparece câmbio, e os três riscos que não saem dos números (juros altos, importados chineses e barreiras comerciais) estão na resposta do Analyzer sobre o setor.
+
+### A segunda rodada dos evals
+
+Refiz as duas fixtures com a Brapi e rodei os evals de novo. Passaram outra vez 7 de 7 na VALE3 e 5 de 5 na WEGE3, por US$ 0,24 e quase 7 minutos. Todas as fidelidades deram 1,0, inclusive a do Analyzer no setor da VALE3, que tinha ficado em 0,83, e a neutralidade seguiu em 1,0.
+
+A cobertura do Consolidador subiu de 0,31 para 0,67 na VALE3 e caiu de 0,20 para 0,09 na WEGE3. O motivo que o juiz escreveu é o mesmo da primeira vez: na WEGE3 ele cobra o ano de fundação, a sede e a receita de 2024, que vêm do sumário do negócio, agora o da Brapi em português, e chama de informação estranha números que estão na entrada. Não dá para atribuir a diferença a uma causa só, porque as fixtures são análises novas, o prompt do Consolidador mudou e o juiz não repete a nota.
+
+### A suíte ficou mais lenta
+
+Desde a deepeval, a suíte passou de uns 12 s para 18 s. Os plugins que chegaram com ela (xdist, rerunfailures e repeat) pareciam os culpados, mas, na mediana de três execuções, desligá-los deu 18,25 s contra 18,11 s com eles ligados, e não mexi em nada. O tempo se concentra em poucos testes: os dois que conferem o bloqueio da rede e o que confere o xfail da cobertura rodam um pytest dentro do pytest e somam uns 5 s.
 
 ## O que ainda não resolvi
 
