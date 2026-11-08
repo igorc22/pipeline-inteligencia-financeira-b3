@@ -108,6 +108,8 @@ def test_supervisor_guard_uma_passagem_do_analyzer_pede_o_setor(mock_llm):
     tarefa = result["messages"][0]
     assert tarefa.name == "Supervisor"
     assert "setor" in tarefa.content and "VALE3" in tarefa.content
+    assert "setor e subsetor (ou a indústria)" in tarefa.content
+    assert "Se os dados trazem os maiores do setor, compare a empresa com eles." in tarefa.content
     mock_llm.with_structured_output.assert_not_called()
 
 

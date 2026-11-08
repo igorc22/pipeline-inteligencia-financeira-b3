@@ -6,20 +6,75 @@ from langchain_core.tools import tool
 from fluxo_financeiro.shared.prompts import envolver_conteudo_externo
 from fluxo_financeiro.shared.types import ConsultaBCBInput
 from fluxo_financeiro.shared.utils import logger
+from fluxo_financeiro.tools.brapi import ParesDoSetor, PerfilBrapi, buscar_pares_do_setor, buscar_perfil
 from fluxo_financeiro.tools.moeda import com_simbolo, ler_simbolo_moeda
-from typing import Any, Dict
+from typing import Any, Dict, Optional
+
+# Última linha da saída quando a Brapi não respondeu: o Consolidador lê e anota a limitação.
+AVISO_PERFIL_RESERVA = "Fonte: yfinance (a Brapi não respondeu para cotação e perfil)."
+FONTE_COM_BRAPI = "Fonte: cotação e perfil da Brapi; P/L, ROE, DY e histórico do yfinance."
+
+
+def _numero(valor) -> Optional[float]:
+    """O valor como float, ou None se não for número (a Brapi pode mandar null ou int)."""
+    try:
+        return None if valor is None else float(valor)
+    except (TypeError, ValueError):
+        return None
+
+
+def _em_bi(valor) -> str:
+    numero = _numero(valor)
+    return f"R$ {numero / 1e9:.1f} bi" if numero is not None else "N/A"
+
+
+def _linhas_do_perfil(perfil: PerfilBrapi, preco_yf) -> str:
+    """Linhas antes do P/L com o que a Brapi trouxe. Campo faltando: a linha some (o preço cai no yfinance)."""
+    linhas = f"Empresa: {perfil.nome}\n" if perfil.nome else ""
+    preco = _numero(perfil.preco)
+    variacao = _numero(perfil.variacao_pct)
+    preco_txt = f"R$ {preco:.2f}" if preco is not None else f"R$ {preco_yf}"
+    if variacao is not None:
+        preco_txt += f" (no dia: {variacao:.2f}%)"
+    linhas += f"Preço Atual: {preco_txt}\n"
+    minima, maxima = _numero(perfil.minima_52s), _numero(perfil.maxima_52s)
+    if minima is not None and maxima is not None:
+        linhas += f"Faixa de 52 semanas: R$ {minima:.2f} a R$ {maxima:.2f}\n"
+    if _numero(perfil.valor_mercado) is not None:
+        linhas += f"Valor de mercado: {_em_bi(perfil.valor_mercado)}\n"
+    lpa = _numero(perfil.lpa)
+    if lpa is not None:
+        linhas += f"LPA: R$ {lpa:.2f}\n"
+    return linhas
+
+
+def _bloco_pares(pares: ParesDoSetor, ticker: str) -> str:
+    """Os maiores do setor (lista da Brapi) e a posição da empresa entre eles."""
+    titulo = f"Maiores do setor na Brapi ({pares.setor}, por valor de mercado):"
+    if pares.posicao:
+        titulo += f" {ticker} é a {pares.posicao}ª de {pares.total}."
+    linhas = [titulo] + [
+        f"  {i}. {codigo} {nome}: {_em_bi(valor)}" for i, (codigo, nome, valor) in enumerate(pares.pares, start=1)
+    ]
+    return "\n".join(linhas) + "\n"
+
 
 @tool
 def buscar_dados_acao_b3(ticker: str) -> str:
     """
-    Busca dados de mercado atuais de uma ação da B3 via yfinance.
-    Retorna: preço atual (R$), P/L (Price/Earnings), ROE (Return on Equity),
-    DY (Dividend Yield) e histórico dos últimos 5 dias de fechamento.
+    Busca dados de mercado atuais de uma ação da B3: cotação, nome, setor e sumário da Brapi
+    (com o yfinance de reserva) e P/L, ROE, DY e histórico do yfinance.
+    Retorna: nome da empresa, preço atual (R$) e variação no dia, faixa de 52 semanas,
+    valor de mercado, LPA, P/L (Price/Earnings), ROE (Return on Equity), DY (Dividend Yield),
+    setor e subsetor da B3, os maiores do setor por valor de mercado, sumário do negócio
+    e histórico dos últimos 5 dias de fechamento.
     Use para responder perguntas sobre preço, valuation básico e tendência recente.
-    Ticker sem sufixo é aceito (ex: PETR4) — o .SA é adicionado automaticamente.
+    Ticker sem sufixo é aceito (ex: PETR4): o .SA é adicionado automaticamente.
     """
-    if not ticker.endswith('.SA'):
-        ticker += '.SA'
+    base = ticker.strip().upper()
+    if base.endswith('.SA'):
+        base = base[:-3]
+    ticker = f"{base}.SA"
 
     logger.info(f"[tool] buscar_dados_acao_b3: ticker={ticker}")
     try:
@@ -40,16 +95,34 @@ def buscar_dados_acao_b3(ticker: str) -> str:
         if dy and dy > 0.20:
             dy = dy / 100
 
+        perfil = buscar_perfil(base)
+        # Os pares só com a Brapi respondendo: se ela caiu, outra chamada só somaria mais um timeout.
+        pares = buscar_pares_do_setor(base) if perfil else None
+
         resultado = f"Dados para {ticker}:\n"
-        resultado += f"Preço Atual: R$ {preco_atual}\n"
+        if perfil:
+            resultado += _linhas_do_perfil(perfil, preco_atual)
+        else:
+            resultado += f"Preço Atual: R$ {preco_atual}\n"
         resultado += f"P/L:  {f'{pl:.1f}x' if pl else 'N/A'}\n"
         resultado += f"ROE:  {f'{roe*100:.1f}%' if roe else 'N/A'}\n"
         resultado += f"DY:   {f'{dy*100:.2f}%' if dy else 'N/A'}\n"
-        resultado += f"Industria: {industria}\n"
+        if perfil and perfil.setor:
+            resultado += f"Setor: {perfil.setor}"
+            resultado += f" | Subsetor: {perfil.subsetor}\n" if perfil.subsetor else "\n"
+        else:
+            resultado += f"Industria: {industria}\n"
+        if pares:
+            resultado += _bloco_pares(pares, base)
         # O sumário é texto de terceiros: vai na tag (D47). Não passa pelo classificador, que cobre só as buscas.
+        if perfil and perfil.sumario:
+            sumario, origem = perfil.sumario, "brapi"
+        else:
+            origem = "yfinance"
         resultado += "Sumario de Negócio:\n"
-        resultado += (envolver_conteudo_externo(sumario, "yfinance") if sumario else "N/A") + "\n"
+        resultado += (envolver_conteudo_externo(sumario, origem) if sumario else "N/A") + "\n"
         resultado += f"Histórico Recente (Últimos 5 dias de fechamento):\n{hist['Close'].tail(5).to_string()}\n"
+        resultado += (FONTE_COM_BRAPI if perfil else AVISO_PERFIL_RESERVA) + "\n"
         logger.info(f"[tool] buscar_dados_acao_b3: ok ({len(resultado)} chars)")
         return resultado
     except Exception as e:
