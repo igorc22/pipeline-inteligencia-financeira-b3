@@ -1,7 +1,7 @@
 {
   "versao": 1,
   "ticker": "WEGE3",
-  "gerado_em": "2026-11-08T13:24:38",
+  "gerado_em": "2026-11-08T14:27:19",
   "modelo": "gemini-3.5-flash-lite",
   "messages": [
     {
@@ -12,29 +12,29 @@
         "response_metadata": {},
         "type": "human",
         "name": null,
-        "id": "3e97b51c-d5e9-48b1-ae31-26595e3db65e"
+        "id": "5aeda5ad-f492-404a-9c1e-e95c92686afb"
       }
     },
     {
       "type": "human",
       "data": {
-        "content": "Colete os dados financeiros, histórico de preços, balanço e principais métricas fundamentalistas para a ação WEGE3.",
+        "content": "Colete os dados financeiros, histórico de preços e métricas fundamentalistas para a ação WEGE3.",
         "additional_kwargs": {},
         "response_metadata": {},
         "type": "human",
         "name": "Supervisor",
-        "id": "d06ab30c-347d-4577-9287-3bf2277da647"
+        "id": "88d48746-aa98-4e5f-9167-8c429301c517"
       }
     },
     {
       "type": "human",
       "data": {
-        "content": "Dados para WEGE3.SA:\nEmpresa: WEG SA\nPreço Atual: R$ 48.19 (no dia: -0.23%)\nFaixa de 52 semanas: R$ 41.15 a R$ 54.53\nValor de mercado: R$ 210.0 bi\nLPA: R$ 1.49\nP/L:  32.3x\nROE:  29.9%\nDY:   3.22%\nSetor: Bens Industriais | Subsetor: Máquinas e Equipamentos\nMaiores do setor na Brapi (Producer Manufacturing, por valor de mercado): WEGE3 é a 1ª de 27.\n  1. WEGE3 WEG S.A.: R$ 210.0 bi\n  2. FRAS3 FRASLE MOBILITY S.A.: R$ 5.9 bi\n  3. SHUL4 SCHULZ S.A.: R$ 5.4 bi\n  4. DXCO3 DEXCO S.A.: R$ 4.3 bi\n  5. POMO4 MARCOPOLO S.A.: R$ 4.3 bi\nSumario de Negócio:\nA WEG S.A. é uma companhia brasileira de equipamentos eletroeletrônicos fundada em 1961, com sede em Jaraguá do Sul (SC), e listada na B3 sob o ticker WEGE3. A empresa atua no segmento de bens de capital industriais e desenvolve, fabrica e comercializa motores elétricos, geradores, transformadores, sistemas de automação, produtos para eletrificação e tintas industriais.\n\nA estrutura operacional da companhia é organizada em quatro frentes principais: Equipamentos Eletroeletrônicos Industriais; Geração, Transmissão e Distribuição de Energia (GTD); Motores Comerciais e Appliance; e Tintas e Vernizes. No portfólio, a WEG combina hardware, serviços técnicos e integração de sistemas para aplicações em indústria, infraestrutura, energia renovável, saneamento, mineração, óleo e gás, papel e celulose, entre outros.\n\nNo posicionamento competitivo, a WEG é uma das maiores fabricantes globais de motores elétricos e tem presença relevante em soluções de eficiência energética, automação industrial e equipamentos para transição energética. A companhia combina crescimento orgânico com aquisições, mantendo receita diversificada por geografias e por linhas de produto.\n\nA empresa possui base industrial internacional e operação comercial ampla, com fábricas em múltiplos países e vendas para mais de 100 mercados. Em 2024, reportou receita líquida de aproximadamente R$ 38 bilhões, com participação majoritária de receitas externas, refletindo sua inserção global em cadeias industriais e de infraestrutura elétrica.\nHistórico Recente (Últimos 5 dias de fechamento):\nDate\n2026-10-30 00:00:00-03:00    48.360001\n2026-11-03 00:00:00-03:00    49.169998\n2026-11-04 00:00:00-03:00    50.049999\n2026-11-05 00:00:00-03:00    48.299999\n2026-11-06 00:00:00-03:00    48.189999\nFonte: cotação e perfil da Brapi; P/L, ROE, DY e histórico do yfinance.\n\nPiotroski F-Score para WEGE3.SA: 5/9 — Bom (4-6) - Empresa competente, algumas fraquezas\n\nCritérios:\n  [OK] Net Income positivo (R$ 6.38B)\n  [OK] Operating Cash Flow positivo (R$ 6.45B)\n  [OK] Net Income cresceu (R$ 6.38B vs R$ 6.04B)\n  [OK] OCF > Net Income — lucro com qualidade de caixa\n  [OK] Total Assets cresceu (+2.8%)\n  [NAO] Divida corrente aumentou (+12.5%)\n  [NAO] Current Ratio piorou (1.55 vs 1.76)\n  [NAO] Diluicao detectada (+0.0% novas acoes)\n  [NAO] Gross Margin caiu (33.5% vs 33.7%)\n\nMétricas de Risco para WEGE3.SA (último 1 ano):\nReferência: Selic 13.75% a.a. (BCB), benchmark IBOV\n\nSharpe Ratio:      0.18 (Fraco)\nSortino Ratio:     0.28\nMax Drawdown:      -22.5%\nVaR 95% (diário):  -3.14%\nBeta (vs IBOV):    0.29 (defensivo)\nAlpha (anual):     6.6% (acima do esperado pelo CAPM)",
+        "content": "Dados para WEGE3.SA:\nEmpresa: WEG SA\nPreço Atual: R$ 48.19 (no dia: -0.23%)\nFaixa de 52 semanas: R$ 41.15 a R$ 54.53\nValor de mercado: R$ 210.0 bi\nLPA: R$ 1.49\nP/L:  32.3x\nROE:  29.9%\nDY:   3.22%\nSetor: Bens Industriais | Subsetor: Máquinas e Equipamentos\nMaiores do setor na Brapi (Producer Manufacturing, por valor de mercado): WEGE3 é a 1ª de 27.\n  1. WEGE3 WEG S.A.: R$ 210.0 bi\n  2. FRAS3 FRASLE MOBILITY S.A.: R$ 5.9 bi\n  3. SHUL4 SCHULZ S.A.: R$ 5.4 bi\n  4. DXCO3 DEXCO S.A.: R$ 4.3 bi\n  5. POMO4 MARCOPOLO S.A.: R$ 4.3 bi\nSumario de Negócio:\nA WEG S.A. é uma companhia brasileira de equipamentos eletroeletrônicos fundada em 1961, com sede em Jaraguá do Sul (SC), e listada na B3 sob o ticker WEGE3. A empresa atua no segmento de bens de capital industriais e desenvolve, fabrica e comercializa motores elétricos, geradores, transformadores, sistemas de automação, produtos para eletrificação e tintas industriais.\n\nA estrutura operacional da companhia é organizada em quatro frentes principais: Equipamentos Eletroeletrônicos Industriais; Geração, Transmissão e Distribuição de Energia (GTD); Motores Comerciais e Appliance; e Tintas e Vernizes. No portfólio, a WEG combina hardware, serviços técnicos e integração de sistemas para aplicações em indústria, infraestrutura, energia renovável, saneamento, mineração, óleo e gás, papel e celulose, entre outros.\n\nNo posicionamento competitivo, a WEG é uma das maiores fabricantes globais de motores elétricos e tem presença relevante em soluções de eficiência energética, automação industrial e equipamentos para transição energética. A companhia combina crescimento orgânico com aquisições, mantendo receita diversificada por geografias e por linhas de produto.\n\nA empresa possui base industrial internacional e operação comercial ampla, com fábricas em múltiplos países e vendas para mais de 100 mercados. Em 2024, reportou receita líquida de aproximadamente R$ 38 bilhões, com participação majoritária de receitas externas, refletindo sua inserção global em cadeias industriais e de infraestrutura elétrica.\n\nHistórico Recente (Últimos 5 dias de fechamento):\nDate\n2026-10-30 00:00:00-03:00    48.360001\n2026-11-03 00:00:00-03:00    49.169998\n2026-11-04 00:00:00-03:00    50.049999\n2026-11-05 00:00:00-03:00    48.299999\n2026-11-06 00:00:00-03:00    48.189999\nFonte: cotação e perfil da Brapi; P/L, ROE, DY e histórico do yfinance.\n\nMétricas de Risco para WEGE3.SA (último 1 ano):\nReferência: Selic 13.75% a.a. (BCB), benchmark IBOV\n\nSharpe Ratio:      0.18 (Fraco)\nSortino Ratio:     0.28\nMax Drawdown:      -22.5%\nVaR 95% (diário):  -3.14%\nBeta (vs IBOV):    0.29 (defensivo)\nAlpha (anual):     6.6% (acima do esperado pelo CAPM)\n\nPiotroski F-Score para WEGE3.SA: 5/9 — Bom (4-6) - Empresa competente, algumas fraquezas\n\nCritérios:\n  [OK] Net Income positivo (R$ 6.38B)\n  [OK] Operating Cash Flow positivo (R$ 6.45B)\n  [OK] Net Income cresceu (R$ 6.38B vs R$ 6.04B)\n  [OK] OCF > Net Income — lucro com qualidade de caixa\n  [OK] Total Assets cresceu (+2.8%)\n  [NAO] Divida corrente aumentou (+12.5%)\n  [NAO] Current Ratio piorou (1.55 vs 1.76)\n  [NAO] Diluicao detectada (+0.0% novas acoes)\n  [NAO] Gross Margin caiu (33.5% vs 33.7%)\n\nINDICADORES ECONÔMICOS (Banco Central, buscados em código):\n- SELIC (meta): 13.75% a.a. (BCB, 09/12/2026)\n- CDI: 13.65% a.a. (BCB, 05/11/2026)\n- IPCA acumulado em 12 meses: 4.58% (BCB, 01/09/2026)",
         "additional_kwargs": {},
         "response_metadata": {},
         "type": "human",
         "name": "YFinance",
-        "id": "b13ef7e0-1ed6-426e-870b-b8a4722036b7"
+        "id": "85f37b1f-2edc-4ec9-b5fc-42a69591dc06"
       }
     },
     {
@@ -45,18 +45,18 @@
         "response_metadata": {},
         "type": "human",
         "name": "Supervisor",
-        "id": "a663b46a-89a4-4388-8a86-5a149e533d04"
+        "id": "b9c952e3-8146-4d7e-9bc9-0ff30cff6933"
       }
     },
     {
       "type": "human",
       "data": {
-        "content": "A ação da **WEG (WEGE3)** é negociada a R$ 48,19, sustentando uma capitalização de mercado expressiva de R$ 210 bilhões e mantendo a liderança isolada no setor de Máquinas e Equipamentos na B3. A companhia apresenta múltiplos elevados, com P/L de 32,3x e um ROE de 29,9%, além de um Dividend Yield de 3,22%. No curto prazo, o papel registrou leve volatilidade nos últimos pregões, oscilando de R$ 50,05 em 4 de novembro para o patamar atual, enquanto o indicador de risco mostra um Beta defensivo de 0,29 e um Alpha anual de 6,6%. O Piotroski F-Score de 5/9 indica solidez financeira com geração de caixa robusta, embora a empresa enfrente pressões marginais recentes na alavancagem de curto prazo e na margem bruta.\n\nNotícias recentes destacam que a companhia divulgou seu balanço do terceiro trimestre de 2026 (3T26), reportando lucro líquido de R$ 1,67 bilhão (alta anual de 0,9%), impulsionado pela forte demanda externa por equipamentos e transformadores nos Estados Unidos — mercado que compensou um ritmo mais moderado no cenário interno. Para sustentar esse crescimento global, a WEG anunciou recentemente a aquisição da *Power Controls Solutions* nos EUA e a compra de terreno na Índia por cerca de R$ 44 milhões. O conjunto de entregas operacionais e o potencial de expansão internacional levaram recentemente a XP Investimentos a elevar a recomendação da ação para compra, com preço-alvo projetado em R$ 60 para o fim de 2027.",
+        "content": "A ação da WEG (**WEGE3**) encerrou cotada a R$ 48,19, acumulando uma leve queda diária de 0,23% e oscilando dentro da faixa de 52 semanas entre R$ 41,15 e R$ 54,53. A companhia mantém forte valor de mercado (R$ 210 bilhões) e fundamentos sólidos, negociando a um P/L de 32,3x, ROE de 29,9% e um dividend yield de 3,22%. No quesito risco, o papel exibe um perfil defensivo com Beta de 0,29 frente ao IBOV e Alpha anual de 6,6%, enquanto o seu Piotroski F-Score se mantém em 5/9, indicando boa saúde financeira com destaque para a geração de caixa operacional positiva de R$ 6,45 bilhões.\n\nNo noticiário recente de novembro de 2026, os papéis ganharam impulso após a XP Investimentos elevar a recomendação da WEGE3 de neutra para compra, com novo preço-alvo de R$ 60, destacando a proteção cambial e a forte exposição internacional da companhia diante de juros elevados. Além disso, a empresa anunciou a aquisição de um terreno de 400 mil metros quadrados na Índia por cerca de R$ 44 milhões, visando expandir sua capacidade fabril no exterior. Esses fatores ajudam a mitigar a volatilidade gerada pelo balanço do 3T26 no final de outubro, quando o lucro líquido de R$ 1,67 bilhão veio ligeiramente abaixo do esperado devido a pressões nas margens.",
         "additional_kwargs": {},
         "response_metadata": {},
         "type": "human",
         "name": "Analyzer",
-        "id": "8f4087ba-28ef-40fd-9687-6de6266b9684"
+        "id": "a4a4b081-0cde-4ec2-b820-899cff88420f"
       }
     },
     {
@@ -67,29 +67,29 @@
         "response_metadata": {},
         "type": "human",
         "name": "Supervisor",
-        "id": "7866e246-cefe-4cb5-a259-b4b88ab71d5f"
+        "id": "83a0e8c7-aad6-46db-94b5-ce3b11f72d1b"
       }
     },
     {
       "type": "human",
       "data": {
-        "content": "A WEG (WEGE3) consolida sua posição como líder isolada e absoluta no subsetor de Máquinas e Equipamentos (Bens Industriais) na B3, ostentando um valor de mercado de R$ 210 bilhões — cifra que a destaca frente a concorrentes de menor escala na categoria, como Frasle Mobility (R$ 5,9 bi), Schulz (R$ 5,4 bi) e Marcopolo (R$ 4,3 bi). Enquanto o cenário macroeconômico brasileiro para o setor em 2026 aponta para dificuldades, com o IBGE e a ABIMAQ apontando queda na produção industrial, aperto monetário com juros elevados e forte competição de importados chineses, a WEG mitiga a ciclicidade doméstica através de sua robusta inserção global, destacando-se na transição energética, automação e eficiência industrial.\n\nOperando com métricas de alta qualidade — como ROE de 29,9% e um Alpha anual de 6,6% —, a companhia mantém sua competitividade internacional combinando aquisições estratégicas no exterior e uma demanda externa sólida, especialmente nos Estados Unidos. Embora o ambiente de juros altos e o recrudescimento de barreiras comerciais internacionais imponham desafios gerais ao setor de bens de capital, o posicionamento diversificado da WEG a isola parcialmente das pressões que afetam concorrentes puramente domésticos, justificando sua avaliação prêmio pelo mercado.",
+        "content": "A ação da **WEG (WEGE3)** é líder isolada no subsetor de Máquinas e Equipamentos dentro de Bens Industriais na B3, ostentando um valor de mercado de R$ 210 bilhões — patamar muito superior aos demais concorrentes listados na praça nacional, como Frasle Mobility (R$ 5,9 bi), Schulz (R$ 5,4 bi) e Marcopolo (R$ 4,3 bi). Negociada a R$ 48,19, com P/L de 32,3x e um expressivo ROE de 29,9%, a companhia mantém fundamentos sólidos e perfil defensivo (Beta de 0,29), mesmo diante do recente balanço do 3T26 que apontou lucro líquido de R$ 1,67 bilhão (alta anual de 0,9%), mas com margens pressionadas pela elevação de custos de insumos e despesas pré-operacionais de expansão.\n\nNo cenário macroeconômico, o setor de bens industriais enfrenta um ambiente de cautela no mercado doméstico com a Selic em 13,75% a.a., o que desacelera a demanda interna por motores industriais. No entanto, a WEG mitiga esse cenário graças à sua forte inserção global e portfólio diversificado, direcionando grande parte de seus investimentos para a ampliação fabril internacional (como nos EUA, México, Colômbia e Índia). Recentemente, essa resiliência e exposição cambial levaram analistas da XP a elevar a recomendação da WEGE3 para compra com preço-alvo de R$ 60, reforçando o posicionamento de destaque da companhia na transição energética e eficiência global.",
         "additional_kwargs": {},
         "response_metadata": {},
         "type": "human",
         "name": "Analyzer",
-        "id": "b71a5088-01c7-4afc-9cd2-29fcc5ff8b2b"
+        "id": "cc59d787-8652-40fc-89a1-555f5edb7603"
       }
     },
     {
       "type": "human",
       "data": {
-        "content": "# Relatório: WEGE3\n\n## Resumo\nA WEG (WEGE3) é negociada a R$ 48,19 e mantém a liderança isolada no setor de Máquinas e Equipamentos na B3, com valor de mercado de R$ 210,0 bi. Os dados mostram um ROE de 29,9%, P/L de 32,3x e lucro líquido de R$ 1,67 bilhão no 3T26, impulsionado pela demanda externa nos EUA que compensou o cenário interno moderado.\n\n## Indicadores\n- Preço Atual: R$ 48.19\n- Valor de mercado: R$ 210.0 bi\n- LPA: R$ 1.49\n- P/L: 32.3x\n- ROE: 29.9%\n- DY: 3.22%\n- Piotroski F-Score: 5/9\n- Net Income: R$ 6.38B\n- Operating Cash Flow: R$ 6.45B\n- Sharpe Ratio: 0.18\n- Sortino Ratio: 0.28\n- Max Drawdown: -22.5%\n- VaR 95% (diário): -3.14%\n- Beta (vs IBOV): 0.29\n- Alpha (anual): 6.6%\n\n## Notícias e setor\nA WEG atua no segmento de bens de capital industriais, com receita diversificada e forte presença internacional. Notícias recentes destacam a divulgação do balanço do 3T26 com lucro líquido de R$ 1,67 bilhão (alta anual de 0,9%), a aquisição da Power Controls Solutions nos EUA, a compra de terreno na Índia por cerca de R$ 44 milhões, e a elevação da recomendação para compra pela XP Investimentos com preço-alvo em R$ 60 para o fim de 2027. O setor enfrenta dificuldades como queda na produção industrial segundo o IBGE e ABIMAQ, aperto monetário e competição de importados chineses.\n\n## Riscos\n- Dívida corrente aumentou (+12.5%)\n- Current Ratio piorou (1.55 vs 1.76)\n- Gross Margin caiu (33.5% vs 33.7%)\n- Aperto monetário com juros elevados\n- Forte competição de importados chineses\n- Recrudescimento de barreiras comerciais internacionais\n",
+        "content": "# Relatório: WEGE3\n\n## Resumo\nA WEG (WEGE3) apresenta fundamentos sólidos com ROE de 29,9% e forte geração de caixa, sendo negociada a um P/L de 32,3x. As notícias recentes destacam a elevação de recomendação para compra pela XP com preço-alvo de R$ 60 e a expansão fabril com aquisição de terreno na Índia, contrabalançando margens pressionadas no balanço do 3T26.\n\n## Indicadores\n- Preço Atual: R$ 48.19\n- Faixa de 52 semanas: R$ 41.15 a R$ 54.53\n- Valor de mercado: R$ 210.0 bi\n- LPA: R$ 1.49\n- P/L (quantos anos de lucro pagam o preço da ação): 32.3x\n- ROE (retorno sobre o patrimônio líquido): 29.9%\n- DY: 3.22%\n- Sharpe Ratio: 0.18\n- Sortino Ratio: 0.28\n- Max Drawdown: -22.5%\n- VaR 95% (diário): -3.14%\n- Beta: 0.29\n- Alpha (anual): 6.6%\n- Piotroski F-Score: 5/9\n- Net Income: R$ 6.38B\n- Operating Cash Flow: R$ 6.45B\n- Total Assets cresceu: +2.8%\n- Divida corrente aumentou: +12.5%\n- Current Ratio: 1.55 vs 1.76\n- Diluicao detectada: +0.0% novas acoes\n- Gross Margin: 33.5% vs 33.7%\n- SELIC (meta): 13.75% a.a.\n- CDI: 13.65% a.a.\n- IPCA acumulado em 12 meses: 4.58%\n\n## Notícias e setor\nA WEG S.A. é líder isolada no subsetor de Máquinas e Equipamentos dentro de Bens Industriais na B3, com valor de mercado de R$ 210 bilhões. No noticiário recente, os papéis ganharam impulso após a XP Investimentos elevar a recomendação da WEGE3 de neutra para compra com preço-alvo de R$ 60, destacando a proteção cambial e a forte exposição internacional. Além disso, a empresa anunciou a aquisição de um terreno de 400 mil metros quadrados na Índia por cerca de R$ 44 milhões para expandir sua capacidade fabril no exterior. Esses fatores ajudam a mitigar a volatilidade gerada pelo balanço do 3T26, que apontou lucro líquido de R$ 1,67 bilhão com margens pressionadas pela elevação de custos de insumos e despesas pré-operacionais.\n\n## Riscos\n- Divida corrente aumentou (+12.5%)\n- Current Ratio piorou (1.55 vs 1.76)\n- Gross Margin caiu (33.5% vs 33.7%)\n- Lucro líquido veio ligeiramente abaixo do esperado devido a pressões nas margens\n- Margens pressionadas pela elevação de custos de insumos e despesas pré-operacionais de expansão\n- Ambiente de cautela no mercado doméstico com a Selic em 13,75% a.a. desacelerando a demanda interna\n",
         "additional_kwargs": {},
         "response_metadata": {},
         "type": "human",
         "name": "Consolidador",
-        "id": "7f5f5755-9439-44a5-aef9-9bf7b8cbd721"
+        "id": "d63490a5-8fd2-4195-9bf6-400a58afe4e6"
       }
     }
   ],
@@ -99,16 +99,16 @@
       "n": 1,
       "tools": [
         {
-          "nome": "buscar_dados_acao_b3",
-          "conteudo": "Dados para WEGE3.SA:\nEmpresa: WEG SA\nPreço Atual: R$ 48.19 (no dia: -0.23%)\nFaixa de 52 semanas: R$ 41.15 a R$ 54.53\nValor de mercado: R$ 210.0 bi\nLPA: R$ 1.49\nP/L:  32.3x\nROE:  29.9%\nDY:   3.22%\nSetor: Bens Industriais | Subsetor: Máquinas e Equipamentos\nMaiores do setor na Brapi (Producer Manufacturing, por valor de mercado): WEGE3 é a 1ª de 27.\n  1. WEGE3 WEG S.A.: R$ 210.0 bi\n  2. FRAS3 FRASLE MOBILITY S.A.: R$ 5.9 bi\n  3. SHUL4 SCHULZ S.A.: R$ 5.4 bi\n  4. DXCO3 DEXCO S.A.: R$ 4.3 bi\n  5. POMO4 MARCOPOLO S.A.: R$ 4.3 bi\nSumario de Negócio:\n<conteudo_externo origem=\"brapi\">\nA WEG S.A. é uma companhia brasileira de equipamentos eletroeletrônicos fundada em 1961, com sede em Jaraguá do Sul (SC), e listada na B3 sob o ticker WEGE3. A empresa atua no segmento de bens de capital industriais e desenvolve, fabrica e comercializa motores elétricos, geradores, transformadores, sistemas de automação, produtos para eletrificação e tintas industriais.\n\nA estrutura operacional da companhia é organizada em quatro frentes principais: Equipamentos Eletroeletrônicos Industriais; Geração, Transmissão e Distribuição de Energia (GTD); Motores Comerciais e Appliance; e Tintas e Vernizes. No portfólio, a WEG combina hardware, serviços técnicos e integração de sistemas para aplicações em indústria, infraestrutura, energia renovável, saneamento, mineração, óleo e gás, papel e celulose, entre outros.\n\nNo posicionamento competitivo, a WEG é uma das maiores fabricantes globais de motores elétricos e tem presença relevante em soluções de eficiência energética, automação industrial e equipamentos para transição energética. A companhia combina crescimento orgânico com aquisições, mantendo receita diversificada por geografias e por linhas de produto.\n\nA empresa possui base industrial internacional e operação comercial ampla, com fábricas em múltiplos países e vendas para mais de 100 mercados. Em 2024, reportou receita líquida de aproximadamente R$ 38 bilhões, com participação majoritária de receitas externas, refletindo sua inserção global em cadeias industriais e de infraestrutura elétrica.\n</conteudo_externo>\nHistórico Recente (Últimos 5 dias de fechamento):\nDate\n2026-10-30 00:00:00-03:00    48.360001\n2026-11-03 00:00:00-03:00    49.169998\n2026-11-04 00:00:00-03:00    50.049999\n2026-11-05 00:00:00-03:00    48.299999\n2026-11-06 00:00:00-03:00    48.189999\nFonte: cotação e perfil da Brapi; P/L, ROE, DY e histórico do yfinance.\n"
+          "nome": "calcular_metricas_risco",
+          "conteudo": "Métricas de Risco para WEGE3.SA (último 1 ano):\nReferência: Selic 13.75% a.a. (BCB), benchmark IBOV\n\nSharpe Ratio:      0.18 (Fraco)\nSortino Ratio:     0.28\nMax Drawdown:      -22.5%\nVaR 95% (diário):  -3.14%\nBeta (vs IBOV):    0.29 (defensivo)\nAlpha (anual):     6.6% (acima do esperado pelo CAPM)\n"
         },
         {
           "nome": "calcular_piotroski_score",
           "conteudo": "Piotroski F-Score para WEGE3.SA: 5/9 — Bom (4-6) - Empresa competente, algumas fraquezas\n\nCritérios:\n  [OK] Net Income positivo (R$ 6.38B)\n  [OK] Operating Cash Flow positivo (R$ 6.45B)\n  [OK] Net Income cresceu (R$ 6.38B vs R$ 6.04B)\n  [OK] OCF > Net Income — lucro com qualidade de caixa\n  [OK] Total Assets cresceu (+2.8%)\n  [NAO] Divida corrente aumentou (+12.5%)\n  [NAO] Current Ratio piorou (1.55 vs 1.76)\n  [NAO] Diluicao detectada (+0.0% novas acoes)\n  [NAO] Gross Margin caiu (33.5% vs 33.7%)\n"
         },
         {
-          "nome": "calcular_metricas_risco",
-          "conteudo": "Métricas de Risco para WEGE3.SA (último 1 ano):\nReferência: Selic 13.75% a.a. (BCB), benchmark IBOV\n\nSharpe Ratio:      0.18 (Fraco)\nSortino Ratio:     0.28\nMax Drawdown:      -22.5%\nVaR 95% (diário):  -3.14%\nBeta (vs IBOV):    0.29 (defensivo)\nAlpha (anual):     6.6% (acima do esperado pelo CAPM)\n"
+          "nome": "buscar_dados_acao_b3",
+          "conteudo": "Dados para WEGE3.SA:\nEmpresa: WEG SA\nPreço Atual: R$ 48.19 (no dia: -0.23%)\nFaixa de 52 semanas: R$ 41.15 a R$ 54.53\nValor de mercado: R$ 210.0 bi\nLPA: R$ 1.49\nP/L:  32.3x\nROE:  29.9%\nDY:   3.22%\nSetor: Bens Industriais | Subsetor: Máquinas e Equipamentos\nMaiores do setor na Brapi (Producer Manufacturing, por valor de mercado): WEGE3 é a 1ª de 27.\n  1. WEGE3 WEG S.A.: R$ 210.0 bi\n  2. FRAS3 FRASLE MOBILITY S.A.: R$ 5.9 bi\n  3. SHUL4 SCHULZ S.A.: R$ 5.4 bi\n  4. DXCO3 DEXCO S.A.: R$ 4.3 bi\n  5. POMO4 MARCOPOLO S.A.: R$ 4.3 bi\nSumario de Negócio:\n<conteudo_externo origem=\"brapi\">\nA WEG S.A. é uma companhia brasileira de equipamentos eletroeletrônicos fundada em 1961, com sede em Jaraguá do Sul (SC), e listada na B3 sob o ticker WEGE3. A empresa atua no segmento de bens de capital industriais e desenvolve, fabrica e comercializa motores elétricos, geradores, transformadores, sistemas de automação, produtos para eletrificação e tintas industriais.\n\nA estrutura operacional da companhia é organizada em quatro frentes principais: Equipamentos Eletroeletrônicos Industriais; Geração, Transmissão e Distribuição de Energia (GTD); Motores Comerciais e Appliance; e Tintas e Vernizes. No portfólio, a WEG combina hardware, serviços técnicos e integração de sistemas para aplicações em indústria, infraestrutura, energia renovável, saneamento, mineração, óleo e gás, papel e celulose, entre outros.\n\nNo posicionamento competitivo, a WEG é uma das maiores fabricantes globais de motores elétricos e tem presença relevante em soluções de eficiência energética, automação industrial e equipamentos para transição energética. A companhia combina crescimento orgânico com aquisições, mantendo receita diversificada por geografias e por linhas de produto.\n\nA empresa possui base industrial internacional e operação comercial ampla, com fábricas em múltiplos países e vendas para mais de 100 mercados. Em 2024, reportou receita líquida de aproximadamente R$ 38 bilhões, com participação majoritária de receitas externas, refletindo sua inserção global em cadeias industriais e de infraestrutura elétrica.\n</conteudo_externo>\nHistórico Recente (Últimos 5 dias de fechamento):\nDate\n2026-10-30 00:00:00-03:00    48.360001\n2026-11-03 00:00:00-03:00    49.169998\n2026-11-04 00:00:00-03:00    50.049999\n2026-11-05 00:00:00-03:00    48.299999\n2026-11-06 00:00:00-03:00    48.189999\nFonte: cotação e perfil da Brapi; P/L, ROE, DY e histórico do yfinance.\n"
         }
       ]
     },
@@ -118,7 +118,7 @@
       "tools": [
         {
           "nome": "buscar_noticias_web",
-          "conteudo": "<conteudo_externo origem=\"google_search\">\nA WEG (WEGE3) divulgou recentemente seu balanço do terceiro trimestre de 2026 (3T26), reportando um lucro líquido de R$ 1,67 bilhão, alta de 0,9% na base anual, mas que ficou ligeiramente abaixo das expectativas do mercado. O desempenho refletiu a força do mercado externo — impulsionado pela demanda por transformadores e equipamentos nos Estados Unidos —, que compensou o ritmo mais brando no mercado interno, embora margens tenham sofrido pressões pontuais de custos de matérias-primas e tarifas.\n\nEm termos de movimentações corporativas e expansão internacional, a companhia anunciou a aquisição do negócio de *Power Controls Solutions* da L&S Electric nos EUA e a compra de um terreno na Índia por aproximadamente R$ 44 milhões para ampliar suas operações locais. Esses movimentos acompanham o plano contínuo de investimentos da empresa para fortalecer sua capacidade produtiva global na fabricação de equipamentos elétricos e automação.\n\nDiante do cenário macroeconômico e da resiliência operacional da companhia, grandes corretoras recalibraram suas projeções. A XP Investimentos, por exemplo, elevou a recomendação de WEGE3 de neutra para compra, ajustando o preço-alvo para R$ 60 por ação para o fim de 2027, amparada pelas perspectivas positivas de crescimento de receita e lucros a médio prazo.\n\nFontes: ebc.com, infomoney.com.br, bb.com.br, investing.com, weg.net\n</conteudo_externo>"
+          "conteudo": "<conteudo_externo origem=\"google_search\">\nAs ações da WEG (**WEGE3**) ganharam destaque no começo de novembro de 2026 após a XP Investimentos elevar a recomendação do papel de neutra para compra, ajustando o preço-alvo de R$ 53 para R$ 60. A revisão reflete a percepção de que a sólida presença internacional da companhia e sua exposição ao dólar funcionam como um escudo eficiente diante da recente deterioração do cenário macroeconômico brasileiro e de projeções de juros elevados por mais tempo.\n\nNo front corporativo e de expansão global, a fabricante de equipamentos elétricos anunciou a compra de um terreno de 400 mil metros quadrados no sul da Índia, por aproximadamente R$ 44 milhões (US$ 8 milhões), com o objetivo de fortalecer sua capacidade produtiva industrial fora do Brasil. Esse movimento corrobora a estratégia de longo prazo da empresa voltada à diversificação geográfica e ao fortalecimento de operações em mercados externos relevantes.\n\nEssas notícias recentes atenuam o impacto negativo gerado no final de outubro, quando a divulgação do balanço do terceiro trimestre (3T26) veio ligeiramente abaixo das expectativas do mercado — com lucro líquido de R$ 1,67 bilhão —, pressionado por custos de matérias-primas e margens mais apertadas. Ainda assim, analistas ponderam que a reação de queda nos papéis foi exagerada, mantendo o otimismo com o perfil resiliente da companhia na B3.\n\nFontes: uol.com.br, exame.com, advfn.com, seudinheiro.com, kinvo.com.br\n</conteudo_externo>"
         }
       ]
     },
@@ -128,39 +128,48 @@
       "tools": [
         {
           "nome": "buscar_noticias_web",
-          "conteudo": "<conteudo_externo origem=\"google_search\">\nO setor de bens industriais, em especial o segmento de máquinas e equipamentos na B3, enfrenta um cenário desafiador em 2026, marcado pela perda de dinamismo e compressão da demanda por investimentos produtivos. Dados do IBGE indicam que a produção industrial brasileira recuou nos últimos meses, com quedas expressivas na categoria de máquinas e equipamentos, pressionada por um ciclo monetário restritivo e juros elevados que encarecem o crédito e desestimulam novos aportes corporativos.\n\nRefletindo esse ambiente adverso, entidades como a ABIMAQ revisaram suas projeções para o ano, apontando retrações nas vendas totais e no mercado interno. Além do peso da taxa Selic elevada, os fabricantes nacionais lidam com o avanço da concorrência externa — impulsionada por volumes expressivos de importações, sobretudo da China —, e com os reflexos de barreiras comerciais internacionais, a exemplo das tarifas adicionais aplicadas pelos Estados Unidos às exportações brasileiras do setor.\n\nDiante desse quadro de margens pressionadas e incertezas macroeconômicas, companhias listadas de maior porte buscam alternativas operacionais, como o redirecionamento de rotas de exportação, o foco em automação e eficiência energética, e ajustes estratégicos para mitigar o impacto da reforma tributária em curso. No mercado acionário, a cautela prevalece entre os investidores na precificação de ativos industriais, à espera de sinais mais claros de inflexão nos custos de financiamento e na retomada consistente do ciclo de investimentos no país.\n\nFontes: bb.com.br, abimaq.org.br, advfn.com, timesbrasil.com.br, ebc.com.br\n</conteudo_externo>"
+          "conteudo": "<conteudo_externo origem=\"google_search\">\nNos eventos corporativos recentes, a WEG (**WEGE3**) reportou no final de outubro seu balanço do terceiro trimestre de 2026, registrando lucro líquido de R$ 1,67 bilhão — alta de 0,9% na base anual, mas levemente abaixo das expectativas do mercado. O resultado financeiro e as margens operacionais sentiram pressões pontuais decorrentes da alta nos custos de matérias-primas (como cobre e aço) e de despesas pré-operacionais ligadas à expansão de novas fábricas.\n\nNo contexto do setor de bens industriais e de máquinas e equipamentos, a companhia destacou contínuos investimentos em modernização e ampliação de capacidade produtiva (com forte foco em unidades internacionais, como Estados Unidos, México e Colômbia), direcionando mais de 60% dos aportes recentes para o exterior. Analistas apontam que a desaceleração nas vendas de motores industriais no mercado interno reflete uma postura de cautela das indústrias locais devido a juros elevados.\n\nApesar dos desafios macroeconômicos domésticos, grandes instituições financeiras (como a XP) elevaram recentemente a recomendação para os papéis **WEGE3** para \"compra\", com preço-alvo revisado para R$ 60. A tese de mercado é amparada na forte diversificação geográfica da empresa e em sua exposição natural ao dólar, atributos vistos como diferenciais defensivos e atrativos diante de incertezas fiscais e monetárias na Bolsa brasileira.\n\nFontes: infomoney.com.br, moneytimes.com.br, investing.com, seudinheiro.com, uol.com.br\n</conteudo_externo>"
         }
       ]
     }
   ],
   "sinais_anomalia": [],
   "relatorio": {
-    "resumo": "A WEG (WEGE3) é negociada a R$ 48,19 e mantém a liderança isolada no setor de Máquinas e Equipamentos na B3, com valor de mercado de R$ 210,0 bi. Os dados mostram um ROE de 29,9%, P/L de 32,3x e lucro líquido de R$ 1,67 bilhão no 3T26, impulsionado pela demanda externa nos EUA que compensou o cenário interno moderado.",
+    "resumo": "A WEG (WEGE3) apresenta fundamentos sólidos com ROE de 29,9% e forte geração de caixa, sendo negociada a um P/L de 32,3x. As notícias recentes destacam a elevação de recomendação para compra pela XP com preço-alvo de R$ 60 e a expansão fabril com aquisição de terreno na Índia, contrabalançando margens pressionadas no balanço do 3T26.",
     "indicadores": [
       "Preço Atual: R$ 48.19",
+      "Faixa de 52 semanas: R$ 41.15 a R$ 54.53",
       "Valor de mercado: R$ 210.0 bi",
       "LPA: R$ 1.49",
-      "P/L: 32.3x",
-      "ROE: 29.9%",
+      "P/L (quantos anos de lucro pagam o preço da ação): 32.3x",
+      "ROE (retorno sobre o patrimônio líquido): 29.9%",
       "DY: 3.22%",
-      "Piotroski F-Score: 5/9",
-      "Net Income: R$ 6.38B",
-      "Operating Cash Flow: R$ 6.45B",
       "Sharpe Ratio: 0.18",
       "Sortino Ratio: 0.28",
       "Max Drawdown: -22.5%",
       "VaR 95% (diário): -3.14%",
-      "Beta (vs IBOV): 0.29",
-      "Alpha (anual): 6.6%"
+      "Beta: 0.29",
+      "Alpha (anual): 6.6%",
+      "Piotroski F-Score: 5/9",
+      "Net Income: R$ 6.38B",
+      "Operating Cash Flow: R$ 6.45B",
+      "Total Assets cresceu: +2.8%",
+      "Divida corrente aumentou: +12.5%",
+      "Current Ratio: 1.55 vs 1.76",
+      "Diluicao detectada: +0.0% novas acoes",
+      "Gross Margin: 33.5% vs 33.7%",
+      "SELIC (meta): 13.75% a.a.",
+      "CDI: 13.65% a.a.",
+      "IPCA acumulado em 12 meses: 4.58%"
     ],
-    "contexto": "A WEG atua no segmento de bens de capital industriais, com receita diversificada e forte presença internacional. Notícias recentes destacam a divulgação do balanço do 3T26 com lucro líquido de R$ 1,67 bilhão (alta anual de 0,9%), a aquisição da Power Controls Solutions nos EUA, a compra de terreno na Índia por cerca de R$ 44 milhões, e a elevação da recomendação para compra pela XP Investimentos com preço-alvo em R$ 60 para o fim de 2027. O setor enfrenta dificuldades como queda na produção industrial segundo o IBGE e ABIMAQ, aperto monetário e competição de importados chineses.",
+    "contexto": "A WEG S.A. é líder isolada no subsetor de Máquinas e Equipamentos dentro de Bens Industriais na B3, com valor de mercado de R$ 210 bilhões. No noticiário recente, os papéis ganharam impulso após a XP Investimentos elevar a recomendação da WEGE3 de neutra para compra com preço-alvo de R$ 60, destacando a proteção cambial e a forte exposição internacional. Além disso, a empresa anunciou a aquisição de um terreno de 400 mil metros quadrados na Índia por cerca de R$ 44 milhões para expandir sua capacidade fabril no exterior. Esses fatores ajudam a mitigar a volatilidade gerada pelo balanço do 3T26, que apontou lucro líquido de R$ 1,67 bilhão com margens pressionadas pela elevação de custos de insumos e despesas pré-operacionais.",
     "riscos": [
-      "Dívida corrente aumentou (+12.5%)",
+      "Divida corrente aumentou (+12.5%)",
       "Current Ratio piorou (1.55 vs 1.76)",
       "Gross Margin caiu (33.5% vs 33.7%)",
-      "Aperto monetário com juros elevados",
-      "Forte competição de importados chineses",
-      "Recrudescimento de barreiras comerciais internacionais"
+      "Lucro líquido veio ligeiramente abaixo do esperado devido a pressões nas margens",
+      "Margens pressionadas pela elevação de custos de insumos e despesas pré-operacionais de expansão",
+      "Ambiente de cautela no mercado doméstico com a Selic em 13,75% a.a. desacelerando a demanda interna"
     ],
     "limitacoes": [],
     "diagnostico": null

@@ -26,7 +26,11 @@ MOTIVO_COBERTURA = (
     "caixa, dívida, margem, China, recompra). As perguntas de cobertura saem do sumário do Yahoo (ano de "
     "fundação, sede, nome antigo), que o relatório não precisa repetir. A nota segue registrada no notas.csv. "
     "Erro do juiz (timeout, 429) não é absorvido: aparece como failed. "
-    "Desde a segunda rodada da Brapi, a entrada é sem o sumário do negócio."
+    "Desde a segunda rodada da Brapi, a entrada é sem o sumário do negócio. "
+    "Na rodada com os indicadores do BCB (08/11/2026), já sem o sumário, a nota foi 0,42 na VALE3 e 0,50 na "
+    "WEGE3: a metade de cobertura deu 0,60 e 0,80 (ficou de fora o Beta nas duas), e quem puxou a nota foi o "
+    "alinhamento, com o juiz dizendo que VaR, Alpha, dívida corrente e margem bruta não estavam na entrada "
+    "(estavam, no bloco do YFinance). Continua em xfail até se mostrar estável."
 )
 
 
