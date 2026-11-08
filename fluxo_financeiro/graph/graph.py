@@ -51,6 +51,7 @@ def yfinance_node(state: MessagesState):
     return {
         "messages": [HumanMessage(content=conteudo, name="YFinance")],
         "sinais_anomalia": sinais,
+        "dados_mercado": conteudo,
     }
 
 
@@ -59,7 +60,11 @@ def analyzer_node(state: MessagesState):
     response = analyzer_agent.invoke({"messages": state["messages"]})
     last_message = response["messages"][-1]
     logger.info(f"[node] Analyzer: resposta recebida ({len(last_message.text)} chars)")
-    return {"messages": [HumanMessage(content=last_message.text, name="Analyzer")]}
+    texto = last_message.text
+    # A primeira passagem é a das notícias da empresa; as seguintes, a do setor. `is None` e não
+    # falsidade: uma primeira resposta vazia ou de erro também conta como passagem feita.
+    campo = "noticias" if state.get("noticias") is None else "contexto_setor"
+    return {"messages": [HumanMessage(content=texto, name="Analyzer")], campo: texto}
 
 
 def investigator_node(state: MessagesState):
@@ -67,7 +72,8 @@ def investigator_node(state: MessagesState):
     response = investigator_agent.invoke({"messages": state["messages"]})
     last_message = response["messages"][-1]
     logger.info(f"[node] Investigator: resposta recebida ({len(last_message.text)} chars)")
-    return {"messages": [HumanMessage(content=last_message.text, name="Investigator")]}
+    texto = last_message.text
+    return {"messages": [HumanMessage(content=texto, name="Investigator")], "diagnostico": texto}
 
 
 def consolidador_node(state: MessagesState):

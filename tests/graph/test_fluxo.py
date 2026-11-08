@@ -113,6 +113,12 @@ def test_llm_pode_acionar_investigator_mesmo_sem_sinal(grafo_mockado):
     historico = grafo_mockado["Investigator"].invoke.call_args.args[0]["messages"]
     assert historico[-1].name == "Supervisor"
     assert historico[-1].content == "Investigue o ROE de 0,3% da VALE3"
+    # Cada agente gravou a própria saída num campo do state
+    msg_yfinance = next(m for m in resultado["messages"] if m.name == "YFinance")
+    assert resultado["dados_mercado"] == msg_yfinance.content
+    assert resultado["noticias"] == "análise de notícias"
+    assert resultado["contexto_setor"] == "análise de notícias"
+    assert resultado["diagnostico"] == "- Causa identificada: prejuízo no 4T25"
 
 
 def _yfinance_com_saida_da_tool(saida_da_tool, resposta_final):
@@ -200,6 +206,8 @@ def test_fluxo_sem_anomalia_nao_chama_o_investigator(grafo_mockado):
     assert resultado["relatorio"].diagnostico is None
     assert resultado["loop_count"] == 4
     grafo_mockado["Investigator"].invoke.assert_not_called()
+    assert resultado.get("diagnostico") is None
+    assert resultado["noticias"] and resultado["contexto_setor"] and resultado["dados_mercado"]
 
 
 def test_hard_stop_segura_llm_que_nunca_encerra(grafo_mockado):
