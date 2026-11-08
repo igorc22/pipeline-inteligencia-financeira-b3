@@ -231,7 +231,32 @@ flowchart LR
 
 ---
 
-## 7. O que ainda não existe
+## 7. Como a análise é medida
+
+Os testes unitários conferem o código com tudo mockado. Os evals conferem o texto: uma análise real é gravada uma vez e um LLM-juiz, diferente do modelo dos agentes, lê a resposta de cada agente contra o que aquele agente tinha em mãos. Ficam fora do `pytest` comum (marcador `eval`, rede liberada só neles).
+
+```mermaid
+flowchart LR
+    ANALISE["Análise real<br/>(grafo com subgraphs=True)"] --> SCRIPT["scripts/gerar_fixture_eval.py"]
+    SCRIPT --> FIX["Fixture JSON<br/>state final + saídas das tools<br/>de cada passagem"]
+    FIX --> PYT["pytest -m eval<br/>(make eval)"]
+    PYT -->|"texto do agente + contexto dele"| JUIZ["Juiz Gemini<br/>gemini-3.8-flash"]
+    JUIZ --> NOTAS["notas.csv<br/>toda nota, com custo"]
+    JUIZ -->|"reprovou"| FALHAS["_falhas/<br/>vereditos e contexto"]
+```
+
+| Agente | O que o juiz mede | Contexto que ele recebe |
+|---|---|---|
+| Analyzer (2 passagens) | Fidelidade | Saídas das tools da passagem, pedido, resposta do YFinance, tarefas do Supervisor |
+| Investigator | Fidelidade e diagnóstico (GEval) | O mesmo, com as tools dele |
+| Consolidador | Fidelidade, cobertura (não reprova) e relevância | `montar_insumos(messages)`, a mesma entrada que o nó usa |
+| Relatório final | Neutralidade (GEval: sem recomendação de compra ou venda) | Só o pedido |
+
+As respostas anteriores de outros agentes ficam fora do contexto: um número inventado numa passagem contaria como confirmado na seguinte. Na Faithfulness da `deepeval`, só a afirmação que a fonte contradiz derruba a nota (a que a fonte não menciona conta como aprovada), então os vereditos dizem mais do que a nota.
+
+---
+
+## 8. O que ainda não existe
 
 Limites do desenho atual:
 
