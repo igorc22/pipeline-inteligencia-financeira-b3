@@ -56,9 +56,15 @@ def supervisor_node(state: MessagesState):
         logger.warning(f"[supervisor] hard stop — loop_count={current_loops} >= 6")
         return {"next_agent": "FINISH", "loop_count": 1, "decidido_por": "hard_stop"}
 
+    # Os guards leem os campos que cada nó grava no state, não contam mensagens pelo name:
+    # com retry ou agentes em paralelo, o número e a ordem das mensagens deixam de ser confiáveis.
+    # Presença é "is not None": um agente que respondeu vazio ou com erro grava "" e a etapa conta como feita.
+    dados_mercado = state.get("dados_mercado")
+    noticias = state.get("noticias")
+    contexto_setor = state.get("contexto_setor")
+
     # Guard determinístico: se YFinance coletou mas Analyzer ainda não rodou, vai para Analyzer
-    agent_names = {m.name for m in state.get("messages", []) if hasattr(m, "name") and m.name}
-    if "YFinance" in agent_names and "Analyzer" not in agent_names:
+    if dados_mercado is not None and noticias is None:
         logger.info("[supervisor] guard: YFinance coletou → forcando Analyzer (passo 1: noticias da empresa)")
         primeira_tarefa = "Busque notícias recentes sobre a empresa no histórico. Use os dados financeiros do YFinance como contexto para identificar o ticker e o nome da empresa."
         return {
@@ -70,19 +76,14 @@ def supervisor_node(state: MessagesState):
         }
 
     # Guard determinístico: se Investigator já concluiu → FINISH
-    has_investigator = any(
-        isinstance(m, HumanMessage) and getattr(m, "name", "") == "Investigator"
-        for m in state.get("messages", [])
-    )
-    if has_investigator:
+    if state.get("diagnostico") is not None:
         logger.info("[supervisor] guard: Investigator concluiu → FINISH")
         return {"next_agent": "FINISH", "loop_count": 1, "decidido_por": "guard"}
 
-    # Guard determinístico (Etapa 3): uma passagem do Analyzer (empresa) → falta o contexto do setor.
+    # Guard determinístico (Etapa 3): Analyzer trouxe as notícias da empresa → falta o contexto do setor.
     # Antes era o LLM quem decidia, e ele chegou a pular a etapa achando que ela já tinha sido feita (D45).
-    passagens_analyzer = sum(1 for m in state.get("messages", []) if getattr(m, "name", None) == "Analyzer")
-    if passagens_analyzer == 1:
-        logger.info("[supervisor] guard: 1 passagem do Analyzer → forcando Analyzer (etapa 3: setor)")
+    if noticias is not None and contexto_setor is None:
+        logger.info("[supervisor] guard: noticias sem contexto_setor → forcando Analyzer (etapa 3: setor)")
         return {
             "next_agent": "Analyzer",
             "loop_count": 1,
@@ -94,7 +95,7 @@ def supervisor_node(state: MessagesState):
     # Guard determinístico (Etapa 4): análise completa + sinais de anomalia calculados em código
     # → Investigator, sem consultar o LLM. Sem sinais, quem decide a Etapa 4 continua sendo o LLM.
     sinais = state.get("sinais_anomalia") or []
-    if passagens_analyzer >= 2 and sinais:
+    if noticias is not None and contexto_setor is not None and sinais:
         tipos = ", ".join(s.tipo for s in sinais)
         logger.info(f"[supervisor] guard: sinais de anomalia ({tipos}) → forcando Investigator")
         tarefa = (
