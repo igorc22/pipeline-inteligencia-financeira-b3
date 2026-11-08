@@ -1,9 +1,17 @@
 import re
+from typing import Callable
 
 from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 from langgraph.graph import StateGraph, START, END
 
-from fluxo_financeiro.shared.types import MessagesState
+from fluxo_financeiro.shared.retry import (
+    RespostaVazia,
+    classificar_erro,
+    com_retentativas,
+    e_mensagem_de_erro,
+    prefixo_de_erro,
+)
+from fluxo_financeiro.shared.types import ErroAgente, MessagesState
 from fluxo_financeiro.agents.collectors import yfinance_agent
 from fluxo_financeiro.agents.analysts import analyzer_agent
 from fluxo_financeiro.agents.investigators import investigator_agent
@@ -27,7 +35,59 @@ def _ticker_da_conversa(state: MessagesState):
     return None
 
 
-YFINANCE_SEM_DADOS = "Erro: o agente do YFinance não devolveu dados."
+# Retry local do nó: o agente inteiro roda até 2 vezes, com 2 s de espera, antes de o erro subir ao
+# coordenador. Cada chamada ao LLM já é repetida pela biblioteca do Gemini por baixo disso.
+TENTATIVAS_LOCAIS = 2
+ESPERA_LOCAL = 2.0
+TAMANHO_MENSAGEM_ERRO = 300
+
+
+def _resumo_do_erro(e: Exception) -> str:
+    """Tipo e texto da exceção numa linha, cortado: o erro do Gemini traz o JSON inteiro da resposta."""
+    return " ".join(f"{type(e).__name__}: {e}".split())[:TAMANHO_MENSAGEM_ERRO]
+
+
+def _rodar_com_retry(nome: str, rodar: Callable[[], dict], state: MessagesState) -> dict:
+    """Roda o nó repetindo o agente localmente; o que não resolver vira erro estruturado, sem levantar.
+
+    Princípio: cada agente/parte resolve o retry localmente antes de escalar pro coordenador.
+    Sucesso: o dict do nó, com o erro e as tentativas do agente zerados (uma etapa seguinte do mesmo
+    agente, como a do setor no Analyzer, tem o limite inteiro). Falha final: o erro no state, uma
+    mensagem "Erro: ..." com o nome do agente e o campo do agente sem gravar.
+    """
+    rodadas = 0
+
+    def contando() -> dict:
+        nonlocal rodadas
+        rodadas += 1
+        return rodar()
+
+    try:
+        resultado = com_retentativas(
+            contando, tentativas=TENTATIVAS_LOCAIS, espera=ESPERA_LOCAL, contexto=f"[node] {nome}"
+        )
+    except Exception as e:
+        tipo = classificar_erro(e)
+        falhas = (state.get("tentativas") or {}).get(nome, 0) + 1
+        mensagem = _resumo_do_erro(e)
+        texto = f"{prefixo_de_erro(nome)}{rodadas} {'tentativa' if rodadas == 1 else 'tentativas'} ({tipo}): {mensagem}"
+        logger.error(f"[node] {texto}")
+        logger.debug(f"[node] {nome}: traceback da falha", exc_info=True)
+        return {
+            "messages": [HumanMessage(content=texto, name=nome)],
+            "erros": {nome: ErroAgente(tipo=tipo, mensagem=mensagem, tentativas=falhas)},
+            "tentativas": {nome: falhas},
+        }
+    return {**resultado, "erros": {nome: None}, "tentativas": {nome: 0}}
+
+
+def _historico(nome: str, state: MessagesState) -> list[BaseMessage]:
+    """O histórico que o agente recebe, sem os "Erro: ..." dele mesmo.
+
+    Na rodada mandada pelo coordenador, a última mensagem volta a ser a tarefa do Supervisor, como
+    na primeira vez, e não o erro da rodada anterior.
+    """
+    return [m for m in state["messages"] if not e_mensagem_de_erro(m, nome)]
 
 
 def _saida_das_tools(mensagens_novas) -> str:
@@ -35,31 +95,41 @@ def _saida_das_tools(mensagens_novas) -> str:
 
     Aconteceu no e2e da VALE3: a mensagem ficou só com os blocos do código, e o relatório saiu sem
     P/L, risco e Piotroski e sem limitação. As tags de conteúdo externo saem (as messages do state
-    não levam tags). Sem tool nenhuma, vira um erro, que o Consolidador registra nas limitações.
+    não levam tags). Sem tool nenhuma, levanta RespostaVazia: o nó repete o agente e, se não
+    adiantar, o erro vai para o coordenador.
     """
     saidas = [m.text for m in mensagens_novas if isinstance(m, ToolMessage) and m.text.strip()]
     if not saidas:
-        logger.warning("[node] YFinance: resposta final vazia e nenhuma tool respondeu")
-        return YFINANCE_SEM_DADOS
+        raise RespostaVazia("o agente do YFinance não respondeu e nenhuma tool devolveu dados")
     logger.warning(f"[node] YFinance: resposta final vazia, usando a saída de {len(saidas)} tools")
     texto = "\n\n".join(saidas)
     return re.sub(rf"</?{TAG_CONTEUDO_EXTERNO}[^>]*>\n?", "", texto)
 
 
-def yfinance_node(state: MessagesState):
-    logger.info(f"[node] YFinance: invocando agente ({len(state['messages'])} msgs)")
-    response = yfinance_agent.invoke({"messages": state["messages"]})
-    last_message = response["messages"][-1]
-    logger.info(f"[node] YFinance: resposta recebida ({len(last_message.text)} chars)")
+def _texto_final(nome: str, response: dict) -> str:
+    """Texto da última mensagem do agente; vazio levanta RespostaVazia (o nó repete o agente)."""
+    texto = response["messages"][-1].text
+    logger.info(f"[node] {nome}: resposta recebida ({len(texto)} chars)")
+    if not texto.strip():
+        raise RespostaVazia(f"o agente do {nome} terminou sem resposta final")
+    return texto
 
+
+def _rodar_yfinance(state: MessagesState) -> dict:
+    historico = _historico("YFinance", state)
+    logger.info(f"[node] YFinance: invocando agente ({len(historico)} msgs)")
+    response = yfinance_agent.invoke({"messages": historico})
+    conteudo = response["messages"][-1].text
+    logger.info(f"[node] YFinance: resposta recebida ({len(conteudo)} chars)")
+    mensagens_novas = response["messages"][len(historico):]
+    if not conteudo.strip():
+        conteudo = _saida_das_tools(mensagens_novas)
+
+    # Depois da resposta do agente: uma RespostaVazia repete o agente sem refazer o detector e o BCB.
     # Sinais calculados em código, sem LLM: alimentam o guard do Investigator no Supervisor e
     # entram no texto da mensagem para o Analyzer e o dashboard também verem.
     ticker = _ticker_da_conversa(state)
     sinais = detectar_sinais_anomalia(ticker) if ticker else []
-    conteudo = last_message.text
-    mensagens_novas = response["messages"][len(state["messages"]):]
-    if not conteudo.strip():
-        conteudo = _saida_das_tools(mensagens_novas)
     # O Consolidador anota a limitação da reserva lendo o aviso na mensagem do YFinance. O prompt
     # manda o agente repassar a linha, mas o LLM pode resumir: o aviso é conferido na saída da tool.
     reserva = any(isinstance(m, ToolMessage) and AVISO_PERFIL_RESERVA in m.text for m in mensagens_novas)
@@ -79,25 +149,34 @@ def yfinance_node(state: MessagesState):
     }
 
 
-def analyzer_node(state: MessagesState):
-    logger.info(f"[node] Analyzer: invocando agente ({len(state['messages'])} msgs)")
-    response = analyzer_agent.invoke({"messages": state["messages"]})
-    last_message = response["messages"][-1]
-    logger.info(f"[node] Analyzer: resposta recebida ({len(last_message.text)} chars)")
-    texto = last_message.text
+def yfinance_node(state: MessagesState):
+    return _rodar_com_retry("YFinance", lambda: _rodar_yfinance(state), state)
+
+
+def _rodar_analyzer(state: MessagesState) -> dict:
+    historico = _historico("Analyzer", state)
+    logger.info(f"[node] Analyzer: invocando agente ({len(historico)} msgs)")
+    texto = _texto_final("Analyzer", analyzer_agent.invoke({"messages": historico}))
     # A primeira passagem é a das notícias da empresa; as seguintes, a do setor. `is None` e não
-    # falsidade: uma primeira resposta vazia ou de erro também conta como passagem feita.
+    # falsidade: uma primeira resposta com erro em texto também conta como passagem feita. Uma
+    # passagem que falhou de vez não grava o campo, então a nova tentativa ainda cai em noticias.
     campo = "noticias" if state.get("noticias") is None else "contexto_setor"
     return {"messages": [HumanMessage(content=texto, name="Analyzer")], campo: texto}
 
 
-def investigator_node(state: MessagesState):
-    logger.info(f"[node] Investigator: invocando agente ({len(state['messages'])} msgs)")
-    response = investigator_agent.invoke({"messages": state["messages"]})
-    last_message = response["messages"][-1]
-    logger.info(f"[node] Investigator: resposta recebida ({len(last_message.text)} chars)")
-    texto = last_message.text
+def analyzer_node(state: MessagesState):
+    return _rodar_com_retry("Analyzer", lambda: _rodar_analyzer(state), state)
+
+
+def _rodar_investigator(state: MessagesState) -> dict:
+    historico = _historico("Investigator", state)
+    logger.info(f"[node] Investigator: invocando agente ({len(historico)} msgs)")
+    texto = _texto_final("Investigator", investigator_agent.invoke({"messages": historico}))
     return {"messages": [HumanMessage(content=texto, name="Investigator")], "diagnostico": texto}
+
+
+def investigator_node(state: MessagesState):
+    return _rodar_com_retry("Investigator", lambda: _rodar_investigator(state), state)
 
 
 def consolidador_node(state: MessagesState):

@@ -26,6 +26,18 @@ import langchain_core._api.deprecation  # noqa: E402,F401
 
 
 @pytest.fixture(autouse=True)
+def espera_falsa():
+    """Troca a espera entre tentativas do retry (shared/retry.py) por um falso: nenhum teste dorme.
+
+    Quem quiser conferir as esperas pede a fixture pelo nome e lê as chamadas do mock.
+    """
+    from unittest.mock import patch
+
+    with patch("fluxo_financeiro.shared.retry._esperar") as falso:
+        yield falso
+
+
+@pytest.fixture(autouse=True)
 def _reprova_teste_que_tentou_rede(request, recwarn):
     """Reprova o teste que tentou abrir socket, mesmo que o erro tenha sido engolido.
 

@@ -5,7 +5,8 @@ from langchain_core.messages import HumanMessage
 
 from fluxo_financeiro.graph.supervisor import SUPERVISOR_PROMPT, supervisor_node, router
 from fluxo_financeiro.shared.prompts import REGRA_CONTEUDO_EXTERNO
-from fluxo_financeiro.shared.types import MessagesState, RouteDecision, SinalAnomalia
+from fluxo_financeiro.shared.retry import MAX_TENTATIVAS
+from fluxo_financeiro.shared.types import ErroAgente, MessagesState, RouteDecision, SinalAnomalia
 
 
 def _state(messages, loop_count=0, next_agent="YFinance", **campos) -> MessagesState:
@@ -193,6 +194,135 @@ def test_campo_vazio_conta_como_preenchido(mock_llm):
                                                **CAMPOS_ETAPA_4, diagnostico=""))
     assert diagnostico_vazio["next_agent"] == "FINISH"
     assert diagnostico_vazio["decidido_por"] == "guard"
+    mock_llm.with_structured_output.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Guard de erro: o nó já repetiu localmente; o coordenador reenvia uma vez ou segue sem o agente
+# ---------------------------------------------------------------------------
+
+def _erro(tipo="transitorio", tentativas=1):
+    return ErroAgente(tipo=tipo, mensagem="TimeoutError: lento", tentativas=tentativas)
+
+
+def test_reenvia_agente_com_erro_temporario(mock_llm):
+    """Confere que um erro temporário abaixo do limite reenvia o mesmo agente, sem contar volta e sem LLM."""
+    state = _state([HumanMessage(content="Analise VALE3")], loop_count=4, **CAMPOS_ETAPA_4,
+                   sinais_anomalia=[QUEDA],
+                   erros={"Investigator": _erro()}, tentativas={"Investigator": 1})
+
+    result = supervisor_node(state)
+
+    assert result["next_agent"] == "Investigator"
+    assert result["decidido_por"] == "guard"
+    assert result["loop_count"] == 0
+    assert "messages" not in result  # o agente relê a última tarefa do histórico
+    assert result["supervisor_reasoning"] == (
+        f"Investigator falhou com erro temporário: nova tentativa (2 de {MAX_TENTATIVAS})."
+    )
+    mock_llm.with_structured_output.assert_not_called()
+
+
+def test_nao_reenvia_erro_permanente(mock_llm):
+    """Confere que um erro permanente não é reenviado: o Analyzer sem o setor segue para a Etapa 4."""
+    state = _state([HumanMessage(content="Analise VALE3")], loop_count=3, **CAMPOS_ETAPA_3,
+                   sinais_anomalia=[QUEDA],
+                   erros={"Analyzer": _erro("permanente")}, tentativas={"Analyzer": 1})
+
+    result = supervisor_node(state)
+
+    assert result["next_agent"] == "Investigator"
+    assert result["decidido_por"] == "guard"
+    assert result["loop_count"] == 1
+    mock_llm.with_structured_output.assert_not_called()
+
+
+def test_nao_reenvia_depois_do_limite(mock_llm):
+    """Confere que, com o limite atingido, o agente não é reenviado e a decisão segue a etapa seguinte."""
+    _llm_decide(mock_llm, RouteDecision(reasoning="sem anomalia", next_agent="FINISH"))
+    state = _state([HumanMessage(content="Analise VALE3")], loop_count=3, **CAMPOS_ETAPA_2,
+                   erros={"Analyzer": _erro(tentativas=MAX_TENTATIVAS)},
+                   tentativas={"Analyzer": MAX_TENTATIVAS})
+
+    result = supervisor_node(state)
+
+    assert result["next_agent"] == "FINISH"
+    assert result["decidido_por"] == "llm"
+    assert result["loop_count"] == 1
+
+
+def test_analyzer_desistiu_pula_setor(mock_llm):
+    """Confere que o Analyzer que desistiu nas notícias não roda a Etapa 3: com sinais, vai ao Investigator."""
+    state = _state([HumanMessage(content="Analise VALE3")], loop_count=3, **CAMPOS_ETAPA_2,
+                   sinais_anomalia=[QUEDA],
+                   erros={"Analyzer": _erro(tentativas=2)}, tentativas={"Analyzer": 2})
+
+    result = supervisor_node(state)
+
+    assert result["next_agent"] == "Investigator"
+    assert result["decidido_por"] == "guard"
+    assert QUEDA.descricao in result["messages"][0].content
+    mock_llm.with_structured_output.assert_not_called()
+
+
+def test_yfinance_desistiu_vai_para_finish(mock_llm):
+    """Confere que, sem os dados de mercado depois do limite, o fluxo encerra (o Consolidador anota a falta)."""
+    state = _state([HumanMessage(content="Analise VALE3")], loop_count=1,
+                   erros={"YFinance": _erro("permanente")}, tentativas={"YFinance": 1})
+
+    result = supervisor_node(state)
+
+    assert result["next_agent"] == "FINISH"
+    assert result["decidido_por"] == "guard"
+    mock_llm.with_structured_output.assert_not_called()
+
+
+def test_investigator_desistiu_vai_para_finish(mock_llm):
+    """Confere que o Investigator que desistiu encerra o fluxo como se tivesse concluído."""
+    state = _state([HumanMessage(content="Analise VALE3")], loop_count=5, **CAMPOS_ETAPA_4,
+                   sinais_anomalia=[QUEDA],
+                   erros={"Investigator": _erro(tentativas=2)}, tentativas={"Investigator": 2})
+
+    result = supervisor_node(state)
+
+    assert result["next_agent"] == "FINISH"
+    assert result["decidido_por"] == "guard"
+    mock_llm.with_structured_output.assert_not_called()
+
+
+def test_llm_nao_reenvia_agente_que_desistiu(mock_llm):
+    """Confere que, se o LLM escolhe o Analyzer que desistiu nas notícias (1 mensagem dele, a do erro), o fluxo vai ao FINISH."""
+    _llm_decide(mock_llm, RouteDecision(reasoning="falta o setor", next_agent="Analyzer",
+                                        task_for_agent="Busque informações sobre o setor da WEGE3"))
+    state = _state(
+        [HumanMessage(content="Analise WEGE3"),
+         HumanMessage(content="dados da WEGE3", name="YFinance"),
+         HumanMessage(content="Busque notícias recentes...", name="Supervisor"),
+         HumanMessage(content="Erro: Analyzer falhou depois de 1 tentativa (permanente): ValueError: chave", name="Analyzer")],
+        loop_count=2, dados_mercado="dados da WEGE3",
+        erros={"Analyzer": _erro("permanente")}, tentativas={"Analyzer": 1},
+    )
+
+    result = supervisor_node(state)
+
+    mock_llm.with_structured_output.return_value.invoke.assert_called_once()
+    assert result["next_agent"] == "FINISH"
+    assert result["decidido_por"] == "guard"
+    assert result["loop_count"] == 1
+    assert "messages" not in result
+    assert "Analyzer" in result["supervisor_reasoning"]
+
+
+def test_erro_limpo_nao_reenvia(mock_llm):
+    """Confere que um erro já limpo ({agente: None}) não dispara o reenvio: o guard de etapa decide."""
+    state = _state([HumanMessage(content="Analise VALE3")], loop_count=2, **CAMPOS_ETAPA_3,
+                   erros={"Analyzer": None}, tentativas={"Analyzer": 0})
+
+    result = supervisor_node(state)
+
+    assert result["next_agent"] == "Analyzer"
+    assert result["loop_count"] == 1
+    assert "setor" in result["messages"][0].content
     mock_llm.with_structured_output.assert_not_called()
 
 

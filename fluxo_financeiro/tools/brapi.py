@@ -16,12 +16,14 @@ from typing import Optional
 import brapi
 
 from fluxo_financeiro.shared.config import BRAPI_API_KEY
+from fluxo_financeiro.shared.retry import com_retentativas
 from fluxo_financeiro.shared.utils import SUGESTAO_TICKER, TICKER_NAO_ENCONTRADO, logger
 
 TIMEOUT_SEGUNDOS = 10
 # O SDK repete 2 vezes por padrão em timeout, 429 e 5xx: com a Brapi fora do ar, a entrada esperaria
-# mais de 30 s antes de a análise começar, e no 429 as repetições gastariam a cota. Uma tentativa só:
-# se falhar, o yfinance é a reserva.
+# mais de 30 s antes de a análise começar, e no 429 as repetições gastariam a cota. O SDK não repete:
+# a repetição é a nossa (_chamar, com o retry local de shared/retry.py), uma vez só e com espera curta.
+# Se falhar de novo, o yfinance é a reserva.
 MAX_RETENTATIVAS = 0
 # A lista do setor vem paginada; 3 páginas de 100 cobrem os setores da B3 com folga.
 MAX_PAGINAS_SETOR = 3
@@ -62,6 +64,11 @@ class ParesDoSetor:
     pares: list[tuple[str, str, float]]  # (ticker, nome, valor de mercado), os maiores primeiro
 
 
+def _chamar(funcao, contexto: str):
+    """Uma chamada ao SDK com o retry local: timeout, conexão, 429 e 5xx repetem uma vez; o resto sobe na hora."""
+    return com_retentativas(funcao, contexto=f"[brapi] {contexto}")
+
+
 def eh_papel_inteiro(codigo: str) -> bool:
     """True para o código de um papel inteiro (WEGE3, TAEE11); False para o fracionário (WEGE3F) e outros."""
     return re.fullmatch(r"[A-Z]{4}[0-9]{1,2}", codigo or "") is not None
@@ -70,7 +77,8 @@ def eh_papel_inteiro(codigo: str) -> bool:
 def ticker_existe(ticker: str) -> Optional[bool]:
     """True se a Brapi devolve a cotação, False no 404, None se não deu para conferir (a análise segue)."""
     try:
-        criar_cliente().quote.retrieve(tickers=ticker)
+        cliente = criar_cliente()
+        _chamar(lambda: cliente.quote.retrieve(tickers=ticker), f"cotação de {ticker}")
         return True
     except brapi.NotFoundError:
         return False
@@ -82,7 +90,10 @@ def ticker_existe(ticker: str) -> Optional[bool]:
 def buscar_perfil(ticker: str) -> Optional[PerfilBrapi]:
     """Cotação e summaryProfile numa chamada só. None se a Brapi falhar ou não trouxer resultado."""
     try:
-        resposta = criar_cliente().quote.retrieve(tickers=ticker, modules="summaryProfile")
+        cliente = criar_cliente()
+        resposta = _chamar(
+            lambda: cliente.quote.retrieve(tickers=ticker, modules="summaryProfile"), f"perfil de {ticker}"
+        )
         if not resposta.results:
             logger.warning(f"[brapi] perfil de {ticker}: resposta sem resultados")
             return None
@@ -108,7 +119,8 @@ def buscar_perfil(ticker: str) -> Optional[PerfilBrapi]:
 def sugerir_ticker(ticker: str) -> Optional[str]:
     """Um papel inteiro com as mesmas 4 letras, diferente do digitado (WEGE4 → WEGE3). None se não houver."""
     try:
-        resposta = criar_cliente().quote.list(search=ticker[:4])
+        cliente = criar_cliente()
+        resposta = _chamar(lambda: cliente.quote.list(search=ticker[:4]), f"sugestão para {ticker}")
         for item in resposta.stocks:
             if eh_papel_inteiro(item.stock) and item.stock != ticker:
                 return item.stock
@@ -134,7 +146,7 @@ def buscar_pares_do_setor(ticker: str, limite: int = 5) -> Optional[ParesDoSetor
     """
     try:
         cliente = criar_cliente()
-        busca = cliente.quote.list(search=ticker)
+        busca = _chamar(lambda: cliente.quote.list(search=ticker), f"setor de {ticker}")
         proprio = next((item for item in busca.stocks if item.stock == ticker), None)
         setor = proprio.sector if proprio else None
         if not setor:
@@ -144,13 +156,16 @@ def buscar_pares_do_setor(ticker: str, limite: int = 5) -> Optional[ParesDoSetor
         papeis = []
         pagina, total_paginas = 1, 1
         while pagina <= min(total_paginas, MAX_PAGINAS_SETOR):
-            resposta = cliente.quote.list(
-                sector=setor,
-                sort_by="market_cap_basic",
-                sort_order="desc",
-                type="stock",
-                limit=str(ITENS_POR_PAGINA),
-                page=str(pagina),
+            resposta = _chamar(
+                lambda: cliente.quote.list(
+                    sector=setor,
+                    sort_by="market_cap_basic",
+                    sort_order="desc",
+                    type="stock",
+                    limit=str(ITENS_POR_PAGINA),
+                    page=str(pagina),
+                ),
+                f"lista do setor {setor}, página {pagina}",
             )
             papeis.extend(resposta.stocks)
             total_paginas = int(resposta.total_pages or 1)

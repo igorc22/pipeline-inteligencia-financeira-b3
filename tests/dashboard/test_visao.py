@@ -19,7 +19,7 @@ from dashboard.visao import (
     state_para_json,
     status_execucao,
 )
-from fluxo_financeiro.shared.types import RelatorioFinal, SinalAnomalia
+from fluxo_financeiro.shared.types import ErroAgente, RelatorioFinal, SinalAnomalia
 
 
 def _sup(decidido_por, proximo, tarefa=None, raciocinio=None):
@@ -164,6 +164,22 @@ def test_state_para_json():
     assert resultado["relatorio"]["resumo"] == "Lucro caiu."
     assert resultado["sinais_anomalia"][0]["tipo"] == "prejuizo"
     assert resultado["loop_count"] == 4
+
+
+def test_state_para_json_converte_erros_dentro_do_dicionario():
+    """Confere que os ErroAgente dentro de `erros` viram dict e que o erro limpo (None) continua None."""
+    state = {
+        "erros": {"Analyzer": ErroAgente(tipo="transitorio", mensagem="TimeoutError: lento", tentativas=2),
+                  "YFinance": None},
+        "tentativas": {"Analyzer": 2, "YFinance": 0},
+    }
+
+    resultado = state_para_json(state)
+
+    json.dumps(resultado)  # sem default: não pode levantar
+    assert resultado["erros"]["Analyzer"] == {"tipo": "transitorio", "mensagem": "TimeoutError: lento", "tentativas": 2}
+    assert resultado["erros"]["YFinance"] is None
+    assert resultado["tentativas"] == {"Analyzer": 2, "YFinance": 0}
 
 
 def test_escapar_markdown_protege_cifrao():

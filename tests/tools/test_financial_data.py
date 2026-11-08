@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 import pandas as pd
 import pytest
+import requests
 from fluxo_financeiro.tools.brapi import ParesDoSetor, PerfilBrapi
 from fluxo_financeiro.tools.financial_data import (
     AVISO_PERFIL_RESERVA,
@@ -358,6 +359,34 @@ def test_bcb_ipca_12m(mock_get):
     assert result['indicador'] == 'IPCA_12M'
     assert result['valor'] == 4.58
     assert result['unidade'] == '% em 12 meses'
+
+
+@patch('fluxo_financeiro.tools.financial_data.requests.get')
+def test_bcb_repete_json_invalido(mock_get, espera_falsa):
+    """Confere que a resposta que não é JSON (caso real do BCB) é pedida de novo e a segunda vale."""
+    quebrada = MagicMock()
+    quebrada.json.side_effect = requests.JSONDecodeError("Expecting value", "<html>", 0)
+    certa = MagicMock()
+    certa.json.return_value = [{'valor': '13.65', 'data': '05/11/2026'}]
+    mock_get.side_effect = [quebrada, certa]
+
+    result = busca_indicador_bcb.invoke({'input_data': {'indicador': 4389}})
+
+    assert mock_get.call_count == 2
+    espera_falsa.assert_called_once_with(2.0)
+    assert result['valor'] == 13.65 and 'error' not in result
+
+
+@patch('fluxo_financeiro.tools.financial_data.requests.get')
+def test_bcb_timeout_duas_vezes_devolve_erro(mock_get, espera_falsa):
+    """Confere que o timeout repetido do BCB é pedido 2 vezes e depois vira o dict com 'error', sem levantar."""
+    mock_get.side_effect = requests.Timeout('lento')
+
+    result = busca_indicador_bcb.invoke({'input_data': {'indicador': 432}})
+
+    assert 'error' in result
+    assert mock_get.call_count == 2
+    espera_falsa.assert_called_once_with(2.0)
 
 
 @patch('fluxo_financeiro.tools.financial_data.requests.get')

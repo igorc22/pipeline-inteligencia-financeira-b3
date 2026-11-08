@@ -23,6 +23,15 @@ class RelatorioFinal(BaseModel):
     diagnostico: Optional[str] = Field(default=None, description="Preenchido pelo sistema com o texto do Investigator. Deixe nulo.")
 
 
+class ErroAgente(BaseModel):
+    """Falha de um agente que o nó não resolveu localmente: o que o coordenador lê para decidir."""
+    # Os mesmos valores de TRANSITORIO e PERMANENTE em shared/retry.py (escritos aqui para types.py
+    # não importar as bibliotecas de rede que o retry importa).
+    tipo: Literal["transitorio", "permanente"] = Field(description="Temporário: repetir pode dar certo. Permanente: repetir só gasta.")
+    mensagem: str = Field(description="Tipo e texto da exceção, numa linha, com até 300 caracteres.")
+    tentativas: int = Field(description="Rodadas do nó que falharam até aqui, contando as mandadas pelo coordenador.")
+
+
 class MessagesState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
     next_agent: str
@@ -45,6 +54,12 @@ class MessagesState(TypedDict):
     contexto_setor: Optional[str]
     # Resposta do Investigator (o diagnóstico que o Consolidador copia literalmente).
     diagnostico: Optional[str]
+    # Retry: cada nó repete o agente localmente antes de escalar para o coordenador. O que sobra
+    # chega aqui, por agente: o último erro (None = a última rodada deu certo) e quantas rodadas do
+    # nó falharam seguidas. Os dois juntam dicionários (`|`): cada nó escreve só a própria chave, e
+    # limpar é escrever {agente: None} e {agente: 0} (um dicionário vazio não muda nada).
+    erros: Annotated[dict[str, Optional[ErroAgente]], operator.or_]
+    tentativas: Annotated[dict[str, int], operator.or_]
 
 
 class RouteDecision(BaseModel):

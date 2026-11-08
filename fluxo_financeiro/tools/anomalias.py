@@ -13,9 +13,12 @@ Quando o yfinance não traz o dado (trimestre faltando, NaN), a regra é pulada,
 Os valores saem na moeda dos demonstrativos (financialCurrency), que pode não ser o real.
 """
 import math
+from dataclasses import dataclass
+from typing import Any
 
 import yfinance as yf
 
+from fluxo_financeiro.shared.retry import com_retentativas
 from fluxo_financeiro.shared.types import SinalAnomalia
 from fluxo_financeiro.shared.utils import logger
 from fluxo_financeiro.tools.financial_data import _calcular_score
@@ -32,15 +35,39 @@ def detectar_sinais_anomalia(ticker: str) -> list[SinalAnomalia]:
         ticker += ".SA"
     logger.info(f"[anomalias] detectando sinais para {ticker}")
     try:
-        acao = yf.Ticker(ticker)
-        simbolo = ler_simbolo_moeda(acao, ticker)
-        sinais = _sinais_trimestrais(ticker, acao.quarterly_financials, simbolo)
-        sinais += _sinal_piotroski(ticker, acao)
+        # Retry local: a leitura do yfinance repete uma vez em timeout ou conexão caída.
+        dados = com_retentativas(lambda: _ler_dados(ticker), contexto=f"[anomalias] {ticker}")
+        sinais = _sinais_trimestrais(ticker, dados.trimestral, dados.simbolo)
+        sinais += _sinal_piotroski(ticker, dados)
     except Exception:
         logger.exception(f"[anomalias] falha ao detectar sinais de {ticker}; seguindo sem sinais")
         return []
     logger.info(f"[anomalias] {ticker}: {[s.tipo for s in sinais] or 'nenhum sinal'}")
     return sinais
+
+
+@dataclass(frozen=True)
+class _DadosYahoo:
+    simbolo: str
+    trimestral: Any
+    financials: Any
+    balance_sheet: Any
+    cashflow: Any
+
+
+def _ler_dados(ticker: str) -> _DadosYahoo:
+    """Tudo o que o detector lê do yfinance, de uma vez (as propriedades do yfinance só buscam quando lidas).
+
+    Fica numa função só para o retry repetir a leitura inteira.
+    """
+    acao = yf.Ticker(ticker)
+    return _DadosYahoo(
+        simbolo=ler_simbolo_moeda(acao, ticker),
+        trimestral=acao.quarterly_financials,
+        financials=acao.financials,
+        balance_sheet=acao.balance_sheet,
+        cashflow=acao.cashflow,
+    )
 
 
 def _valido(valor) -> bool:
@@ -82,8 +109,8 @@ def _sinais_trimestrais(ticker, trimestral, simbolo="") -> list[SinalAnomalia]:
     return sinais
 
 
-def _sinal_piotroski(ticker, acao) -> list[SinalAnomalia]:
-    demonstrativo, balanco, fluxo = acao.financials, acao.balance_sheet, acao.cashflow
+def _sinal_piotroski(ticker, dados: _DadosYahoo) -> list[SinalAnomalia]:
+    demonstrativo, balanco, fluxo = dados.financials, dados.balance_sheet, dados.cashflow
     if demonstrativo.empty or balanco.empty or fluxo.empty:
         return []
     score = _calcular_score(demonstrativo, balanco, fluxo)["piotroski_score"]

@@ -1,7 +1,8 @@
-from typing import Literal
+from typing import Literal, Optional
 from langchain_core.messages import HumanMessage, SystemMessage
 from fluxo_financeiro.shared.llm import criar_llm
 from fluxo_financeiro.shared.prompts import REGRA_CONTEUDO_EXTERNO
+from fluxo_financeiro.shared.retry import MAX_TENTATIVAS, desistiu
 from fluxo_financeiro.shared.types import MessagesState, RouteDecision
 from fluxo_financeiro.shared.utils import extrair_ticker, logger
 
@@ -56,15 +57,39 @@ def supervisor_node(state: MessagesState):
         logger.warning(f"[supervisor] hard stop — loop_count={current_loops} >= 6")
         return {"next_agent": "FINISH", "loop_count": 1, "decidido_por": "hard_stop"}
 
+    # Guard de erro (camada 3 do retry). Cada agente/parte resolve o retry localmente antes de escalar
+    # pro coordenador: o nó já repetiu o agente e devolveu o erro que sobrou. Erro temporário abaixo do
+    # limite → o mesmo agente mais uma vez, sem tarefa nova (ele relê a última do histórico) e sem
+    # contar volta: com o reenvio contando, a VALE3 (5 passagens) bateria no hard stop. O limite por
+    # agente (MAX_TENTATIVAS) garante que o reenvio termina. Se desistiu, os guards de etapa seguem sem ele.
+    pendente = _agente_para_reenviar(state)
+    if pendente:
+        rodada = (state.get("tentativas") or {}).get(pendente, 0) + 1
+        logger.warning(f"[supervisor] guard: {pendente} com erro temporário → nova tentativa ({rodada} de {MAX_TENTATIVAS})")
+        return {
+            "next_agent": pendente,
+            "loop_count": 0,
+            "decidido_por": "guard",
+            "supervisor_reasoning": f"{pendente} falhou com erro temporário: nova tentativa ({rodada} de {MAX_TENTATIVAS}).",
+        }
+
+    # Sem os dados de mercado não há o que analisar: o Consolidador escreve as limitações.
+    if desistiu(state, "YFinance"):
+        logger.info("[supervisor] guard: YFinance desistiu → FINISH")
+        return {"next_agent": "FINISH", "loop_count": 1, "decidido_por": "guard"}
+
     # Os guards leem os campos que cada nó grava no state, não contam mensagens pelo name:
     # com retry ou agentes em paralelo, o número e a ordem das mensagens deixam de ser confiáveis.
     # Presença é "is not None": um agente que respondeu vazio ou com erro grava "" e a etapa conta como feita.
     dados_mercado = state.get("dados_mercado")
     noticias = state.get("noticias")
     contexto_setor = state.get("contexto_setor")
+    # O Analyzer que desistiu não volta: a etapa dele (notícias ou setor) conta como resolvida, e a do
+    # setor também não roda (seria o mesmo agente, com o limite esgotado).
+    analyzer_desistiu = desistiu(state, "Analyzer")
 
     # Guard determinístico: se YFinance coletou mas Analyzer ainda não rodou, vai para Analyzer
-    if dados_mercado is not None and noticias is None:
+    if dados_mercado is not None and noticias is None and not analyzer_desistiu:
         logger.info("[supervisor] guard: YFinance coletou → forcando Analyzer (passo 1: noticias da empresa)")
         primeira_tarefa = "Busque notícias recentes sobre a empresa no histórico. Use os dados financeiros do YFinance como contexto para identificar o ticker e o nome da empresa."
         return {
@@ -75,14 +100,14 @@ def supervisor_node(state: MessagesState):
             "messages": [HumanMessage(content=primeira_tarefa, name="Supervisor")],
         }
 
-    # Guard determinístico: se Investigator já concluiu → FINISH
-    if state.get("diagnostico") is not None:
-        logger.info("[supervisor] guard: Investigator concluiu → FINISH")
+    # Guard determinístico: se Investigator já concluiu (ou desistiu) → FINISH
+    if state.get("diagnostico") is not None or desistiu(state, "Investigator"):
+        logger.info("[supervisor] guard: Investigator concluiu ou desistiu → FINISH")
         return {"next_agent": "FINISH", "loop_count": 1, "decidido_por": "guard"}
 
     # Guard determinístico (Etapa 3): Analyzer trouxe as notícias da empresa → falta o contexto do setor.
     # Antes era o LLM quem decidia, e ele chegou a pular a etapa achando que ela já tinha sido feita (D45).
-    if noticias is not None and contexto_setor is None:
+    if noticias is not None and contexto_setor is None and not analyzer_desistiu:
         logger.info("[supervisor] guard: noticias sem contexto_setor → forcando Analyzer (etapa 3: setor)")
         return {
             "next_agent": "Analyzer",
@@ -95,7 +120,8 @@ def supervisor_node(state: MessagesState):
     # Guard determinístico (Etapa 4): análise completa + sinais de anomalia calculados em código
     # → Investigator, sem consultar o LLM. Sem sinais, quem decide a Etapa 4 continua sendo o LLM.
     sinais = state.get("sinais_anomalia") or []
-    if noticias is not None and contexto_setor is not None and sinais:
+    analyzer_resolvido = (noticias is not None and contexto_setor is not None) or analyzer_desistiu
+    if analyzer_resolvido and sinais:
         tipos = ", ".join(s.tipo for s in sinais)
         logger.info(f"[supervisor] guard: sinais de anomalia ({tipos}) → forcando Investigator")
         tarefa = (
@@ -118,6 +144,17 @@ def supervisor_node(state: MessagesState):
 
     logger.info(f"[supervisor] decisao={decision.next_agent} | tarefa={decision.task_for_agent!r}")
 
+    # O LLM não vê `erros`: com 1 mensagem do Analyzer (o "Erro: ..." de quem desistiu nas notícias),
+    # o prompt manda a Etapa 3 e ele escolheria o mesmo agente de novo. Agente que desistiu não volta.
+    if decision.next_agent != "FINISH" and desistiu(state, decision.next_agent):
+        logger.warning(f"[supervisor] LLM escolheu {decision.next_agent}, que já desistiu → FINISH")
+        return {
+            "next_agent": "FINISH",
+            "loop_count": 1,
+            "decidido_por": "guard",
+            "supervisor_reasoning": f"O LLM escolheu o {decision.next_agent}, que já desistiu depois do retry: a análise segue sem ele.",
+        }
+
     result = {
         "next_agent": decision.next_agent,
         "loop_count": 1,
@@ -127,6 +164,17 @@ def supervisor_node(state: MessagesState):
     if decision.task_for_agent and decision.next_agent != "FINISH":
         result["messages"] = [HumanMessage(content=decision.task_for_agent, name="Supervisor")]
     return result
+
+
+def _agente_para_reenviar(state: MessagesState) -> Optional[str]:
+    """O agente com erro que o coordenador ainda manda de novo (erro não limpo e sem desistência), ou None.
+
+    Na prática há no máximo um: depois de um erro, o próximo passo é o reenvio dele ou a desistência.
+    """
+    for agente, erro in (state.get("erros") or {}).items():
+        if erro is not None and not desistiu(state, agente):
+            return agente
+    return None
 
 
 def _tarefa_setor(messages) -> str:

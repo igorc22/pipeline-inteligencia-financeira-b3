@@ -22,7 +22,15 @@ def _erro_status(classe, codigo):
 
 
 def _avisos_do_projeto(caplog):
-    return [r for r in caplog.records if r.name.startswith("fluxo_financeiro") and r.levelname == "WARNING"]
+    """Os avisos do cliente da Brapi. As linhas `[retry]` (erro temporário repetido) são contadas à parte."""
+    return [
+        r for r in caplog.records
+        if r.name.startswith("fluxo_financeiro") and r.levelname == "WARNING" and r.getMessage().startswith("[brapi]")
+    ]
+
+
+def _avisos_de_retry(caplog):
+    return [r for r in caplog.records if r.levelname == "WARNING" and r.getMessage().startswith("[retry]")]
 
 
 def _resultado_wege3(summary_profile="padrao"):
@@ -83,18 +91,44 @@ def test_ticker_existe_404_e_falso(cliente):
     ids=["429", "401", "timeout"],
 )
 def test_ticker_existe_erro_que_nao_e_404_segue(cliente, caplog, erro):
-    """Confere que 429, 401 e timeout devolvem None (a análise segue) com uma linha de aviso sem traceback."""
+    """Confere que 429, 401 e timeout devolvem None (a análise segue) com uma linha de aviso sem traceback.
+
+    O 429 e o timeout são temporários: repetem uma vez antes (uma linha de retry); o 401 não repete.
+    """
     caplog.set_level(logging.INFO, logger="fluxo_financeiro")
     cliente.quote.retrieve.side_effect = erro
 
     assert brapi_mod.ticker_existe("WEGE3") is None
 
+    repete = not isinstance(erro, brapi.AuthenticationError)
+    assert cliente.quote.retrieve.call_count == (2 if repete else 1)
+    assert len(_avisos_de_retry(caplog)) == (1 if repete else 0)
     avisos = _avisos_do_projeto(caplog)
     assert len(avisos) == 1
     msg = avisos[0].getMessage()
     assert "[brapi]" in msg and "WEGE3" in msg and type(erro).__name__ in msg
     assert chr(10) not in msg
     assert all(r.exc_info is None for r in caplog.records)
+
+
+def test_brapi_repete_timeout(cliente, espera_falsa):
+    """Confere que o timeout da Brapi é repetido uma vez (espera de 2 s) e a segunda resposta vale."""
+    cliente.quote.retrieve.side_effect = [brapi.APITimeoutError(request=REQ), SimpleNamespace(results=[_resultado_wege3()])]
+
+    assert brapi_mod.ticker_existe("WEGE3") is True
+
+    assert cliente.quote.retrieve.call_count == 2
+    espera_falsa.assert_called_once_with(2.0)
+
+
+def test_brapi_404_nao_repete(cliente, espera_falsa):
+    """Confere que o 404 (ticker inexistente) é permanente: uma chamada só, sem espera."""
+    cliente.quote.retrieve.side_effect = _erro_status(brapi.NotFoundError, 404)
+
+    assert brapi_mod.ticker_existe("XXXX3") is False
+
+    assert cliente.quote.retrieve.call_count == 1
+    espera_falsa.assert_not_called()
 
 
 def test_ticker_existe_sem_chave_nao_levanta(monkeypatch):
