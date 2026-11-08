@@ -3,15 +3,21 @@ import json
 from langchain_core.messages import HumanMessage
 
 from dashboard.visao import (
+    _conteudo,
+    _texto_dot,
     decisao_do_fim,
     dividir_indicadores,
     dot_do_caminho,
+    dot_do_caminho_em_progresso,
     escapar_markdown,
     montar_passos,
     parou_no_hard_stop,
     passo_do_consolidador,
+    raciocinio_do_fim,
+    rotulo_agente_em_execucao,
     separar_indicador,
     state_para_json,
+    status_execucao,
 )
 from fluxo_financeiro.shared.types import RelatorioFinal, SinalAnomalia
 
@@ -206,3 +212,251 @@ def test_passo_do_consolidador():
     assert passo.raciocinio == "Sem anomalia."
     assert passo.saida == "# Relatório"
     assert passo_do_consolidador(FLUXO_NORMAL[:2], numero=2) is None  # não chegou ao fim
+
+
+def test_rotulo_agente_em_execucao():
+    """Confere que o rótulo do agente em execução identifica YFinance, Investigator, Consolidador e as passagens do Analyzer."""
+    assert rotulo_agente_em_execucao("YFinance", 0) == "YFinance"
+    assert rotulo_agente_em_execucao("Analyzer", 0) == "Analyzer (empresa)"
+    assert rotulo_agente_em_execucao("Analyzer", 1) == "Analyzer (setor)"
+    assert rotulo_agente_em_execucao("Analyzer", 2) == "Analyzer (3)"
+    assert rotulo_agente_em_execucao("Investigator", 0) == "Investigator"
+    assert rotulo_agente_em_execucao("FINISH", 0) == "Consolidador"
+
+
+def test_status_execucao():
+    """Confere que o texto de status em execução formata ticker e rótulo do agente."""
+    assert status_execucao("PETR4", "YFinance") == "Analisando PETR4: YFinance..."
+    assert status_execucao("VALE3", "Analyzer (empresa)") == "Analisando VALE3: Analyzer (empresa)..."
+    assert status_execucao("WEGE3", "Consolidador") == "Analisando WEGE3: Consolidador..."
+
+
+def test_dot_do_caminho_em_progresso_destaca_no_ativo_e_seta_em_voo():
+    """Confere que o DOT em progresso destaca o nó que está rodando agora e a seta ativa com maior espessura e negrito."""
+    eventos = [_sup("llm", "YFinance", "Colete dados", "Histórico vazio.")]
+    dot = dot_do_caminho_em_progresso(eventos)
+
+    assert 'yfinance [label="YFinance\\n(rodando agora)"' in dot
+    assert 'penwidth=3' in dot
+    assert 'fillcolor="#fff8e1"' in dot
+    assert 'style="rounded,filled,bold"' in dot
+    assert 'analyzer [label="Analyzer\\n(não rodou)"' in dot
+    assert 'investigator [label="Investigator\\n(não rodou)"' in dot
+    assert 'consolidador [label="Consolidador\\n(não rodou)"' in dot
+
+    setas_yfinance = _arestas(dot, "supervisor", "yfinance")
+    assert len(setas_yfinance) == 1
+    assert 'label="1 · LLM"' in setas_yfinance[0]
+    assert 'penwidth=2.5' in setas_yfinance[0]
+    assert 'style="bold"' in setas_yfinance[0]
+    assert 'tooltip="Histórico vazio."' in setas_yfinance[0]
+
+    # Nó ainda em execução não possui volta tracejada
+    voltas = [a for a in _arestas(dot, "yfinance", "supervisor") if "dashed" in a]
+    assert not voltas
+    assert "fim" not in dot
+    assert "interrompido" not in dot
+
+
+def test_dot_do_caminho_em_progresso_segunda_passagem_analyzer():
+    """Confere que a segunda passagem do Analyzer mantém o retorno da primeira e ativa a nova seta e nó."""
+    eventos = [
+        _sup("llm", "YFinance", "Colete"),
+        _worker("YFinance", "dados coletados"),
+        _sup("guard", "Analyzer", "notícias"),
+        _worker("Analyzer", "notícias coletadas"),
+        _sup("guard", "Analyzer", "setor", "Falta o setor."),
+    ]
+    dot = dot_do_caminho_em_progresso(eventos)
+
+    # YFinance completado
+    assert 'yfinance [label="YFinance", color="#e0a030"' in dot
+    # Analyzer rodando agora
+    assert 'analyzer [label="Analyzer\\n(rodando agora)"' in dot
+
+    # Seta 1 para YFinance (já concluída, sem negrito extra)
+    seta_yf = _arestas(dot, "supervisor", "yfinance")[0]
+    assert 'label="1 · LLM"' in seta_yf
+    assert 'penwidth=2.5' not in seta_yf
+
+    # Duas setas para o Analyzer: a 2ª (já concluída) e a 3ª (ativa)
+    setas_analyzer = _arestas(dot, "supervisor", "analyzer")
+    assert len(setas_analyzer) == 2
+    assert 'label="2 · guard"' in setas_analyzer[0]
+    assert 'penwidth=2.5' not in setas_analyzer[0]
+
+    assert 'label="3 · guard"' in setas_analyzer[1]
+    assert 'penwidth=2.5' in setas_analyzer[1]
+    assert 'style="bold"' in setas_analyzer[1]
+    assert 'tooltip="Falta o setor."' in setas_analyzer[1]
+
+    # Retorno da 1ª passagem do Analyzer já existe
+    assert len(_arestas(dot, "analyzer", "supervisor")) == 1
+
+
+def test_dot_do_caminho_em_progresso_finish_ativa_consolidador():
+    """Confere que o evento de FINISH ativa o Consolidador como nó em execução e realça a seta para ele."""
+    eventos = FLUXO_NORMAL[:6] + [_sup("llm", "FINISH", None, "Sem anomalia.")]
+    dot = dot_do_caminho_em_progresso(eventos)
+
+    assert 'consolidador [label="Consolidador\\n(rodando agora)"' in dot
+    assert 'penwidth=3' in dot
+
+    setas_consolidador = _arestas(dot, "supervisor", "consolidador")
+    assert len(setas_consolidador) == 1
+    assert 'label="4 · LLM"' in setas_consolidador[0]
+    assert 'penwidth=2.5' in setas_consolidador[0]
+    assert 'style="bold"' in setas_consolidador[0]
+    assert 'tooltip="Sem anomalia."' in setas_consolidador[0]
+    assert "fim" not in dot
+
+
+def test_dot_do_caminho_em_progresso_investigator():
+    """Confere que o encaminhamento ao Investigator destaca seu nó e a respectiva seta ativa."""
+    eventos = FLUXO_NORMAL[:6] + [_sup("guard", "Investigator", "Investigue", "P/L anômalo.")]
+    dot = dot_do_caminho_em_progresso(eventos)
+
+    assert 'investigator [label="Investigator\\n(rodando agora)"' in dot
+    setas_inv = _arestas(dot, "supervisor", "investigator")
+    assert len(setas_inv) == 1
+    assert 'label="4 · guard"' in setas_inv[0]
+    assert 'penwidth=2.5' in setas_inv[0]
+    assert 'style="bold"' in setas_inv[0]
+    assert 'tooltip="P/L anômalo."' in setas_inv[0]
+
+
+def test_dot_do_caminho_em_progresso_pos_conclusao_consolidador():
+    """Confere que, após a conclusão do Consolidador, o grafo final é renderizado com nó Fim."""
+    dot = dot_do_caminho_em_progresso(FLUXO_NORMAL)
+
+    assert "Fim" in dot
+    assert "(rodando agora)" not in dot
+    assert len(_arestas(dot, "consolidador", "fim")) == 1
+
+
+def test_rotulo_e_status_execucao_com_valores_vazios_ou_nulos():
+    """Confere que valores vazios ou nulos de proximo não quebram o rótulo nem injetam 'None' no status."""
+    assert rotulo_agente_em_execucao(None) == ""
+    assert rotulo_agente_em_execucao("") == ""
+    assert status_execucao("PETR4", None) == "Analisando PETR4..."
+    assert status_execucao("PETR4", "") == "Analisando PETR4..."
+
+
+def test_dot_do_caminho_em_progresso_eventos_vazios():
+    """Confere que eventos vazios geram o diagrama inicial sem nenhum nó ativo e sem nós finais."""
+    dot = dot_do_caminho_em_progresso([])
+    assert "supervisor" in dot
+    assert "(rodando agora)" not in dot
+    assert "Fim" not in dot
+    assert "Interrompido" not in dot
+    assert 'yfinance [label="YFinance\\n(não rodou)"' in dot
+    assert 'consolidador [label="Consolidador\\n(não rodou)"' in dot
+
+
+def test_dot_do_caminho_em_progresso_quarta_passagem_analyzer():
+    """Confere que a quarta passagem do Analyzer gera rótulo numérico e destaca o nó e a 4ª seta."""
+    eventos = [
+        _sup("llm", "YFinance", "Colete"),
+        _worker("YFinance", "dados"),
+        _sup("guard", "Analyzer", "passo 1"),
+        _worker("Analyzer", "notícias 1"),
+        _sup("guard", "Analyzer", "passo 2"),
+        _worker("Analyzer", "notícias 2"),
+        _sup("guard", "Analyzer", "passo 3"),
+        _worker("Analyzer", "notícias 3"),
+        _sup("guard", "Analyzer", "passo 4", "Busca adicional."),
+    ]
+    assert rotulo_agente_em_execucao("Analyzer", 3) == "Analyzer (4)"
+    dot = dot_do_caminho_em_progresso(eventos)
+    assert 'analyzer [label="Analyzer\\n(rodando agora)"' in dot
+    setas_analyzer = _arestas(dot, "supervisor", "analyzer")
+    assert len(setas_analyzer) == 4
+    assert 'label="5 · guard"' in setas_analyzer[3]
+    assert 'penwidth=2.5' in setas_analyzer[3]
+    assert 'tooltip="Busca adicional."' in setas_analyzer[3]
+
+
+def test_dot_do_caminho_consolidador_preserva_tooltip_raciocinio():
+    """Confere que a seta do Supervisor para o Consolidador após a conclusão preserva o tooltip com o raciocínio."""
+    dot = dot_do_caminho_em_progresso(FLUXO_NORMAL)
+    setas = _arestas(dot, "supervisor", "consolidador")
+    assert len(setas) == 1
+    assert 'tooltip="Sem anomalia."' in setas[0]
+
+
+def test_conteudo_com_tipos_diversos_e_nulos():
+    """Confere que _conteudo lida com strings, dicionários, None e mensagens sem quebrar."""
+    assert _conteudo(None) == ""
+    assert _conteudo("relatório em string") == "relatório em string"
+    assert _conteudo({"content": "dados em dict"}) == "dados em dict"
+    assert _conteudo({"sem_content": 123}) == "{'sem_content': 123}"
+    assert _conteudo(HumanMessage("mensagem langchain")) == "mensagem langchain"
+
+
+def test_texto_dot_com_valores_nao_string():
+    """Confere que _texto_dot aceita valores numéricos ou não-string sem quebrar e escapa aspas e barras."""
+    assert _texto_dot(12345) == "12345"
+    assert _texto_dot(None) == ""
+    assert _texto_dot('Texto com "aspas" e \\ barra') == 'Texto com \\"aspas\\" e \\\\ barra'
+
+
+def test_dot_do_caminho_em_progresso_com_raciocinio_nao_string():
+    """Confere que o diagrama em progresso lida com raciocínio numérico ou estruturado na decisão ativa."""
+    eventos = [_sup("llm", "YFinance", "Colete", raciocinio=42)]
+    dot = dot_do_caminho_em_progresso(eventos)
+    assert 'tooltip="42"' in dot
+    assert 'yfinance [label="YFinance\\n(rodando agora)"' in dot
+
+
+def test_raciocinio_do_fim():
+    """Confere que raciocinio_do_fim extrai o raciocínio da decisão FINISH e tolera payloads nulos ou não-dicionário."""
+    eventos = [
+        ("Supervisor", "não-dicionário"),
+        _sup("llm", "FINISH", None, "Raciocínio de conclusão."),
+    ]
+    assert raciocinio_do_fim(eventos) == "Raciocínio de conclusão."
+    assert raciocinio_do_fim([]) is None
+    assert raciocinio_do_fim([("Supervisor", None)]) is None
+
+
+def test_passo_do_consolidador_com_payload_nao_dicionario():
+    """Confere que passo_do_consolidador lida com payloads em string, lista ou nulos sem levantar exceção."""
+    assert passo_do_consolidador([("Consolidador", None)], 4) is None
+    assert passo_do_consolidador([("Consolidador", {})], 4) is None
+
+    passo = passo_do_consolidador([
+        _sup("llm", "FINISH", None, "Concluir"),
+        ("Consolidador", "Relatório simples em string"),
+    ], 4)
+    assert passo is not None
+    assert passo.saida == "Relatório simples em string"
+    assert passo.raciocinio == "Concluir"
+
+
+def test_montar_passos_com_payloads_nao_dicionario():
+    """Confere que montar_passos aceita updates de workers e supervisor como strings ou None sem quebrar."""
+    eventos = [
+        ("Supervisor", "decisão inválida"),
+        _sup("llm", "YFinance", "Colete"),
+        ("YFinance", "dados de mercado em texto"),
+    ]
+    passos = montar_passos(eventos)
+    assert len(passos) == 1
+    assert passos[0].agente == "YFinance"
+    assert passos[0].saida == "dados de mercado em texto"
+
+
+def test_separar_indicador_e_escapar_markdown_com_nao_strings():
+    """Confere que separar_indicador e escapar_markdown aceitam valores não-string ou nulos com segurança."""
+    assert separar_indicador(None) == ("", None)
+    assert separar_indicador(12345) == ("12345", None)
+    assert escapar_markdown(None) == ""
+    assert escapar_markdown(100) == "100"
+
+
+def test_state_para_json_com_tipos_nao_dicionario():
+    """Confere que state_para_json lida com state não-dicionário ou messages não-lista sem quebrar."""
+    assert state_para_json(None) == {}
+    assert state_para_json("invalido") == {}
+    assert state_para_json({"messages": "mensagem única"}) == {"messages": "mensagem única"}
+
