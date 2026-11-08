@@ -103,19 +103,30 @@ def test_429_de_cota_e_permanente_e_de_instabilidade_e_transitorio():
     cota = _erro_gemini(
         genai_errors.ClientError, 429,
         "You exceeded your current quota, please check your plan and billing details. "
-        "Quota exceeded for metric: generate_content_free_tier_requests",
+        "Quota exceeded for metric: generate_content_free_tier_requests, limit: 0",
         "RESOURCE_EXHAUSTED",
     )
     faturamento = _erro_gemini(
-        genai_errors.ClientError, 429, "Billing is not enabled for this project (FreeTier).", "RESOURCE_EXHAUSTED",
+        genai_errors.ClientError, 429, "Billing is not enabled for this project.", "RESOURCE_EXHAUSTED",
+    )
+    credito = _erro_gemini(
+        genai_errors.ClientError, 429, "Your prepayment credits are depleted.", "RESOURCE_EXHAUSTED",
+    )
+    por_minuto = _erro_gemini(
+        genai_errors.ClientError, 429,
+        "You exceeded your current quota, please check your plan and billing details. "
+        "Quota exceeded for metric: generate_content_requests_per_minute, limit: 15",
+        "RESOURCE_EXHAUSTED",
     )
     instabilidade = _erro_gemini(
-        genai_errors.ClientError, 429, "Too many requests, try again later.", "RESOURCE_EXHAUSTED",
+        genai_errors.ClientError, 429, "Resource has been exhausted (e.g. check quota).", "RESOURCE_EXHAUSTED",
     )
 
     assert classificar_erro(cota) == PERMANENTE
     assert classificar_erro(faturamento) == PERMANENTE
+    assert classificar_erro(credito) == PERMANENTE
     assert classificar_erro(_embrulhado(GoogleRateLimitError, cota)) == PERMANENTE
+    assert classificar_erro(por_minuto) == TRANSITORIO
     assert classificar_erro(instabilidade) == TRANSITORIO
     assert classificar_erro(_embrulhado(GoogleRateLimitError, instabilidade)) == TRANSITORIO
 

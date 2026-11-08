@@ -55,8 +55,10 @@ ERROS_BRAPI_TEMPORARIOS = (
     brapi.InternalServerError,
 )
 CODIGOS_TEMPORARIOS = {429, 500, 503, 504}
-# Textos do 429 de cota zerada ou sem faturamento: repetir não adianta.
-MARCAS_DE_COTA = ("exceeded your current quota", "quota", "billing", "freetier", "free_tier")
+# Textos do 429 que repetir não resolve: cota zero, faturamento desligado, crédito pré-pago no fim.
+# "quota" sozinho não serve: o limite por minuto ("You exceeded your current quota ... limit: 15")
+# também traz a palavra, e esse passa sozinho em segundos.
+MARCAS_DE_COTA = ("limit: 0", "billing is not enabled", "credits", "prepay")
 
 
 class RespostaVazia(Exception):
