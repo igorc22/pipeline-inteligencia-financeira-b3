@@ -1,10 +1,20 @@
 from unittest.mock import patch
 
 import pytest
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langgraph.types import Send
 
 from fluxo_financeiro.agents.analysts import SECAO_NOTICIAS, SECAO_SETOR
-from fluxo_financeiro.graph.supervisor import SUPERVISOR_PROMPT, TAREFA_ANALISTA, supervisor_node, router
+from fluxo_financeiro.graph.supervisor import (
+    PARALELO,
+    SUPERVISOR_PROMPT,
+    TAREFA_ANALISTA,
+    _houve_paralelo,
+    _tarefa_investigador,
+    historico_do_ramo,
+    supervisor_node,
+    router,
+)
 from fluxo_financeiro.shared.prompts import REGRA_CONTEUDO_EXTERNO
 from fluxo_financeiro.shared.retry import MAX_TENTATIVAS
 from fluxo_financeiro.shared.types import ErroAgente, MessagesState, RouteDecision, SinalAnomalia
@@ -105,30 +115,35 @@ def test_supervisor_guard_investigator_retorna_finish(mock_llm):
 QUEDA = SinalAnomalia(tipo="queda_lucro", descricao="Lucro de VALE3.SA caiu 35% contra o ano anterior.")
 
 
-def test_supervisor_guard_sinais_forca_investigator(mock_llm):
-    """Confere que, com análise completa e sinal calculado em código, vai ao Investigator sem LLM."""
-    state = _state(HISTORICO_ETAPA_4, loop_count=3, **CAMPOS_ETAPA_4)
-    state["sinais_anomalia"] = [QUEDA]
+def test_etapa_2_com_sinais_vai_para_o_paralelo(mock_llm):
+    """Confere que, na Etapa 2 com sinais de anomalia, o guard despacha o paralelo com duas tarefas do Supervisor e sem consultar o LLM."""
+    messages = [
+        HumanMessage(content="Analise VALE3"),
+        HumanMessage(content="dados de mercado...", name="YFinance"),
+    ]
+    state = _state(messages, loop_count=1, dados_mercado="dados de mercado...", sinais_anomalia=[QUEDA])
 
     result = supervisor_node(state)
     assert result["decidido_por"] == "guard"
-
-    assert result["next_agent"] == "Investigator"
+    assert result["next_agent"] == "Analyzer+Investigator"
+    assert result["loop_count"] == 1
+    assert len(result["messages"]) == 2
     assert result["messages"][0].name == "Supervisor"
-    assert QUEDA.descricao in result["messages"][0].content
+    assert result["messages"][0].content == TAREFA_ANALISTA(messages)
+    assert result["messages"][1].name == "Supervisor"
+    assert QUEDA.descricao in result["messages"][1].content
     assert "queda_lucro" in result["supervisor_reasoning"]
     mock_llm.with_structured_output.assert_not_called()
 
 
 def test_sem_contexto_setor_nao_reenvia_o_analista(mock_llm):
-    """Confere que o Analyzer que respondeu sem a seção do setor não volta: com sinais, o guard vai ao Investigator."""
-    state = _state(HISTORICO_ETAPA_4, loop_count=2, **CAMPOS_SEM_SETOR, sinais_anomalia=[QUEDA])
+    """Confere que o Analyzer que respondeu sem a seção do setor não volta: com o Investigator resolvido, o guard vai ao FINISH."""
+    state = _state(HISTORICO_ETAPA_4, loop_count=2, **CAMPOS_SEM_SETOR, diagnostico="causa...")
 
     result = supervisor_node(state)
 
     assert result["decidido_por"] == "guard"
-    assert result["next_agent"] == "Investigator"
-    assert QUEDA.descricao in result["messages"][0].content
+    assert result["next_agent"] == "FINISH"
     mock_llm.with_structured_output.assert_not_called()
 
 
@@ -149,12 +164,12 @@ def test_sem_contexto_setor_e_sem_sinais_vai_ao_llm(mock_llm):
 # ---------------------------------------------------------------------------
 
 def test_guard_le_campos_e_nao_mensagens(mock_llm):
-    """Confere que, com os campos do Analyzer gravados e nenhuma mensagem dele, o guard já segue para a Etapa 4."""
-    state = _state([HumanMessage(content="Analise VALE3")], loop_count=2, **CAMPOS_ETAPA_4, sinais_anomalia=[QUEDA])
+    """Confere que o guard lê os campos do state e não conta mensagens: com dados_mercado e sinais, vai para o paralelo mesmo com uma só mensagem no histórico."""
+    state = _state([HumanMessage(content="Analise VALE3")], loop_count=1, **CAMPOS_ETAPA_2, sinais_anomalia=[QUEDA])
 
     result = supervisor_node(state)
     assert result["decidido_por"] == "guard"
-    assert result["next_agent"] == "Investigator"
+    assert result["next_agent"] == "Analyzer+Investigator"
     mock_llm.with_structured_output.assert_not_called()
 
 
@@ -181,29 +196,25 @@ def test_estado_inicial_sem_campos_vai_ao_llm(mock_llm):
 
 
 def test_mensagem_duplicada_nao_engana_o_guard(mock_llm):
-    """Confere que duas mensagens do Analyzer sem o campo noticias gravado ainda levam ao Analyzer, não ao Investigator."""
+    """Confere que mensagens duplicadas ou de erro do Analyzer sem o campo noticias gravado não impedem o guard de disparar o paralelo."""
     erro = HumanMessage(content="Erro: Analyzer falhou...", name="Analyzer")
     state = _state(HISTORICO_ETAPA_4 + [erro], loop_count=3, **CAMPOS_ETAPA_2)  # 2 mensagens, nenhum campo
     state["sinais_anomalia"] = [QUEDA]
 
     result = supervisor_node(state)
     assert result["decidido_por"] == "guard"
-    assert result["next_agent"] == "Analyzer"
+    assert result["next_agent"] == "Analyzer+Investigator"
+    assert len(result["messages"]) == 2
     assert result["messages"][0].content == TAREFA_ANALISTA(state["messages"])
     mock_llm.with_structured_output.assert_not_called()
 
 
 def test_campo_vazio_conta_como_preenchido(mock_llm):
-    """Confere que um campo gravado vazio (agente sem resposta) faz o guard avançar como se a etapa tivesse rodado."""
-    noticias_vazia = supervisor_node(_state([HumanMessage(content="Analise VALE3")], loop_count=2,
-                                            **CAMPOS_ETAPA_2, noticias="", sinais_anomalia=[QUEDA]))
-    assert noticias_vazia["next_agent"] == "Investigator"
-    assert noticias_vazia["decidido_por"] == "guard"
-
-    diagnostico_vazio = supervisor_node(_state([HumanMessage(content="Analise VALE3")], loop_count=4,
-                                               **CAMPOS_ETAPA_4, diagnostico=""))
-    assert diagnostico_vazio["next_agent"] == "FINISH"
-    assert diagnostico_vazio["decidido_por"] == "guard"
+    """Confere que campos gravados vazios (agente sem resposta) contam como resolvidos para o guard avançar para FINISH."""
+    result = supervisor_node(_state([HumanMessage(content="Analise VALE3")], loop_count=2,
+                                    **CAMPOS_ETAPA_2, noticias="", diagnostico=""))
+    assert result["next_agent"] == "FINISH"
+    assert result["decidido_por"] == "guard"
     mock_llm.with_structured_output.assert_not_called()
 
 
@@ -234,14 +245,14 @@ def test_reenvia_agente_com_erro_temporario(mock_llm):
 
 
 def test_nao_reenvia_erro_permanente(mock_llm):
-    """Confere que um erro permanente não é reenviado: sem o Analyzer, a análise segue para a Etapa 4."""
+    """Confere que um erro permanente não é reenviado: com Investigator já concluído, o guard avança para FINISH."""
     state = _state([HumanMessage(content="Analise VALE3")], loop_count=2, **CAMPOS_ETAPA_2,
-                   sinais_anomalia=[QUEDA],
+                   diagnostico="causa...",
                    erros={"Analyzer": _erro("permanente")}, tentativas={"Analyzer": 1})
 
     result = supervisor_node(state)
 
-    assert result["next_agent"] == "Investigator"
+    assert result["next_agent"] == "FINISH"
     assert result["decidido_por"] == "guard"
     assert result["loop_count"] == 1
     mock_llm.with_structured_output.assert_not_called()
@@ -262,16 +273,15 @@ def test_nao_reenvia_depois_do_limite(mock_llm):
 
 
 def test_analyzer_desistiu_segue_para_o_investigator(mock_llm):
-    """Confere que o Analyzer que desistiu não volta: com sinais, a análise vai ao Investigator."""
+    """Confere que o Analyzer que desistiu não volta: com o Investigator já concluído, o guard avança para FINISH."""
     state = _state([HumanMessage(content="Analise VALE3")], loop_count=3, **CAMPOS_ETAPA_2,
-                   sinais_anomalia=[QUEDA],
+                   diagnostico="causa...",
                    erros={"Analyzer": _erro(tentativas=2)}, tentativas={"Analyzer": 2})
 
     result = supervisor_node(state)
 
-    assert result["next_agent"] == "Investigator"
+    assert result["next_agent"] == "FINISH"
     assert result["decidido_por"] == "guard"
-    assert QUEDA.descricao in result["messages"][0].content
     mock_llm.with_structured_output.assert_not_called()
 
 
@@ -387,6 +397,84 @@ def test_supervisor_etapa4_sem_anomalia_finaliza_sem_mensagem(mock_llm):
 def test_router(next_agent, destino):
     """Confere que o router mapeia cada decisão para o nó correto (FINISH → Consolidador, que vai ao END)."""
     assert router(_state([HumanMessage(content="test")], next_agent=next_agent)) == destino
+
+
+def test_router_paralelo_devolve_dois_sends():
+    """Confere que o router converte a decisão PARALELO em dois objetos Send (Analyzer e Investigator), isolando o histórico de cada ramo."""
+    tarefa_ana = HumanMessage(content=TAREFA_ANALISTA([HumanMessage("Analise VALE3"), HumanMessage("dados...", name="YFinance")]), name="Supervisor")
+    tarefa_inv = HumanMessage(content=_tarefa_investigador([QUEDA]), name="Supervisor")
+    messages = [
+        HumanMessage(content="Analise VALE3"),
+        HumanMessage(content="dados...", name="YFinance"),
+        tarefa_ana,
+        tarefa_inv,
+    ]
+    state = _state(messages, next_agent=PARALELO, sinais_anomalia=[QUEDA])
+
+    sends = router(state)
+    assert isinstance(sends, list)
+    assert len(sends) == 2
+    assert all(isinstance(s, Send) for s in sends)
+    assert sends[0].node == "Analyzer"
+    assert sends[1].node == "Investigator"
+
+    msgs_ana = sends[0].arg["messages"]
+    assert msgs_ana[-1].content == tarefa_ana.content
+    assert not any(m.content == tarefa_inv.content for m in msgs_ana)
+
+    msgs_inv = sends[1].arg["messages"]
+    assert msgs_inv[-1].content == tarefa_inv.content
+    assert not any(m.content == tarefa_ana.content for m in msgs_inv)
+
+
+def test_historico_do_ramo_com_mensagens_nao_humanas_mantem_isolamento():
+    """Confere que o historico_do_ramo preserva o isolamento entre tarefas mesmo quando SystemMessage ou mensagens de outros tipos precedem o pedido do usuário."""
+    sys_msg = SystemMessage(content="Você é um assistente financeiro especializado na B3.")
+    tool_msg = ToolMessage(content="metadados de inicialização", tool_call_id="call_init")
+    empty_user = HumanMessage(content="")
+    pedido = HumanMessage(content="Analise VALE3")
+    yfinance = HumanMessage(content="dados...", name="YFinance")
+
+    messages = [sys_msg, tool_msg, empty_user, pedido, yfinance]
+    tarefa_ana = HumanMessage(content=TAREFA_ANALISTA(messages), name="Supervisor")
+    tarefa_inv = HumanMessage(content=_tarefa_investigador([QUEDA]), name="Supervisor")
+
+    state = _state(
+        messages + [tarefa_ana, tarefa_inv],
+        next_agent=PARALELO,
+        sinais_anomalia=[QUEDA],
+    )
+
+    # 1. TAREFA_ANALISTA deve extrair VALE3 com sucesso, ignorando mensagens que não contêm o ticker
+    assert "VALE3" in tarefa_ana.content
+
+    # 2. historico_do_ramo para Investigator deve filtrar tarefa_ana e preservar tarefa_inv
+    msgs_inv = historico_do_ramo(state, "Investigator")
+    assert msgs_inv[-1].content == tarefa_inv.content
+    assert not any(m.content == tarefa_ana.content for m in msgs_inv)
+    assert any(m.content == tarefa_inv.content for m in msgs_inv)
+
+    # 3. historico_do_ramo para Analyzer deve filtrar tarefa_inv e preservar tarefa_ana
+    msgs_ana = historico_do_ramo(state, "Analyzer")
+    assert msgs_ana[-1].content == tarefa_ana.content
+    assert not any(m.content == tarefa_inv.content for m in msgs_ana)
+    assert any(m.content == tarefa_ana.content for m in msgs_ana)
+
+    # 4. _houve_paralelo deve retornar True mesmo com mensagens não-humanas e SystemMessage
+    assert _houve_paralelo(state) is True
+
+
+@pytest.mark.parametrize("valor_corrompido", [
+    None,
+    "",
+    "AGENTE_DESCONHECIDO",
+    123,
+    [],
+])
+def test_router_trata_next_agent_corrompido_com_fallback_para_consolidador(valor_corrompido):
+    """Confere que o router trata com segurança valores corrompidos ou inesperados de next_agent, redirecionando para o Consolidador."""
+    state = _state([HumanMessage(content="test")], next_agent=valor_corrompido)
+    assert router(state) == "Consolidador"
 
 
 # ---------------------------------------------------------------------------

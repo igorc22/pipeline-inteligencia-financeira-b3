@@ -16,7 +16,7 @@ from fluxo_financeiro.agents.collectors import yfinance_agent
 from fluxo_financeiro.agents.analysts import analyzer_agent, separar_secoes
 from fluxo_financeiro.agents.investigators import investigator_agent
 from fluxo_financeiro.agents.consolidator import consolidar, formatar_relatorio, relatorio_de_emergencia
-from fluxo_financeiro.graph.supervisor import supervisor_node, router
+from fluxo_financeiro.graph.supervisor import DESTINOS_DO_ROUTER, supervisor_node, router
 from fluxo_financeiro.shared.prompts import TAG_CONTEUDO_EXTERNO
 from fluxo_financeiro.shared.utils import extrair_ticker, logger
 # Exceção à regra de camadas (graph ← agents): o detector é cálculo em código, sem agente,
@@ -208,7 +208,9 @@ workflow.add_node("Investigator", investigator_node)
 workflow.add_node("Consolidador", consolidador_node)
 
 workflow.add_edge(START, "Supervisor")
-workflow.add_conditional_edges("Supervisor", router)
+# O router devolve um nome ou uma lista de Send (o paralelo): a lista de destinos é explícita para o
+# LangGraph desenhar as arestas do Supervisor.
+workflow.add_conditional_edges("Supervisor", router, DESTINOS_DO_ROUTER)
 
 workflow.add_edge("YFinance", "Supervisor")
 workflow.add_edge("Analyzer", "Supervisor")

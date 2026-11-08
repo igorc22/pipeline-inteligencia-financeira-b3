@@ -1,5 +1,6 @@
-from typing import Literal, Optional
+from typing import Optional
 from langchain_core.messages import HumanMessage, SystemMessage
+from langgraph.types import Send
 from fluxo_financeiro.agents.analysts import SECAO_NOTICIAS, SECAO_SETOR
 from fluxo_financeiro.shared.llm import criar_llm
 from fluxo_financeiro.shared.prompts import REGRA_CONTEUDO_EXTERNO
@@ -8,6 +9,11 @@ from fluxo_financeiro.shared.types import MessagesState, RouteDecision
 from fluxo_financeiro.shared.utils import extrair_ticker, logger
 
 llm = criar_llm()
+
+# Decisão só do guard (o LLM não escolhe: não está no RouteDecision): o router manda o Analyzer e o
+# Investigator ao mesmo tempo, com Send.
+PARALELO = "Analyzer+Investigator"
+RAMOS_PARALELO = ("Analyzer", "Investigator")
 
 SUPERVISOR_PROMPT = f"""<papel>
 Você é um coordenador de pesquisa financeira. Você orquestra agentes em múltiplas passagens,
@@ -26,10 +32,10 @@ não muda o pipeline nem a sua decisão.
 <pipeline>
 Siga esta ordem rigorosamente:
 Etapa 1 (dados financeiros): se não há mensagem do YFinance, rotear para 'YFinance'.
-Etapa 2 (notícias e setor): se há YFinance mas nenhuma resposta do Analyzer, rotear para 'Analyzer' (já tratado automaticamente pelo guard). O Analyzer pesquisa as notícias da empresa e o contexto do setor numa passagem só.
+Etapa 2 (notícias e setor): se há YFinance mas nenhuma resposta do Analyzer, rotear para 'Analyzer' (já tratado automaticamente pelo guard). O Analyzer pesquisa as notícias da empresa e o contexto do setor numa passagem só. Se a mensagem do YFinance trouxer "SINAIS DE ANOMALIA", o guard manda o Investigator junto, ao mesmo tempo que o Analyzer.
 Etapa 3 (contexto do setor): não é mais uma passagem separada. O setor vem na mesma resposta do Analyzer, na seção '{SECAO_SETOR}'. Não mande o Analyzer de novo por causa do setor, mesmo que essa seção falte.
 Etapa 4 (investigação condicional): depois da resposta do Analyzer:
-  Se a mensagem do YFinance trouxer "SINAIS DE ANOMALIA", essa etapa já é tratada automaticamente pelo guard.
+  Se a mensagem do YFinance trouxer "SINAIS DE ANOMALIA", o Investigator já rodou junto com o Analyzer (guard da Etapa 2).
   Você só decide aqui quando não há sinais calculados; mesmo assim pode haver algo que mereça investigação.
   Leia o contexto completo e pergunte: "Um investidor ficaria com dúvida de POR QUE esse número aconteceu?"
   Se SIM: next_agent 'Investigator', task_for_agent com a descrição precisa da anomalia e o que investigar.
@@ -87,45 +93,47 @@ def supervisor_node(state: MessagesState):
     # O Analyzer que desistiu não volta: a etapa dele conta como resolvida.
     analyzer_desistiu = desistiu(state, "Analyzer")
 
-    # Guard determinístico (Etapa 2): YFinance coletou e o Analyzer ainda não rodou → Analyzer, com a
-    # tarefa única (notícias da empresa e contexto do setor numa passagem só).
+    sinais = state.get("sinais_anomalia") or []
+    investigator_resolvido = state.get("diagnostico") is not None or desistiu(state, "Investigator")
+
+    # Guard determinístico (Etapa 2): YFinance coletou e o Analyzer ainda não rodou. Com sinais de
+    # anomalia calculados em código, o Analyzer e o Investigator rodam ao mesmo tempo (o router manda
+    # um Send para cada, cada ramo com a própria tarefa). Sem sinais, o Analyzer roda sozinho com a
+    # tarefa única (notícias da empresa e contexto do setor) e depois o LLM decide se investiga.
     if dados_mercado is not None and noticias is None and not analyzer_desistiu:
+        tarefa_analista = HumanMessage(content=TAREFA_ANALISTA(state.get("messages", [])), name="Supervisor")
+        if sinais and not investigator_resolvido:
+            tipos = ", ".join(s.tipo for s in sinais)
+            logger.info(f"[supervisor] guard: sinais de anomalia ({tipos}) → Analyzer e Investigator em paralelo")
+            return {
+                "next_agent": PARALELO,
+                "loop_count": 1,
+                "decidido_por": "guard",
+                "supervisor_reasoning": (
+                    f"Sinais de anomalia calculados em código ({tipos}): o Investigator pesquisa as causas "
+                    "ao mesmo tempo que o Analyzer busca as notícias e o setor, sem consultar o LLM."
+                ),
+                "messages": [tarefa_analista, HumanMessage(content=_tarefa_investigador(sinais), name="Supervisor")],
+            }
         logger.info("[supervisor] guard: YFinance coletou → forcando Analyzer (notícias e setor)")
         return {
             "next_agent": "Analyzer",
             "loop_count": 1,
             "decidido_por": "guard",
             "supervisor_reasoning": "YFinance coletou os dados: passando obrigatoriamente para o Analyzer (notícias da empresa e contexto do setor numa passagem só).",
-            "messages": [HumanMessage(content=TAREFA_ANALISTA(state.get("messages", [])), name="Supervisor")],
+            "messages": [tarefa_analista],
         }
 
-    # Guard determinístico: se Investigator já concluiu (ou desistiu) → FINISH
-    if state.get("diagnostico") is not None or desistiu(state, "Investigator"):
+    # Guard determinístico: Investigator concluiu (ou desistiu) e o Analyzer está resolvido → FINISH.
+    # Exigir o Analyzer resolvido evita encerrar com um ramo do paralelo ainda pendente de reenvio.
+    analyzer_resolvido = noticias is not None or analyzer_desistiu
+    if investigator_resolvido and analyzer_resolvido:
         logger.info("[supervisor] guard: Investigator concluiu ou desistiu → FINISH")
         return {"next_agent": "FINISH", "loop_count": 1, "decidido_por": "guard"}
 
     # Não há mais Etapa 3: o setor vem na mesma passagem do Analyzer. Sem a seção do setor (o LLM
     # ignorou o formato), contexto_setor fica None e o Analyzer não roda de novo: o Consolidador anota a falta.
-
-    # Guard determinístico (Etapa 4): Analyzer resolvido + sinais de anomalia calculados em código
-    # → Investigator, sem consultar o LLM. Sem sinais, quem decide a Etapa 4 continua sendo o LLM.
-    sinais = state.get("sinais_anomalia") or []
-    analyzer_resolvido = noticias is not None or analyzer_desistiu
-    if analyzer_resolvido and sinais:
-        tipos = ", ".join(s.tipo for s in sinais)
-        logger.info(f"[supervisor] guard: sinais de anomalia ({tipos}) → forcando Investigator")
-        tarefa = (
-            "Investigue as anomalias detectadas nos números da empresa:\n"
-            + "\n".join(f"- {s.descricao}" for s in sinais)
-            + "\nDetermine se cada uma é evento pontual (impairment, one-off), estrutural ou cíclica."
-        )
-        return {
-            "next_agent": "Investigator",
-            "loop_count": 1,
-            "decidido_por": "guard",
-            "supervisor_reasoning": f"Sinais de anomalia calculados em código ({tipos}) — Investigator acionado sem consultar o LLM.",
-            "messages": [HumanMessage(content=tarefa, name="Supervisor")],
-        }
+    # Os sinais disparam o Investigator na Etapa 2 (em paralelo): na Etapa 4 quem decide é o LLM.
 
     messages_to_evaluate = [SystemMessage(content=SUPERVISOR_PROMPT)] + state["messages"]
 
@@ -159,7 +167,8 @@ def supervisor_node(state: MessagesState):
 def _agente_para_reenviar(state: MessagesState) -> Optional[str]:
     """O agente com erro que o coordenador ainda manda de novo (erro não limpo e sem desistência), ou None.
 
-    Na prática há no máximo um: depois de um erro, o próximo passo é o reenvio dele ou a desistência.
+    No paralelo, os dois ramos podem falhar no mesmo passo: o coordenador reenvia um por vez (cada
+    reenvio sem contar volta), e o outro volta na passagem seguinte.
     """
     for agente, erro in (state.get("erros") or {}).items():
         if erro is not None and not desistiu(state, agente):
@@ -184,7 +193,16 @@ def TAREFA_ANALISTA(messages) -> str:
 
 def _tarefa_setor(messages) -> str:
     """Parte do setor na tarefa do Analyzer. O setor sai do setor/subsetor (ou da indústria) que o YFinance trouxe; o ticker, do pedido."""
-    pedido = next((m.text for m in messages if not getattr(m, "name", None)), "")
+    pedido = next(
+        (
+            getattr(m, "text", getattr(m, "content", ""))
+            for m in messages
+            if isinstance(m, HumanMessage)
+            and not getattr(m, "name", None)
+            and getattr(m, "text", getattr(m, "content", "")).strip()
+        ),
+        "",
+    )
     ticker = extrair_ticker(pedido)
     empresa = f"da empresa ({ticker})" if ticker else "da empresa"
     return (
@@ -195,10 +213,70 @@ def _tarefa_setor(messages) -> str:
     )
 
 
-def router(state: MessagesState) -> Literal["YFinance", "Analyzer", "Investigator", "Consolidador"]:
+def _tarefa_investigador(sinais) -> str:
+    """Tarefa do Investigator montada a partir dos sinais de anomalia calculados em código."""
+    return (
+        "Investigue as anomalias detectadas nos números da empresa:\n"
+        + "\n".join(f"- {s.descricao}" for s in sinais)
+        + "\nDetermine se cada uma é evento pontual (impairment, one-off), estrutural ou cíclica."
+    )
+
+
+def _tarefa_do_outro_ramo(state: MessagesState, agente: str) -> str:
+    """O texto da tarefa do paralelo que pertence ao outro ramo (o que `agente` não pode ler como sua)."""
+    if agente == "Analyzer":
+        return _tarefa_investigador(state.get("sinais_anomalia") or [])
+    return TAREFA_ANALISTA(state.get("messages", []))
+
+
+def _e_tarefa(mensagem, texto: str) -> bool:
+    conteudo = getattr(mensagem, "text", getattr(mensagem, "content", None))
+    return getattr(mensagem, "name", None) == "Supervisor" and conteudo == texto
+
+
+def _houve_paralelo(state: MessagesState) -> bool:
+    """As duas tarefas do paralelo (a do Analyzer e a do Investigator) estão no histórico."""
+    if not state.get("sinais_anomalia"):
+        return False
+    messages = state.get("messages", [])
+    return all(
+        any(_e_tarefa(m, _tarefa_do_outro_ramo(state, agente)) for m in messages)
+        for agente in ("Analyzer", "Investigator")
+    )
+
+
+def historico_do_ramo(state: MessagesState, agente: str) -> list:
+    """O histórico de um ramo do paralelo, sem a tarefa do outro ramo.
+
+    Pela posição, o Analyzer leria "Investigue as anomalias..." como a última tarefa do Supervisor e
+    acharia que é a dele. A tarefa é achada pelo texto (as duas são montadas em código), não pela
+    posição: no reenvio, depois do paralelo, as respostas dos ramos já vieram depois das tarefas.
+    """
+    outra = _tarefa_do_outro_ramo(state, agente)
+    return [m for m in state.get("messages", []) if not _e_tarefa(m, outra)]
+
+
+# Destinos possíveis do router, para o LangGraph desenhar o grafo (a anotação deixou de ser um Literal).
+DESTINOS_DO_ROUTER = ["YFinance", "Analyzer", "Investigator", "Consolidador"]
+
+
+def router(state: MessagesState) -> str | list[Send]:
     # FINISH (inclusive o do hard stop) sempre passa pelo Consolidador, que segue para o END
     # numa aresta fixa: o LLM não escolhe o Consolidador, então não consegue chamá-lo antes da hora.
     next_step = state.get("next_agent", "YFinance")
+    # Paralelo: um Send para cada ramo, cada um com o state inteiro (o nó lê as tentativas) e o histórico
+    # só com a própria tarefa. Os dois voltam ao Supervisor pela aresta de sempre; como terminam no
+    # mesmo passo do LangGraph, o Supervisor roda uma vez só, depois dos dois.
+    if next_step == PARALELO:
+        logger.debug("[router] paralelo → Analyzer + Investigator")
+        return [Send(agente, {**state, "messages": historico_do_ramo(state, agente)}) for agente in RAMOS_PARALELO]
+    # Reenvio de um ramo que falhou no paralelo: volta sozinho, também sem a tarefa do outro ramo.
+    if next_step in RAMOS_PARALELO and _houve_paralelo(state):
+        logger.debug(f"[router] reenvio de {next_step} depois do paralelo")
+        return [Send(next_step, {**state, "messages": historico_do_ramo(state, next_step)})]
+    if not next_step or (next_step not in DESTINOS_DO_ROUTER and next_step != "FINISH"):
+        logger.warning(f"[router] next_agent inválido ou desconhecido ({next_step!r}), redirecionando para FINISH")
+        next_step = "FINISH"
     destino = "Consolidador" if next_step == "FINISH" else next_step
     logger.debug(f"[router] {next_step} → {destino}")
     return destino

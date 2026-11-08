@@ -76,8 +76,8 @@ def _quem_falou(resultado):
     return [m.name for m in resultado["messages"] if m.name in WORKERS]
 
 
-def test_sinal_em_codigo_aciona_investigator_sem_llm(grafo_mockado):
-    """Confere que, com sinal de anomalia calculado em código, a Etapa 4 vai para o Investigator pelo guard."""
+def test_vale3_roda_analista_e_investigator_em_paralelo(grafo_mockado):
+    """Confere que, na análise da VALE3 com sinais de anomalia, o Analista e o Investigator rodam em paralelo (1 chamada cada), o Supervisor roda 3 vezes até FINISH, loop_count é 3 e os campos noticias, contexto_setor e diagnostico são preenchidos."""
     queda = SinalAnomalia(tipo="queda_lucro", descricao="O lucro líquido de VALE3.SA caiu 35% contra o ano anterior.")
     grafo_mockado["sinais"].return_value = [queda]
     grafo_mockado["decisoes"].side_effect = [
@@ -87,21 +87,41 @@ def test_sinal_em_codigo_aciona_investigator_sem_llm(grafo_mockado):
     resultado = _rodar()
 
     assert _quem_falou(resultado) == ["YFinance", "Analyzer", "Investigator"]
-    assert resultado["messages"][-1].name == "Consolidador"
-    assert resultado["loop_count"] == 4
-    grafo_mockado["sinais"].assert_called_once_with("VALE3")  # ticker extraído do pedido
-    # Etapas 2 e 4 e o FINISH final são guards: o LLM só decide a etapa 1
+    assert grafo_mockado["Analyzer"].invoke.call_count == 1
+    assert grafo_mockado["Investigator"].invoke.call_count == 1
+    assert resultado["loop_count"] == 3
     assert grafo_mockado["decisoes"].call_count == 1
-    # O sinal aparece na mensagem do YFinance e vira a tarefa do Investigator
-    msg_yfinance = next(m for m in resultado["messages"] if m.name == "YFinance")
-    assert "SINAIS DE ANOMALIA" in msg_yfinance.content
-    tarefa = grafo_mockado["Investigator"].invoke.call_args.args[0]["messages"][-1]
-    assert tarefa.name == "Supervisor"
-    assert queda.descricao in tarefa.content
+    assert resultado["noticias"] == "análise de notícias"
+    assert resultado["contexto_setor"] == "análise do setor"
+    assert resultado["diagnostico"] == "- Causa identificada: prejuízo no 4T25"
+    assert resultado["messages"][-1].name == "Consolidador"
+    assert resultado["decidido_por"] == "guard"
 
 
-def test_llm_pode_acionar_investigator_mesmo_sem_sinal(grafo_mockado):
-    """Confere que, sem sinal calculado, o LLM ainda pode mandar investigar (Etapa 4 pelo LLM)."""
+def test_cada_ramo_recebe_so_a_propria_tarefa(grafo_mockado):
+    """Confere que, na execução em paralelo, cada ramo recebe no histórico apenas a própria tarefa do Supervisor, sem ver a tarefa do outro ramo."""
+    queda = SinalAnomalia(tipo="queda_lucro", descricao="O lucro líquido de VALE3.SA caiu 35% contra o ano anterior.")
+    grafo_mockado["sinais"].return_value = [queda]
+    grafo_mockado["decisoes"].side_effect = [
+        _decisao("YFinance", "Colete os dados da VALE3"),
+    ]
+
+    _rodar()
+
+    historico_ana = grafo_mockado["Analyzer"].invoke.call_args.args[0]["messages"]
+    assert historico_ana[-1].name == "Supervisor"
+    assert SECAO_NOTICIAS in historico_ana[-1].content and SECAO_SETOR in historico_ana[-1].content
+    assert not any("Investigue as anomalias" in m.content for m in historico_ana)
+
+    historico_inv = grafo_mockado["Investigator"].invoke.call_args.args[0]["messages"]
+    assert historico_inv[-1].name == "Supervisor"
+    assert "Investigue as anomalias" in historico_inv[-1].content
+    assert not any(SECAO_NOTICIAS in m.content for m in historico_inv)
+
+
+def test_llm_sem_sinal_ainda_pode_investigar(grafo_mockado):
+    """Confere que, sem sinal de anomalia em código, o LLM na Etapa 4 ainda pode acionar o Investigator sequencialmente após o Analyzer."""
+    grafo_mockado["sinais"].return_value = []
     grafo_mockado["decisoes"].side_effect = [
         _decisao("YFinance", "Colete os dados da VALE3"),
         _decisao("Investigator", "Investigue o ROE de 0,3% da VALE3"),
@@ -110,23 +130,19 @@ def test_llm_pode_acionar_investigator_mesmo_sem_sinal(grafo_mockado):
     resultado = _rodar()
 
     assert _quem_falou(resultado) == ["YFinance", "Analyzer", "Investigator"]
-    final = resultado["messages"][-1]
-    assert final.name == "Consolidador"
-    assert "- Causa identificada: prejuízo no 4T25" in final.content  # diagnóstico copiado
-    assert resultado["relatorio"].diagnostico == "- Causa identificada: prejuízo no 4T25"
+    assert grafo_mockado["Analyzer"].invoke.call_count == 1
+    assert grafo_mockado["Investigator"].invoke.call_count == 1
     assert resultado["loop_count"] == 4
-    # Só 2 decisões passam pelo LLM (etapas 1 e 4): a etapa 2 e o FINISH final são guards
     assert grafo_mockado["decisoes"].call_count == 2
-    # O Investigator recebe a tarefa do Supervisor como última mensagem do histórico
+    assert resultado["diagnostico"] == "- Causa identificada: prejuízo no 4T25"
+    assert resultado["relatorio"].diagnostico == "- Causa identificada: prejuízo no 4T25"
     historico = grafo_mockado["Investigator"].invoke.call_args.args[0]["messages"]
     assert historico[-1].name == "Supervisor"
     assert historico[-1].content == "Investigue o ROE de 0,3% da VALE3"
-    # Cada agente gravou a própria saída num campo do state
     msg_yfinance = next(m for m in resultado["messages"] if m.name == "YFinance")
     assert resultado["dados_mercado"] == msg_yfinance.content
     assert resultado["noticias"] == "análise de notícias"
     assert resultado["contexto_setor"] == "análise do setor"
-    assert resultado["diagnostico"] == "- Causa identificada: prejuízo no 4T25"
 
 
 def _yfinance_com_saida_da_tool(saida_da_tool, resposta_final):
@@ -200,8 +216,8 @@ def test_yfinance_sem_indicadores_nao_anexa(grafo_mockado):
     assert resultado["messages"][-1].name == "Consolidador"
 
 
-def test_fluxo_sem_anomalia_nao_chama_o_investigator(grafo_mockado):
-    """Confere que, sem anomalia (a WEGE3), o Analyzer roda uma vez só e a etapa 4 vai direto para FINISH em 3 voltas."""
+def test_wege3_sem_sinal_nao_usa_paralelo(grafo_mockado):
+    """Confere que, sem sinal de anomalia (WEGE3), o fluxo não usa o paralelo, o Analyzer roda sozinho, o LLM escolhe FINISH e o Investigator nunca é acionado."""
     grafo_mockado["decisoes"].side_effect = [
         _decisao("YFinance", "Colete os dados da WEGE3"),
         _decisao("FINISH"),
@@ -262,8 +278,8 @@ def test_hard_stop_segura_llm_que_nunca_encerra(grafo_mockado):
 QUEDA = SinalAnomalia(tipo="queda_lucro", descricao="O lucro líquido de VALE3.SA caiu 35% contra o ano anterior.")
 
 
-def test_falha_temporaria_no_investigator_nao_bate_no_hard_stop(grafo_mockado):
-    """Confere que o reenvio do coordenador não conta volta: a VALE3 chega ao FINISH pelo guard, não pelo hard stop."""
+def test_falha_num_ramo_reenvia_so_ele(grafo_mockado):
+    """Confere que, quando um ramo do paralelo falha, o coordenador reenvia apenas o agente que falhou sem rodar o outro de novo, chegando a FINISH pelo guard com loop_count 3."""
     grafo_mockado["sinais"].return_value = [QUEDA]
     grafo_mockado["decisoes"].side_effect = [_decisao("YFinance", "Colete os dados da VALE3")]
     resposta = {"messages": [AIMessage(content="- Causa identificada: prejuízo no 4T25")]}
@@ -272,11 +288,13 @@ def test_falha_temporaria_no_investigator_nao_bate_no_hard_stop(grafo_mockado):
 
     resultado = _rodar()
 
-    assert resultado["diagnostico"] == "- Causa identificada: prejuízo no 4T25"
-    assert resultado["relatorio"].diagnostico == "- Causa identificada: prejuízo no 4T25"
-    assert resultado["decidido_por"] == "guard"
-    assert resultado["loop_count"] == 4
+    assert grafo_mockado["Analyzer"].invoke.call_count == 1
     assert grafo_mockado["Investigator"].invoke.call_count == 3
+    assert resultado["loop_count"] == 3
+    assert resultado["decidido_por"] == "guard"
+    assert resultado["diagnostico"] == "- Causa identificada: prejuízo no 4T25"
+    assert resultado["noticias"] == "análise de notícias"
+    assert resultado["relatorio"].diagnostico == "- Causa identificada: prejuízo no 4T25"
     assert resultado["erros"]["Investigator"] is None
     assert resultado["tentativas"]["Investigator"] == 0
     assert not any("falhou depois de" in l for l in resultado["relatorio"].limitacoes)
