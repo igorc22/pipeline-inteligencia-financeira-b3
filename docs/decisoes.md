@@ -318,11 +318,21 @@ Desde a mudança para o Streamlit nenhuma tela consumia a API FastAPI, e mantê-
 
 Com isso, fechei a versão 1.0.
 
+## Um campo para cada agente
+
+No começo decidi que o estado seria a conversa, e o supervisor sabia em que etapa estava contando quem já tinha falado pelo `name` das mensagens. Mudei de ideia em parte. Antes de partir para o retry e o paralelismo, perguntei o que eu ganhava trocando isso e que problema a troca resolvia. A resposta estava nas duas fases seguintes: com `Send`, o analista e a pesquisa vão escrever ao mesmo tempo e a ordem das mensagens deixa de ser fixa, e com retry um agente que roda de novo deixa uma segunda mensagem no histórico, fazendo um guard que procura "exatamente uma mensagem do Analyzer" contar errado sem levantar erro nenhum.
+
+Escolhi fazer a troca como uma fase separada, antes do retry, sabendo que para quem usa nada muda hoje. O `MessagesState` ganhou quatro campos, `dados_mercado`, `noticias`, `contexto_setor` e `diagnostico`, cada um gravado pelo nó do agente que produz aquele texto, e os guards do Supervisor e as limitações do Consolidador passaram a olhar só se o campo existe. Uma resposta vazia ou um "Erro ao buscar notícias" também grava o campo, porque a etapa rodou e o fluxo precisa avançar como avançava quando bastava a mensagem existir. Se o LLM da Etapa 4 mandar o Analyzer uma terceira vez, a resposta vai para `contexto_setor` e as notícias da empresa ficam onde estavam.
+
+As mensagens continuam iguais. Os agentes ainda recebem o histórico inteiro, o dashboard e o e2e leem dali, e o texto que vai ao LLM do Consolidador sai de `montar_insumos`, a mesma função que os evals medem. Os campos novos ainda são texto livre: mudou quem decide e como decide, não o que circula entre os agentes. A troca completa, com o Analyzer deixando de rodar duas vezes em sequência, fica para a fase do `Send`.
+
+Essa fase não teve rodada de evals. Nenhum prompt mudou e as mensagens saem idênticas, então o juiz leria o mesmo texto de antes. A prova ficou com o e2e real das duas ações, que repetiu os caminhos de antes da mudança: a VALE3 acionou o Investigator pelo guard dos sinais (lucro 53% abaixo do mesmo trimestre do ano anterior) e fechou em 5 loops, e a WEGE3 terminou em 4 loops com o LLM escolhendo FINISH.
+
 ## O que ainda não resolvi
 
 Algumas escolhas antigas estão chegando no limite. Duas tensões já se resolveram: a resposta final que era só a última mensagem virou o Consolidador, e o custo que eu não enxergava apareceu no LangSmith. As outras continuam aqui.
 
-O estado ainda é quase todo mensagem. Os sinais de anomalia e o relatório já são campos, mas dados, notícias e diagnóstico trafegam como texto entre os agentes, e para paralelizar seriam melhores campos estruturados. Os erros continuam sendo string, então o supervisor não sabe que algo falhou e não consegue reagir. O Analyzer e o Investigator se sobrepõem, porque os dois pesquisam na web com focos diferentes. 
+O estado já tem um campo por agente, e o supervisor não conta mais mensagens para decidir. Só que cada campo ainda guarda texto livre, e os agentes continuam lendo uns aos outros pelo histórico de mensagens. Os erros continuam sendo string, então o supervisor não sabe que algo falhou e não consegue reagir. O Analyzer e o Investigator se sobrepõem, porque os dois pesquisam na web com focos diferentes. 
 
 O retry também está pela metade. Hoje quem tenta de novo é a biblioteca do Gemini, que repete sozinha até 6 vezes uma chamada que falhou por instabilidade, sem eu ter configurado nada. As tools não tentam de novo: devolvem o erro como texto e o agente segue com o que tem. Só o Consolidador tem um plano B quando o LLM falha. Nos outros nós, uma exceção que escape derruba a análise inteira, e a ideia de o supervisor mandar um agente tentar de novo ficou sem caminho depois que os guards entraram.
 
