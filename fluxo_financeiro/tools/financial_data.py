@@ -14,6 +14,11 @@ from typing import Any, Dict, Optional
 AVISO_PERFIL_RESERVA = "Fonte: yfinance (a Brapi não respondeu para cotação e perfil)."
 FONTE_COM_BRAPI = "Fonte: cotação e perfil da Brapi; P/L, ROE, DY e histórico do yfinance."
 
+# O LPA vem da Brapi e o P/L do yfinance. Na VALE3 (08/11/2026) os dois discordavam: preço / LPA dava ~123
+# e o P/L dizia 77,2. Mostrar os dois lado a lado seria contraditório, e a fidelidade dos evals não pega
+# (o número está na fonte). O LPA só aparece quando preço / LPA fica a até 10% do P/L.
+TOLERANCIA_LPA = 0.10
+
 
 def _numero(valor) -> Optional[float]:
     """O valor como float, ou None se não for número (a Brapi pode mandar null ou int)."""
@@ -28,8 +33,19 @@ def _em_bi(valor) -> str:
     return f"R$ {numero / 1e9:.1f} bi" if numero is not None else "N/A"
 
 
-def _linhas_do_perfil(perfil: PerfilBrapi, preco_yf) -> str:
-    """Linhas antes do P/L com o que a Brapi trouxe. Campo faltando: a linha some (o preço cai no yfinance)."""
+def _lpa_coerente(preco, lpa, pl) -> bool:
+    """Preço / LPA (Brapi) bate com o P/L (yfinance) dentro de TOLERANCIA_LPA. Sem um dos três, não bate."""
+    preco, lpa, pl = _numero(preco), _numero(lpa), _numero(pl)
+    if preco is None or not lpa or not pl or lpa <= 0 or pl <= 0:
+        return False
+    return abs(preco / lpa - pl) / pl <= TOLERANCIA_LPA
+
+
+def _linhas_do_perfil(perfil: PerfilBrapi, preco_yf, pl) -> str:
+    """Linhas antes do P/L com o que a Brapi trouxe. Campo faltando: a linha some (o preço cai no yfinance).
+
+    O LPA só entra quando é coerente com o P/L do yfinance (ver TOLERANCIA_LPA).
+    """
     linhas = f"Empresa: {perfil.nome}\n" if perfil.nome else ""
     preco = _numero(perfil.preco)
     variacao = _numero(perfil.variacao_pct)
@@ -42,9 +58,9 @@ def _linhas_do_perfil(perfil: PerfilBrapi, preco_yf) -> str:
         linhas += f"Faixa de 52 semanas: R$ {minima:.2f} a R$ {maxima:.2f}\n"
     if _numero(perfil.valor_mercado) is not None:
         linhas += f"Valor de mercado: {_em_bi(perfil.valor_mercado)}\n"
-    lpa = _numero(perfil.lpa)
-    if lpa is not None:
-        linhas += f"LPA: R$ {lpa:.2f}\n"
+    preco_conferido = preco if preco is not None else preco_yf
+    if _lpa_coerente(preco_conferido, perfil.lpa, pl):
+        linhas += f"LPA: R$ {_numero(perfil.lpa):.2f}\n"
     return linhas
 
 
@@ -65,7 +81,7 @@ def buscar_dados_acao_b3(ticker: str) -> str:
     Busca dados de mercado atuais de uma ação da B3: cotação, nome, setor e sumário da Brapi
     (com o yfinance de reserva) e P/L, ROE, DY e histórico do yfinance.
     Retorna: nome da empresa, preço atual (R$) e variação no dia, faixa de 52 semanas,
-    valor de mercado, LPA, P/L (Price/Earnings), ROE (Return on Equity), DY (Dividend Yield),
+    valor de mercado, LPA (só quando bate com o P/L), P/L (Price/Earnings), ROE (Return on Equity), DY (Dividend Yield),
     setor e subsetor da B3, os maiores do setor por valor de mercado, sumário do negócio
     e histórico dos últimos 5 dias de fechamento.
     Use para responder perguntas sobre preço, valuation básico e tendência recente.
@@ -101,7 +117,7 @@ def buscar_dados_acao_b3(ticker: str) -> str:
 
         resultado = f"Dados para {ticker}:\n"
         if perfil:
-            resultado += _linhas_do_perfil(perfil, preco_atual)
+            resultado += _linhas_do_perfil(perfil, preco_atual, pl)
         else:
             resultado += f"Preço Atual: R$ {preco_atual}\n"
         resultado += f"P/L:  {f'{pl:.1f}x' if pl else 'N/A'}\n"

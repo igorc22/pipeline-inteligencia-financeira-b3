@@ -309,6 +309,8 @@ O que a Brapi faz agora cabe em duas frentes. Na entrada, a CLI, o dashboard, o 
 
 Pedi para explorar "algo extra no grátis que seja útil" e escolhi três: valor de mercado e LPA, sugestão quando o ticker não existe (WEGE4 volta com "Você quis dizer WEGE3?") e os maiores do setor por valor de mercado, com a posição da empresa. A lista de setores da Brapi vem em inglês e mistura os papéis fracionários, então o código tira os que terminam em F e fica com um papel por empresa. A WEGE3 saiu em primeiro de 27.
 
+O LPA trouxe um problema que só apareceu nos notebooks. Na VALE3, a Brapi dava LPA de R$ 0,52 e o yfinance dava P/L de 77,2, e o preço dividido por esse LPA passa de 120. Os dois números apareciam lado a lado e um desmentia o outro, e a fidelidade dos evals não pegaria isso, porque o número errado estava na própria fonte. Não sei qual das duas fontes está certa, e talvez cada uma use um lucro de 12 meses diferente *(motivo a confirmar)*. Escolhi mostrar o LPA só quando a conta preço sobre LPA fica a até 10% do P/L do yfinance. Na WEGE3 os dois batem e o LPA aparece, e na VALE3 ele some.
+
 Só um 404 recusa o ticker. Cota, timeout, token ausente ou recusado deixam a análise seguir com uma linha de log, e se a Brapi não responde na hora dos dados tudo vem do yfinance como antes. Nesse caso o Consolidador anota nas limitações que a cotação e o perfil vieram da reserva, e quem decide isso é o código, como nas outras limitações.
 
 Para a entrada conferir o ticker, a CLI, o dashboard e os scripts passaram a importar direto de `tools/`, pulando o grafo. É a segunda exceção à regra de camadas, depois do detector de anomalias no grafo.

@@ -50,6 +50,13 @@ PARES_WEGE3 = ParesDoSetor(
 )
 
 
+# P/L do yfinance coerente com preço / LPA da Brapi (48,19 / 1,494 = 32,3), como na WEGE3 real
+INFO_WEGE3 = {
+    'currentPrice': 48.19, 'trailingPE': 32.3, 'returnOnEquity': 0.30, 'dividendYield': 0.02,
+    'industry': 'Electrical Equipment', 'longBusinessSummary': 'WEG makes motors.',
+}
+
+
 def _acao_yf(mock_ticker, info=None):
     """Ação falsa do yfinance com 5 fechamentos e o info pedido."""
     mock_instance = MagicMock()
@@ -134,7 +141,7 @@ def test_dados_b3_sem_brapi_avisa_reserva(mock_ticker, brapi):
 @patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
 def test_dados_b3_valor_de_mercado_e_lpa(mock_ticker, brapi):
     """Confere as linhas de valor de mercado e LPA, que somem quando a Brapi não traz os dois."""
-    _acao_yf(mock_ticker)
+    _acao_yf(mock_ticker, info=INFO_WEGE3)
     brapi.perfil.return_value = PERFIL_WEGE3
 
     result = buscar_dados_acao_b3.invoke("WEGE3")
@@ -145,6 +152,30 @@ def test_dados_b3_valor_de_mercado_e_lpa(mock_ticker, brapi):
     result = buscar_dados_acao_b3.invoke("WEGE3")
     assert "Valor de mercado" not in result
     assert "LPA" not in result
+
+
+@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
+def test_dados_b3_lpa_some_quando_nao_bate_com_o_pl(mock_ticker, brapi):
+    """Confere que o LPA da Brapi some quando preço / LPA não bate com o P/L do yfinance (caso real da VALE3)."""
+    _acao_yf(mock_ticker, info={**INFO_WEGE3, 'trailingPE': 77.16})
+    brapi.perfil.return_value = PerfilBrapi(**{**PERFIL_WEGE3.__dict__, "preco": 64.04, "lpa": 0.5177})
+
+    result = buscar_dados_acao_b3.invoke("VALE3")
+
+    assert "LPA" not in result
+    assert "P/L:  77.2x" in result
+
+
+@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
+def test_dados_b3_lpa_some_sem_pl_para_conferir(mock_ticker, brapi):
+    """Confere que, sem P/L no yfinance, o LPA da Brapi não aparece (não há com o que conferir)."""
+    _acao_yf(mock_ticker, info={**INFO_WEGE3, 'trailingPE': None})
+    brapi.perfil.return_value = PERFIL_WEGE3
+
+    result = buscar_dados_acao_b3.invoke("WEGE3")
+
+    assert "LPA" not in result
+    assert "P/L:  N/A" in result
 
 
 @patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
