@@ -3,8 +3,10 @@
 Três camadas, de baixo para cima:
 1. A biblioteca do Gemini já repete sozinha cada chamada ao LLM (não configurada por nós).
 2. Local: as chamadas externas que o código faz sozinho (Banco Central, Brapi, detector de anomalias)
-   passam por `com_retentativas`, que repete só o erro temporário, com espera crescente.
-   As tools que o LLM chama continuam devolvendo "Erro ao ..." para o agente decidir.
+   passam por `com_retentativas`, que repete só o erro temporário, com espera crescente. Os nós dos
+   workers (graph/graph.py) repetem o agente inteiro do mesmo jeito e, se não conseguem, devolvem um
+   erro estruturado no state em vez de levantar. As tools que o LLM chama continuam devolvendo
+   "Erro ao ..." para o agente decidir.
 3. Coordenador: recebe o erro que sobrou e decide se manda o agente de novo ou segue sem ele.
 
 `classificar_erro` separa o erro temporário (repetir pode dar certo) do permanente (repetir só gasta):
@@ -56,6 +58,10 @@ CODIGOS_TEMPORARIOS = {429, 500, 503, 504}
 MARCAS_DE_COTA = ("exceeded your current quota", "quota", "billing", "freetier", "free_tier")
 
 
+class RespostaVazia(Exception):
+    """O agente terminou sem resposta final (nem a saída das tools serviu). Temporária: repetir pode dar certo."""
+
+
 def _cadeia(e: BaseException) -> list[BaseException]:
     """A exceção e as que vieram antes dela (__cause__ e __context__), sem repetir."""
     vistas: list[BaseException] = []
@@ -78,6 +84,8 @@ def _codigo_http(cadeia: list[BaseException]) -> Optional[int]:
 
 def classificar_erro(e: BaseException) -> str:
     """TRANSITORIO se repetir pode dar certo, PERMANENTE se não."""
+    if isinstance(e, RespostaVazia):
+        return TRANSITORIO
     # Vem antes da rede: o JSONDecodeError do requests e o do curl_cffi também herdam do JSONDecodeError.
     if isinstance(e, json.JSONDecodeError):
         return TRANSITORIO

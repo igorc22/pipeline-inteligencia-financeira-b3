@@ -19,7 +19,13 @@ from langchain_google_genai.chat_models import (
     GoogleRateLimitError,
 )
 
-from fluxo_financeiro.shared.retry import PERMANENTE, TRANSITORIO, classificar_erro, com_retentativas
+from fluxo_financeiro.shared.retry import (
+    PERMANENTE,
+    TRANSITORIO,
+    RespostaVazia,
+    classificar_erro,
+    com_retentativas,
+)
 
 REQ = httpx.Request("GET", "https://brapi.dev")
 
@@ -67,6 +73,11 @@ def test_classifica_json_invalido_como_transitorio():
     """Confere que resposta que não é JSON (o BCB devolveu isso numa execução real) é temporária."""
     assert classificar_erro(json.JSONDecodeError("Expecting value", "<html>", 0)) == TRANSITORIO
     assert classificar_erro(requests.JSONDecodeError("Expecting value", "<html>", 0)) == TRANSITORIO
+
+
+def test_classifica_resposta_vazia_como_transitoria():
+    """Confere que a resposta final vazia de um agente é temporária (repetir o agente pode dar certo)."""
+    assert classificar_erro(RespostaVazia("o agente não respondeu")) == TRANSITORIO
 
 
 def test_classifica_404_401_como_permanente():

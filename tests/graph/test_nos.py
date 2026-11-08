@@ -2,13 +2,14 @@
 
 Os agentes são mockados em fluxo_financeiro.graph.graph; no YFinance, o detector de anomalias e o
 bloco do Banco Central também (sem eles, o nó iria ao yfinance e à API do BCB de verdade).
+O retry local do nó usa a espera falsa da fixture `espera_falsa` (tests/conftest.py): nenhum teste dorme.
 """
 from unittest.mock import MagicMock, patch
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from fluxo_financeiro.graph.graph import analyzer_node, investigator_node, yfinance_node
-from fluxo_financeiro.shared.types import SinalAnomalia
+from fluxo_financeiro.shared.types import ErroAgente, SinalAnomalia
 
 PEDIDO = HumanMessage("Analise VALE3")
 
@@ -74,11 +75,18 @@ def test_yfinance_resposta_vazia_usa_a_saida_das_tools(caplog):
     assert any("resposta final vazia" in r.message for r in caplog.records)
 
 
-def test_yfinance_vazio_sem_tools_vira_erro():
-    """Confere que, sem resposta e sem nenhuma tool, a mensagem diz que faltaram os dados (o Consolidador registra erros nas limitações)."""
-    resultado = _rodar_yfinance(_agente_com_tools(""))
+def test_yfinance_sem_tools_vira_resposta_vazia():
+    """Confere que, sem resposta e sem nenhuma tool, o nó repete o agente e, sem dados, devolve erro estruturado sem gravar dados_mercado."""
+    agente = _agente_com_tools("")
 
-    assert resultado["dados_mercado"].startswith("Erro: o agente do YFinance não devolveu dados.")
+    resultado = _rodar_yfinance(agente)
+
+    assert agente.invoke.call_count == 2
+    assert "dados_mercado" not in resultado
+    erro = resultado["erros"]["YFinance"]
+    assert erro.tipo == "transitorio" and "RespostaVazia" in erro.mensagem
+    assert resultado["messages"][0].name == "YFinance"
+    assert resultado["messages"][0].content.startswith("Erro:")
 
 
 def test_yfinance_com_resposta_ignora_as_tools():
@@ -124,14 +132,115 @@ def test_investigator_grava_diagnostico():
     assert resultado["messages"][0].name == "Investigator"
 
 
-def test_no_grava_campo_mesmo_com_erro():
-    """Confere que uma resposta de erro ou vazia também é gravada, e a passagem seguinte vai para contexto_setor."""
+def test_no_grava_campo_mesmo_com_erro_em_texto():
+    """Confere que uma resposta com o erro de uma tool em texto também é gravada, e a passagem seguinte vai para contexto_setor."""
     erro = _rodar_analyzer({"messages": [PEDIDO]}, "Erro ao buscar notícias: 429")
     assert erro["noticias"] == "Erro ao buscar notícias: 429"
+    assert erro["erros"] == {"Analyzer": None}
 
-    vazia = _rodar_analyzer({"messages": [PEDIDO]}, "")
-    assert vazia["noticias"] == ""
-
-    seguinte = _rodar_analyzer({"messages": [PEDIDO], "noticias": ""}, "contexto do setor")
+    seguinte = _rodar_analyzer({"messages": [PEDIDO], "noticias": erro["noticias"]}, "contexto do setor")
     assert seguinte["contexto_setor"] == "contexto do setor"
     assert "noticias" not in seguinte
+
+
+def _agente_em_sequencia(*resultados):
+    """Agente falso que levanta ou responde, na ordem: exceção levanta, texto vira a resposta final."""
+    agente = MagicMock()
+    agente.invoke.side_effect = [
+        r if isinstance(r, Exception) else {"messages": [AIMessage(content=r)]} for r in resultados
+    ]
+    return agente
+
+
+def test_no_repete_localmente_e_acerta(espera_falsa):
+    """Confere que uma falha temporária repete o agente no próprio nó, depois de 2 s, e a resposta é gravada sem erro."""
+    agente = _agente_em_sequencia(TimeoutError("lento"), "notícias da empresa")
+
+    with patch("fluxo_financeiro.graph.graph.analyzer_agent", agente):
+        resultado = analyzer_node({"messages": [PEDIDO], "dados_mercado": "dados"})
+
+    assert agente.invoke.call_count == 2
+    espera_falsa.assert_called_once_with(2.0)
+    assert resultado["noticias"] == "notícias da empresa"
+    assert resultado["erros"] == {"Analyzer": None}
+    assert resultado["tentativas"] == {"Analyzer": 0}
+
+
+def test_no_esgota_e_devolve_erro_estruturado(caplog):
+    """Confere que, esgotadas as 2 tentativas locais, o nó não levanta: devolve o erro estruturado e não grava o campo."""
+    agente = _agente_em_sequencia(TimeoutError("lento"), TimeoutError("lento\nde novo"))
+
+    with patch("fluxo_financeiro.graph.graph.investigator_agent", agente), \
+         caplog.at_level("ERROR", logger="fluxo_financeiro"):
+        resultado = investigator_node({"messages": [PEDIDO]})
+
+    assert agente.invoke.call_count == 2
+    assert "diagnostico" not in resultado
+    erro = resultado["erros"]["Investigator"]
+    assert erro.tipo == "transitorio"
+    assert erro.tentativas == 1
+    assert "\n" not in erro.mensagem
+    assert resultado["tentativas"] == {"Investigator": 1}
+    mensagem = resultado["messages"][0]
+    assert mensagem.name == "Investigator"
+    assert mensagem.content.startswith("Erro: Investigator falhou depois de 2 tentativas (transitorio)")
+    linhas = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert len(linhas) == 1 and "\n" not in linhas[0].getMessage() and linhas[0].exc_info is None
+
+
+def test_no_soma_as_tentativas_do_coordenador():
+    """Confere que a contagem continua de onde estava: a rodada mandada pelo coordenador vira a tentativa 2."""
+    agente = _agente_em_sequencia(TimeoutError(), TimeoutError())
+    state = {"messages": [PEDIDO], "tentativas": {"Investigator": 1}}
+
+    with patch("fluxo_financeiro.graph.graph.investigator_agent", agente):
+        resultado = investigator_node(state)
+
+    assert resultado["tentativas"] == {"Investigator": 2}
+    assert resultado["erros"]["Investigator"].tentativas == 2
+
+
+def test_no_permanente_nao_repete():
+    """Confere que um erro permanente não repete o agente e sai como permanente, com a contagem real de tentativas."""
+    agente = _agente_em_sequencia(ValueError("ticker não existe"), "não chega aqui")
+
+    with patch("fluxo_financeiro.graph.graph.analyzer_agent", agente):
+        resultado = analyzer_node({"messages": [PEDIDO]})
+
+    assert agente.invoke.call_count == 1
+    assert resultado["erros"]["Analyzer"].tipo == "permanente"
+    assert "noticias" not in resultado
+    assert resultado["messages"][0].content.startswith("Erro: Analyzer falhou depois de 1 tentativa (permanente)")
+
+
+def test_mensagem_longa_e_cortada():
+    """Confere que um erro com texto enorme (o do Gemini traz o JSON inteiro) é cortado em 300 caracteres em vez de derrubar o nó."""
+    agente = _agente_em_sequencia(ValueError("x" * 5000))
+
+    with patch("fluxo_financeiro.graph.graph.analyzer_agent", agente):
+        resultado = analyzer_node({"messages": [PEDIDO]})
+
+    assert len(resultado["erros"]["Analyzer"].mensagem) <= 300
+
+
+def test_resposta_vazia_e_transitoria_e_repete():
+    """Confere que uma resposta final vazia do agente conta como falha temporária e o nó repete o agente."""
+    agente = _agente_em_sequencia("  ", "notícias da empresa")
+
+    with patch("fluxo_financeiro.graph.graph.analyzer_agent", agente):
+        resultado = analyzer_node({"messages": [PEDIDO]})
+
+    assert agente.invoke.call_count == 2
+    assert resultado["noticias"] == "notícias da empresa"
+
+
+def test_sucesso_depois_de_falha_limpa_erro_e_tentativas():
+    """Confere que o agente que acerta depois de ter falhado zera erro e tentativas, para a etapa seguinte ter o limite inteiro."""
+    anterior = ErroAgente(tipo="transitorio", mensagem="TimeoutError: lento", tentativas=1)
+    state = {"messages": [PEDIDO], "erros": {"Analyzer": anterior}, "tentativas": {"Analyzer": 1}}
+
+    resultado = _rodar_analyzer(state)
+
+    assert resultado["noticias"] == "análise de notícias"
+    assert resultado["erros"] == {"Analyzer": None}
+    assert resultado["tentativas"] == {"Analyzer": 0}
