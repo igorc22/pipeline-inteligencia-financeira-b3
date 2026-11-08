@@ -14,14 +14,20 @@ from langchain_core.messages import HumanMessage
 from dashboard.visao import (
     ROTULO_DECISAO,
     Passo,
+    _conteudo,
     decisao_do_fim,
     dividir_indicadores,
     dot_do_caminho,
+    dot_do_caminho_em_progresso,
     escapar_markdown,
     montar_passos,
     parou_no_hard_stop,
     passo_do_consolidador,
+    raciocinio_do_fim,
+    resumo_em_progresso,
+    rotulo_agente_em_execucao,
     state_para_json,
+    status_execucao,
 )
 from fluxo_financeiro import app as grafo
 from fluxo_financeiro.shared.utils import TICKER_INVALIDO, logger, validar_ticker
@@ -49,37 +55,63 @@ def _descrever_erro(exc: Exception) -> str:
 
 
 def rodar_analise(ticker: str) -> dict:
-    """Roda o grafo mostrando cada passo num st.status; devolve eventos, state final e erro."""
+    """Roda o grafo mostrando cada passo num st.status e atualizando o diagrama ao vivo."""
     eventos: list[tuple[str, dict]] = []
     state: Optional[dict] = None
     erro: Optional[str] = None
     passagens_analyzer = 0
     with st.status(f"Analisando {ticker}...", expanded=True) as status:
+        col_grafo, col_passos = st.columns([3, 2], vertical_alignment="center")
+        with col_grafo.container(horizontal_alignment="center"):
+            diagrama = st.empty()
+        with col_passos.container(border=True):
+            painel_passos = st.empty()
+        diagrama.graphviz_chart(dot_do_caminho_em_progresso(eventos))
+        painel_passos.markdown(resumo_em_progresso(eventos))
         try:
             pedido = {"messages": [HumanMessage(f"Analise a ação {ticker}")]}
             for modo, dado in grafo.stream(pedido, stream_mode=["updates", "values"]):
                 if modo == "values":
-                    state = dado
+                    state = dado if isinstance(dado, dict) else None
                     continue
-                for no, update in dado.items():
-                    eventos.append((no, update or {}))
-                    passagens_analyzer += no == "Analyzer"
-                    linha = _linha_status(no, passagens_analyzer)
-                    if linha:
-                        status.write(linha)
-            status.update(label=f"Análise de {ticker} concluída", state="complete", expanded=False)
+                dado_dict = dado if isinstance(dado, dict) else {}
+                for no, update in dado_dict.items():
+                    update_dict = update if isinstance(update, dict) else {}
+                    eventos.append((no, update_dict))
+                    if no == "Supervisor":
+                        proximo = update_dict.get("next_agent") or ""
+                        rotulo = rotulo_agente_em_execucao(proximo, passagens_analyzer)
+                        status.update(label=status_execucao(ticker, rotulo), state="running", expanded=True)
+                    else:
+                        passagens_analyzer += no == "Analyzer"
+                    diagrama.graphviz_chart(dot_do_caminho_em_progresso(eventos))
+                    painel_passos.markdown(resumo_em_progresso(eventos))
+            if any(no == "Consolidador" for no, _ in eventos):
+                status.update(label=f"Análise de {ticker} concluída", state="complete", expanded=False)
+            else:
+                erro = "A análise foi interrompida antes da consolidação."
+                status.update(label=f"A análise de {ticker} foi interrompida", state="error", expanded=False)
+                diagrama.graphviz_chart(dot_do_caminho(montar_passos(eventos), decisao_do_fim(eventos), consolidou=False))
         except Exception as exc:  # o erro aparece na tela; o que já chegou continua visível
             logger.exception(f"[dashboard] análise de {ticker} falhou")
             erro = _descrever_erro(exc)
             status.update(label=f"A análise de {ticker} falhou", state="error", expanded=False)
+            diagrama.graphviz_chart(dot_do_caminho(montar_passos(eventos), decisao_do_fim(eventos), consolidou=False))
     return {"ticker": ticker, "eventos": eventos, "state": state, "erro": erro}
 
 
 def _mensagem_final(resultado: dict) -> Optional[str]:
     """Markdown que o Consolidador escreveu (relatório formatado ou o de emergência)."""
-    for no, update in reversed(resultado["eventos"]):
-        if no == "Consolidador" and update.get("messages"):
-            return update["messages"][-1].content
+    for no, update in reversed(resultado.get("eventos") or []):
+        if no == "Consolidador":
+            if isinstance(update, dict):
+                msgs = update.get("messages")
+                if isinstance(msgs, list) and msgs:
+                    return _conteudo(msgs[-1])
+                elif msgs is not None:
+                    return _conteudo(msgs)
+            elif update is not None:
+                return _conteudo(update)
     return None
 
 
@@ -140,13 +172,15 @@ def aba_relatorio(resultado: dict) -> None:
                            mime="text/markdown")
 
 
-def _previa(texto: str) -> str:
-    linha = " ".join(texto.split())
+def _previa(texto: Optional[str]) -> str:
+    if not texto:
+        return ""
+    linha = " ".join(str(texto).split())
     return linha if len(linha) <= TAMANHO_PREVIA else linha[:TAMANHO_PREVIA].rstrip() + "…"
 
 
 def aba_como_foi_feito(resultado: dict) -> None:
-    eventos = resultado["eventos"]
+    eventos = resultado.get("eventos") or []
     passos = montar_passos(eventos)
     if not passos:
         st.info("Nenhum agente chegou a rodar.")
@@ -154,15 +188,20 @@ def aba_como_foi_feito(resultado: dict) -> None:
     if parou_no_hard_stop(eventos):
         st.warning("O fluxo parou pelo limite de 6 passagens do Supervisor (hard stop).")
 
-    consolidou = any(no == "Consolidador" for no, _ in eventos)
+    consolidou = any(no == "Consolidador" for no, _ in eventos) and not resultado.get("erro")
+    final = passo_do_consolidador(eventos, numero=len(passos) + 1)
     with st.container(horizontal_alignment="center"):
-        st.graphviz_chart(dot_do_caminho(passos, decisao_do_fim(eventos), consolidou=consolidou))
+        st.graphviz_chart(dot_do_caminho(
+            passos,
+            decisao_do_fim(eventos),
+            consolidou=consolidou,
+            raciocinio_fim=raciocinio_do_fim(eventos),
+        ))
     st.caption("**Seta cheia:** o Supervisor manda um agente trabalhar. O número é a ordem e o rótulo diz "
                "quem decidiu: **guard** (regra em código), **LLM** (o Supervisor consultou o modelo) ou "
                "**hard stop** (limite de passagens); passe o mouse para ver o raciocínio. "
                "**Seta tracejada:** o agente devolve o resultado ao Supervisor.")
 
-    final = passo_do_consolidador(eventos, numero=len(passos) + 1)
     for passo in passos + ([final] if final else []):
         _card_do_passo(passo)
 

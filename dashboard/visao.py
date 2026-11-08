@@ -11,7 +11,16 @@ WORKERS = ("YFinance", "Analyzer", "Investigator")
 ROTULO_DECISAO = {"guard": "guard", "llm": "LLM", "hard_stop": "hard stop"}
 COR_DECISAO = {"guard": "#2e7d32", "llm": "#1565c0", "hard_stop": "#c62828"}
 COR_AGENTE = {"YFinance": "#e0a030", "Analyzer": "#3fb37f", "Investigator": "#e05555", "Consolidador": "#9b7bff"}
+FUNDO_ATIVO = {"YFinance": "#fff8e1", "Analyzer": "#e8f5e9", "Investigator": "#ffebee", "Consolidador": "#f3e5f5"}
+FUNDO_CONCLUIDO = {"YFinance": "#fffdf7", "Analyzer": "#f6fbf8", "Investigator": "#fff8f8", "Consolidador": "#faf7ff"}
 ROTULO_ANALYZER = {1: "Analyzer (empresa)", 2: "Analyzer (setor)"}
+DESCRICAO_CONCLUIDA = {
+    "YFinance": "coletou os dados de mercado",
+    "Analyzer (empresa)": "buscou as notícias da empresa",
+    "Analyzer (setor)": "buscou o contexto do setor",
+    "Investigator": "investigou a anomalia",
+    "Consolidador": "montou o relatório",
+}
 # O st.metric corta com reticências o que não cabe no quadro: acima disso, o indicador vai para a lista
 MAX_NOME_QUADRO = 28
 MAX_VALOR_QUADRO = 18
@@ -31,6 +40,8 @@ class Passo:
 
 def separar_indicador(texto: str) -> tuple[str, Optional[str]]:
     """'P/L: 5.0x' → ('P/L', '5.0x'). Separa no primeiro ': '; sem ele, o valor é None."""
+    if not isinstance(texto, str):
+        texto = str(texto) if texto is not None else ""
     nome, separador, valor = texto.partition(": ")
     return (nome, valor) if separador else (texto, None)
 
@@ -50,12 +61,31 @@ def dividir_indicadores(indicadores: list[str]) -> tuple[list[tuple[str, str]], 
 
 def escapar_markdown(texto: str) -> str:
     """Escapa o $: o markdown do Streamlit lê '$...$' como fórmula e estraga 'R$ 3,2 bi contra R$ 5,0 bi'."""
+    if not isinstance(texto, str):
+        texto = str(texto) if texto is not None else ""
     return texto.replace("$", "\\$")
 
 
 def _conteudo(mensagem) -> str:
-    conteudo = mensagem.content
-    return conteudo if isinstance(conteudo, str) else str(mensagem.text)
+    if mensagem is None:
+        return ""
+    if isinstance(mensagem, str):
+        return mensagem
+    if isinstance(mensagem, dict):
+        if "content" in mensagem:
+            conteudo = mensagem["content"]
+            return conteudo if isinstance(conteudo, str) else str(conteudo if conteudo is not None else "")
+        return str(mensagem)
+    conteudo = getattr(mensagem, "content", None)
+    if isinstance(conteudo, str):
+        return conteudo
+    if hasattr(mensagem, "text"):
+        return str(mensagem.text)
+    return str(conteudo) if conteudo is not None else str(mensagem)
+
+
+def _dict(valor) -> dict:
+    return valor if isinstance(valor, dict) else {}
 
 
 def montar_passos(eventos: list[tuple[str, dict]]) -> list[Passo]:
@@ -64,9 +94,9 @@ def montar_passos(eventos: list[tuple[str, dict]]) -> list[Passo]:
     supervisor: Optional[dict] = None
     passagens_analyzer = 0
     for no, update in eventos:
-        update = update or {}
+        dados = _dict(update)
         if no == "Supervisor":
-            supervisor = update
+            supervisor = dados
             continue
         if no not in WORKERS:
             continue
@@ -74,15 +104,26 @@ def montar_passos(eventos: list[tuple[str, dict]]) -> list[Passo]:
         if no == "Analyzer":
             passagens_analyzer += 1
             rotulo = ROTULO_ANALYZER.get(passagens_analyzer, f"Analyzer ({passagens_analyzer})")
-        tarefa = (supervisor or {}).get("messages") or []
+        sup = supervisor or {}
+        tarefa = sup.get("messages") or []
+        msgs_saida = dados.get("messages")
+        if isinstance(msgs_saida, list) and msgs_saida:
+            saida = _conteudo(msgs_saida[-1])
+        elif msgs_saida is not None:
+            saida = _conteudo(msgs_saida)
+        elif not dados and update:
+            saida = _conteudo(update)
+        else:
+            saida = ""
+
         passos.append(Passo(
             numero=len(passos) + 1,
             agente=no,
             rotulo=rotulo,
-            decidido_por=(supervisor or {}).get("decidido_por"),
-            raciocinio=(supervisor or {}).get("supervisor_reasoning"),
-            entrada=_conteudo(tarefa[-1]) if tarefa else None,
-            saida=_conteudo(update["messages"][-1]) if update.get("messages") else "",
+            decidido_por=sup.get("decidido_por"),
+            raciocinio=sup.get("supervisor_reasoning"),
+            entrada=_conteudo(tarefa[-1]) if isinstance(tarefa, list) and tarefa else (_conteudo(tarefa) if tarefa else None),
+            saida=saida,
         ))
         supervisor = None  # a decisão já foi usada; o próximo worker precisa de outra
     return passos
@@ -90,8 +131,14 @@ def montar_passos(eventos: list[tuple[str, dict]]) -> list[Passo]:
 
 def decisao_do_fim(eventos: list[tuple[str, dict]]) -> Optional[str]:
     """Quem decidiu o FINISH (a última passagem do Supervisor que mandou encerrar)."""
-    finais = [u for no, u in eventos if no == "Supervisor" and (u or {}).get("next_agent") == "FINISH"]
+    finais = [_dict(u) for no, u in eventos if no == "Supervisor" and _dict(u).get("next_agent") == "FINISH"]
     return finais[-1].get("decidido_por") if finais else None
+
+
+def raciocinio_do_fim(eventos: list[tuple[str, dict]]) -> Optional[str]:
+    """Raciocínio da decisão do FINISH (a última passagem do Supervisor que mandou encerrar)."""
+    finais = [_dict(u) for no, u in eventos if no == "Supervisor" and _dict(u).get("next_agent") == "FINISH"]
+    return finais[-1].get("supervisor_reasoning") if finais else None
 
 
 def parou_no_hard_stop(eventos: list[tuple[str, dict]]) -> bool:
@@ -104,14 +151,81 @@ def passo_do_consolidador(eventos: list[tuple[str, dict]], numero: int) -> Optio
     None se a análise não chegou ao Consolidador. Ele não recebe tarefa do Supervisor: lê as
     respostas de todos os agentes, por isso a entrada fica None.
     """
-    mensagens = [u.get("messages") for no, u in eventos if no == "Consolidador" and (u or {}).get("messages")]
+    mensagens = []
+    for no, u in eventos:
+        if no == "Consolidador":
+            dados = _dict(u)
+            msgs = dados.get("messages")
+            if isinstance(msgs, list) and msgs:
+                mensagens.append(msgs[-1])
+            elif msgs is not None:
+                mensagens.append(msgs)
+            elif not dados and u:
+                mensagens.append(u)
     if not mensagens:
         return None
-    finais = [u for no, u in eventos if no == "Supervisor" and (u or {}).get("next_agent") == "FINISH"]
-    fim = finais[-1] if finais else {}
-    return Passo(numero=numero, agente="Consolidador", rotulo="Consolidador",
-                 decidido_por=fim.get("decidido_por"), raciocinio=fim.get("supervisor_reasoning"),
-                 entrada=None, saida=_conteudo(mensagens[-1][-1]))
+    return Passo(
+        numero=numero,
+        agente="Consolidador",
+        rotulo="Consolidador",
+        decidido_por=decisao_do_fim(eventos),
+        raciocinio=raciocinio_do_fim(eventos),
+        entrada=None,
+        saida=_conteudo(mensagens[-1]),
+    )
+
+
+def rotulo_agente_em_execucao(proximo: Optional[str], passagens_analyzer: int = 0) -> str:
+    """Rótulo do agente que começa a rodar agora a partir da decisão do Supervisor."""
+    if not proximo:
+        return ""
+    if not isinstance(proximo, str):
+        proximo = str(proximo)
+    if proximo == "FINISH":
+        return "Consolidador"
+    if proximo == "Analyzer":
+        passo_atual = passagens_analyzer + 1
+        return ROTULO_ANALYZER.get(passo_atual, f"Analyzer ({passo_atual})")
+    return proximo
+
+
+def status_execucao(ticker: str, rotulo: Optional[str] = None) -> str:
+    """Texto do status exibido enquanto o agente está executando."""
+    ticker_str = str(ticker) if ticker is not None else ""
+    return f"Analisando {ticker_str}: {rotulo}..." if rotulo else f"Analisando {ticker_str}..."
+
+
+def resumo_em_progresso(eventos: list[tuple[str, dict]]) -> str:
+    """Markdown com a linha do tempo ao vivo: passos concluídos e o agente rodando agora com o motivo."""
+    passos = montar_passos(eventos)
+    consolidou = any(no == "Consolidador" for no, _ in eventos)
+    linhas: list[str] = ["**Passos da análise**"]
+
+    for p in passos:
+        decisao = ROTULO_DECISAO.get(p.decidido_por or "")
+        via = f" *(via {decisao})*" if decisao else ""
+        acao = DESCRICAO_CONCLUIDA.get(p.rotulo, "concluiu a etapa")
+        linhas.append(f"- :material/check_circle: **{p.numero} · {p.rotulo}**{via} — {acao}")
+
+    if consolidou:
+        decisao = ROTULO_DECISAO.get(decisao_do_fim(eventos) or "")
+        via = f" *(via {decisao})*" if decisao else ""
+        linhas.append(f"- :material/check_circle: **{len(passos) + 1} · Consolidador**{via} — montou o relatório")
+    elif eventos and eventos[-1][0] == "Supervisor":
+        sup = _dict(eventos[-1][1])
+        passagens_analyzer = sum(1 for p in passos if p.agente == "Analyzer")
+        rotulo_ativo = rotulo_agente_em_execucao(sup.get("next_agent"), passagens_analyzer)
+        if rotulo_ativo:
+            decisao = ROTULO_DECISAO.get(sup.get("decidido_por") or "")
+            via = f" *(decidido por {decisao})*" if decisao else ""
+            linhas.append(f"- :material/pending: **{len(passos) + 1} · {rotulo_ativo}** — rodando agora{via}")
+            raciocinio = sup.get("supervisor_reasoning")
+            if raciocinio:
+                linhas.append(f"  > _{escapar_markdown(str(raciocinio))}_")
+    elif not passos:
+        linhas.append("_Iniciando o Supervisor..._")
+
+    return "\n".join(linhas)
 
 
 COR_APAGADA = "#9e9e9e"
@@ -123,10 +237,13 @@ NO_DO_AGENTE = {"YFinance": "yfinance", "Analyzer": "analyzer", "Investigator": 
 
 def _texto_dot(texto: str) -> str:
     """Texto seguro dentro de aspas no DOT: barra e aspas escapadas, sem quebra de linha."""
+    if not isinstance(texto, str):
+        texto = str(texto) if texto is not None else ""
     return " ".join(texto.replace("\\", "\\\\").replace('"', '\\"').split())
 
 
-def _ida(destino: str, numero: int, decidido_por: Optional[str], raciocinio: Optional[str]) -> str:
+def _ida(destino: str, numero: int, decidido_por: Optional[str], raciocinio: Optional[str],
+         ativo: bool = False) -> str:
     """Seta cheia do Supervisor para o agente: número da ordem, quem decidiu e o raciocínio no tooltip."""
     atributos = []
     if decidido_por in ROTULO_DECISAO:
@@ -136,22 +253,42 @@ def _ida(destino: str, numero: int, decidido_por: Optional[str], raciocinio: Opt
         atributos.append(f'label="{numero}"')
     if raciocinio:
         atributos.append(f'tooltip="{_texto_dot(raciocinio)}"')
+    if ativo:
+        atributos.append('penwidth=2.5')
+        atributos.append('style="bold"')
     return f"  supervisor -> {destino} [{', '.join(atributos)}];"
 
 
-def _no(nome: str, rotulo: str, cor: str, rodou: bool) -> str:
+def _no(nome: str, rotulo: str, cor: str, rodou: bool, ativo: bool = False) -> str:
+    if ativo:
+        fundo = FUNDO_ATIVO.get(rotulo, "#fffde7")
+        return (f'  {nome} [label="{rotulo}\\n(rodando agora)", color="{cor}", fontcolor="{cor}", '
+                f'fillcolor="{fundo}", penwidth=3, style="rounded,filled,bold"];')
     if rodou:
-        return f'  {nome} [label="{rotulo}", color="{cor}", fontcolor="{cor}"];'
+        fundo = FUNDO_CONCLUIDO.get(rotulo, "#fafafa")
+        return f'  {nome} [label="{rotulo}", color="{cor}", fontcolor="{cor}", fillcolor="{fundo}", style="rounded,filled"];'
     return (f'  {nome} [label="{rotulo}\\n(não rodou)", style="rounded,dashed", '
             f'color="{COR_APAGADA}", fontcolor="{COR_APAGADA}"];')
 
 
-def dot_do_caminho(passos: list[Passo], decisao_fim: Optional[str], consolidou: bool = True) -> str:
+def dot_do_caminho(
+    passos: list[Passo],
+    decisao_fim: Optional[str],
+    consolidou: bool = True,
+    em_execucao: Optional[str] = None,
+    decisao_ativa: Optional[str] = None,
+    raciocinio_ativo: Optional[str] = None,
+    em_progresso: bool = False,
+    raciocinio_fim: Optional[str] = None,
+) -> str:
     """DOT do grafo com o Supervisor no centro e o caminho desta análise aceso.
 
     Cada ida do Supervisor a um agente é uma seta cheia com o número da ordem e quem decidiu
     (o raciocínio aparece ao passar o mouse). A volta de cada agente ao Supervisor é uma seta
     tracejada. Agente que não rodou fica apagado, sem seta.
+
+    Durante a execução (em_progresso=True), o nó que está rodando ganha destaque ('(rodando agora)')
+    e a seta do Supervisor para ele é realçada em negrito e com maior espessura.
 
     consolidou=False (a análise falhou antes do fim): nada chega ao Consolidador; o último
     agente que rodou aponta para um nó "Interrompido".
@@ -168,33 +305,95 @@ def dot_do_caminho(passos: list[Passo], decisao_fim: Optional[str], consolidou: 
         '  supervisor [label="Supervisor", color="#555555", fontcolor="#555555", penwidth=2.5];',
     ]
     for agente in WORKERS:
-        linhas.append(_no(NO_DO_AGENTE[agente], agente, COR_AGENTE[agente], agente in rodaram))
+        linhas.append(_no(
+            NO_DO_AGENTE[agente],
+            agente,
+            COR_AGENTE[agente],
+            rodou=agente in rodaram,
+            ativo=(em_progresso and agente == em_execucao),
+        ))
     linhas.append("  { rank=same; yfinance; analyzer; investigator; }")
     for agente in WORKERS:
-        if agente not in rodaram:  # sem seta, o graphviz o jogaria para longe dos outros
+        if agente not in rodaram and not (em_progresso and agente == em_execucao):  # sem seta, o graphviz o jogaria para longe dos outros
             linhas.append(f"  supervisor -> {NO_DO_AGENTE[agente]} [style=invis];")
-    linhas.append(_no("consolidador", "Consolidador", COR_AGENTE["Consolidador"], consolidou))
+    linhas.append(_no(
+        "consolidador",
+        "Consolidador",
+        COR_AGENTE["Consolidador"],
+        rodou=consolidou,
+        ativo=(em_progresso and em_execucao == "Consolidador"),
+    ))
     linhas.append("  analyzer -> consolidador [style=invis];  // põe o Consolidador abaixo dos agentes")
     linhas.append(f'  inicio -> supervisor [color="{COR_APAGADA}"];')
 
     for passo in passos:
-        linhas.append(_ida(NO_DO_AGENTE[passo.agente], passo.numero, passo.decidido_por, passo.raciocinio))
+        destino = NO_DO_AGENTE.get(passo.agente)
+        if destino:
+            linhas.append(_ida(destino, passo.numero, passo.decidido_por, passo.raciocinio))
     for agente in rodaram:
-        # dir=back: a seta aponta para o Supervisor, mas o desenho mantém a hierarquia (volta reta, sem laço)
-        linhas.append(f'  supervisor -> {NO_DO_AGENTE[agente]} [dir=back, style=dashed, color="{COR_VOLTA}", '
-                      'arrowsize=0.7];')
+        destino = NO_DO_AGENTE.get(agente)
+        if destino:
+            # dir=back: a seta aponta para o Supervisor, mas o desenho mantém a hierarquia (volta reta, sem laço)
+            linhas.append(f'  supervisor -> {destino} [dir=back, style=dashed, color="{COR_VOLTA}", '
+                          'arrowsize=0.7];')
 
-    if consolidou:
-        linhas.append(_ida("consolidador", len(passos) + 1, decisao_fim, None))
+    if em_progresso:
+        if em_execucao in WORKERS:
+            destino = NO_DO_AGENTE.get(em_execucao)
+            if destino:
+                linhas.append(_ida(destino, len(passos) + 1, decisao_ativa, raciocinio_ativo, ativo=True))
+        elif em_execucao == "Consolidador":
+            linhas.append(_ida("consolidador", len(passos) + 1, decisao_ativa, raciocinio_ativo, ativo=True))
+    elif consolidou:
+        linhas.append(_ida("consolidador", len(passos) + 1, decisao_fim, raciocinio_fim))
         linhas.append(f'  fim [label="Fim", shape=oval, color="{COR_APAGADA}", fontcolor="{COR_APAGADA}"];')
         linhas.append(f'  consolidador -> fim [color="{COR_APAGADA}"];')
     else:
-        ultimo = NO_DO_AGENTE[passos[-1].agente] if passos else "supervisor"
+        ultimo = NO_DO_AGENTE.get(passos[-1].agente, "supervisor") if passos else "supervisor"
         linhas.append(f'  interrompido [label="Interrompido", style="rounded,dashed", '
                       f'color="{COR_INTERROMPIDO}", fontcolor="{COR_INTERROMPIDO}"];')
         linhas.append(f'  {ultimo} -> interrompido [style=dashed, color="{COR_INTERROMPIDO}"];')
     linhas.append("}")
     return "\n".join(linhas)
+
+
+def dot_do_caminho_em_progresso(eventos: list[tuple[str, dict]]) -> str:
+    """DOT do grafo durante a execução, destacando o nó que está rodando e a seta ativa."""
+    if any(no == "Consolidador" for no, _ in eventos):
+        return dot_do_caminho(
+            montar_passos(eventos),
+            decisao_do_fim(eventos),
+            consolidou=True,
+            raciocinio_fim=raciocinio_do_fim(eventos),
+        )
+
+    passos = montar_passos(eventos)
+    agente_ativo: Optional[str] = None
+    decisao_ativa: Optional[str] = None
+    raciocinio_ativo: Optional[str] = None
+
+    if eventos and eventos[-1][0] == "Supervisor":
+        sup = _dict(eventos[-1][1])
+        proximo = sup.get("next_agent")
+        if proximo == "FINISH":
+            agente_ativo = "Consolidador"
+        elif proximo in WORKERS:
+            agente_ativo = proximo
+        decisao_ativa = sup.get("decidido_por")
+        raciocinio_ativo = sup.get("supervisor_reasoning")
+
+    return dot_do_caminho(
+        passos=passos,
+        decisao_fim=None,
+        consolidou=False,
+        em_execucao=agente_ativo,
+        decisao_ativa=decisao_ativa,
+        raciocinio_ativo=raciocinio_ativo,
+        em_progresso=True,
+    )
+
+
+dot_em_progresso = dot_do_caminho_em_progresso
 
 
 def _jsonavel(valor):
@@ -203,13 +402,18 @@ def _jsonavel(valor):
 
 def state_para_json(state: dict) -> dict:
     """State final como dict serializável: mensagens como {tipo, name, conteudo}; modelos como dict."""
+    if not isinstance(state, dict):
+        return {}
     resultado = {}
     for chave, valor in state.items():
         if chave == "messages":
-            resultado[chave] = [
-                {"tipo": type(m).__name__, "name": getattr(m, "name", None), "conteudo": _conteudo(m)}
-                for m in valor
-            ]
+            if isinstance(valor, list):
+                resultado[chave] = [
+                    {"tipo": type(m).__name__, "name": getattr(m, "name", None), "conteudo": _conteudo(m)}
+                    for m in valor
+                ]
+            else:
+                resultado[chave] = _jsonavel(valor)
         elif isinstance(valor, list):
             resultado[chave] = [_jsonavel(v) for v in valor]
         else:
