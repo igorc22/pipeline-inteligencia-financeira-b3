@@ -328,6 +328,8 @@ As mensagens continuam iguais. Os agentes ainda recebem o histórico inteiro, o 
 
 Essa fase não teve rodada de evals. Nenhum prompt mudou e as mensagens saem idênticas, então o juiz leria o mesmo texto de antes. A prova ficou com o e2e real das duas ações, que repetiu os caminhos de antes da mudança: a VALE3 acionou o Investigator pelo guard dos sinais (lucro 53% abaixo do mesmo trimestre do ano anterior) e fechou em 5 loops, e a WEGE3 terminou em 4 loops com o LLM escolhendo FINISH.
 
+O mesmo e2e mostrou um problema que já existia antes. Na VALE3, o agente do YFinance chamou as tools e terminou com a resposta final vazia, então a mensagem ficou só com os blocos que o código acrescenta, os sinais e o Banco Central. O relatório saiu sem P/L, risco e Piotroski, e nada nas limitações avisava. Agora, quando a resposta final vem vazia, o nó usa o que as tools devolveram e registra uma linha de aviso no log. Se nenhuma tool respondeu, a mensagem vira um erro, que o Consolidador já põe nas limitações.
+
 ## O que ainda não resolvi
 
 Algumas escolhas antigas estão chegando no limite. Duas tensões já se resolveram: a resposta final que era só a última mensagem virou o Consolidador, e o custo que eu não enxergava apareceu no LangSmith. As outras continuam aqui.

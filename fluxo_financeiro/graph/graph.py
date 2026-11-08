@@ -1,3 +1,5 @@
+import re
+
 from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 from langgraph.graph import StateGraph, START, END
 
@@ -7,6 +9,7 @@ from fluxo_financeiro.agents.analysts import analyzer_agent
 from fluxo_financeiro.agents.investigators import investigator_agent
 from fluxo_financeiro.agents.consolidator import consolidar, formatar_relatorio, relatorio_de_emergencia
 from fluxo_financeiro.graph.supervisor import supervisor_node, router
+from fluxo_financeiro.shared.prompts import TAG_CONTEUDO_EXTERNO
 from fluxo_financeiro.shared.utils import extrair_ticker, logger
 # Exceção à regra de camadas (graph ← agents): o detector é cálculo em código, sem agente,
 # então o grafo o chama direto da camada tools. A dependência continua num sentido só.
@@ -24,6 +27,25 @@ def _ticker_da_conversa(state: MessagesState):
     return None
 
 
+YFINANCE_SEM_DADOS = "Erro: o agente do YFinance não devolveu dados."
+
+
+def _saida_das_tools(mensagens_novas) -> str:
+    """Texto das tools quando o LLM do YFinance chama as tools e não escreve a resposta final.
+
+    Aconteceu no e2e da VALE3: a mensagem ficou só com os blocos do código, e o relatório saiu sem
+    P/L, risco e Piotroski e sem limitação. As tags de conteúdo externo saem (as messages do state
+    não levam tags). Sem tool nenhuma, vira um erro, que o Consolidador registra nas limitações.
+    """
+    saidas = [m.text for m in mensagens_novas if isinstance(m, ToolMessage) and m.text.strip()]
+    if not saidas:
+        logger.warning("[node] YFinance: resposta final vazia e nenhuma tool respondeu")
+        return YFINANCE_SEM_DADOS
+    logger.warning(f"[node] YFinance: resposta final vazia, usando a saída de {len(saidas)} tools")
+    texto = "\n\n".join(saidas)
+    return re.sub(rf"</?{TAG_CONTEUDO_EXTERNO}[^>]*>\n?", "", texto)
+
+
 def yfinance_node(state: MessagesState):
     logger.info(f"[node] YFinance: invocando agente ({len(state['messages'])} msgs)")
     response = yfinance_agent.invoke({"messages": state["messages"]})
@@ -35,9 +57,11 @@ def yfinance_node(state: MessagesState):
     ticker = _ticker_da_conversa(state)
     sinais = detectar_sinais_anomalia(ticker) if ticker else []
     conteudo = last_message.text
+    mensagens_novas = response["messages"][len(state["messages"]):]
+    if not conteudo.strip():
+        conteudo = _saida_das_tools(mensagens_novas)
     # O Consolidador anota a limitação da reserva lendo o aviso na mensagem do YFinance. O prompt
     # manda o agente repassar a linha, mas o LLM pode resumir: o aviso é conferido na saída da tool.
-    mensagens_novas = response["messages"][len(state["messages"]):]
     reserva = any(isinstance(m, ToolMessage) and AVISO_PERFIL_RESERVA in m.text for m in mensagens_novas)
     if reserva and AVISO_PERFIL_RESERVA not in conteudo:
         conteudo += "\n\n" + AVISO_PERFIL_RESERVA
