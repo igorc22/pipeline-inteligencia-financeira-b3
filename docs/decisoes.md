@@ -65,7 +65,7 @@ Logo depois mexi nas faixas: saíram 8-9 / 6-7 / 0-5 e entraram 7-9 / 4-6 / 0-3.
 
 A tool de indicadores do BCB aceita só SELIC, IPCA e CDI, através de um enum. Se aceitasse qualquer número, o LLM poderia inventar o código de uma série que não existe.
 
-O curioso é que nenhum agente usa essa tool até hoje, já que a SELIC do projeto vem de dentro do cálculo de risco. Preciso escolher entre registrá-la no agente de dados, para a SELIC e o IPCA aparecerem no relatório, ou apagá-la. Ainda não escolhi.
+O curioso é que nenhum agente usa essa tool até hoje, já que a SELIC do projeto vem de dentro do cálculo de risco. Preciso escolher entre registrá-la no agente de dados, para a SELIC e o IPCA aparecerem no relatório, ou apagá-la. Fiquei muito tempo sem escolher, e a resposta só veio depois da Brapi, como conto mais para frente.
 
 ### Notícias: NewsAPI primeiro, web como complemento
 
@@ -328,6 +328,30 @@ A cobertura do Consolidador subiu de 0,31 para 0,67 na VALE3 e caiu de 0,20 para
 ### A suíte ficou mais lenta
 
 Desde a deepeval, a suíte passou de uns 12 s para 18 s. Os plugins que chegaram com ela (xdist, rerunfailures e repeat) pareciam os culpados, mas, na mediana de três execuções, desligá-los deu 18,25 s contra 18,11 s com eles ligados, e não mexi em nada. O tempo se concentra em poucos testes: os dois que conferem o bloqueio da rede e o que confere o xfail da cobertura rodam um pytest dentro do pytest e somam uns 5 s.
+
+## A régua da renda fixa
+
+A tool do Banco Central estava no projeto desde a primeira versão e nenhum agente chamava. Quando voltei à lista de pendências, a decisão saiu curta: "busca_indicador_bcb da pra começar usar". A SELIC só aparecia como referência dentro do bloco de risco, e o relatório não trazia o CDI nem a inflação, quando um DY de 6,82% só diz alguma coisa ao lado do CDI *(motivo a confirmar)*.
+
+Ela entrou em código, no nó do YFinance, logo depois dos sinais de anomalia, e não como mais uma tool do agente de dados. Como tool, quem decidiria se a SELIC aparece seria o LLM, e o agente de dados já pula às vezes o risco e o Piotroski quando o pedido é só "Analise a ação X" *(motivo a confirmar)*. É a mesma linha do Consolidador fixo e da anomalia calculada: o que é objetivo fica em código. O bloco traz a SELIC meta, o CDI e o IPCA acumulado em 12 meses, cada um com a data que o BCB devolveu. Se uma série falha, só a linha dela some, e com o BCB fora do ar a análise segue sem o bloco. O nó já importava o detector de anomalias de `tools/`, então a regra das camadas não ganhou exceção nova.
+
+Ligar a tool mostrou um erro que morava nela desde o começo e que ninguém via, porque ninguém chamava. A série 12, que eu usava para o CDI, é a taxa diária (0,050788% ao dia), e a tool escrevia "% a.a." do lado, o que faria um relatório dizer que o CDI estava em 0,05% ao ano. Troquei pela série 4389, o CDI anualizado na base de 252 dias úteis, que deu 13,65% a.a. O IPCA mudou também: a série 433 é a inflação de um mês só (0,82%), e no lugar dela entrou a 13522, o acumulado em 12 meses (4,58%), que dá para pôr ao lado de uma SELIC anual e fazer a conta do juro real *(motivo a confirmar)*.
+
+Nas fixtures novas, o Consolidador levou os três números para os indicadores do relatório nas duas ações. Na WEGE3 ele foi além e usou a SELIC de 13,75% num dos riscos, o da demanda interna desacelerando.
+
+### Duas notas para a fidelidade
+
+Na primeira rodada eu tinha visto que, na fidelidade, só o "não" derruba a nota e o "não sei" conta como aprovado. Escolhi uma segunda nota, que conta só os vereditos "sim", registrada no `notas.csv` ao lado da normal e sem reprovar nada. Ela sai dos vereditos que o juiz já devolveu e não custa chamada nova.
+
+A rígida conta outra história. A normal deu 1,0 nas sete fidelidades, e a rígida ficou entre 0,14 e 0,58. As piores foram as da VALE3 no Analyzer da empresa e no Investigator, as duas em 0,14, e na WEGE3 ela ficou entre 0,38 e 0,50. Ou seja, a maior parte do que os agentes afirmam a fonte nem confirma nem contradiz. A nota sozinha não separa invenção do agente de juiz que não achou o trecho, que foi o que aconteceu tantas vezes na cobertura, e os vereditos dessas passagens não ficaram gravados, porque o despejo só acontece quando o teste reprova. Sem eles, não dá para mexer em prompt por causa dessa nota.
+
+### A cobertura sem o sumário
+
+O outro ajuste foi na cobertura do Consolidador, que passou a receber a entrada sem o sumário do negócio. As perguntas do juiz saíam dali (fundação, sede, nome antigo), e o relatório não precisa repetir nada disso. A fidelidade do Consolidador continua lendo a entrada inteira.
+
+A nota andou para os dois lados: a WEGE3 subiu de 0,09 para 0,50, e a VALE3 caiu de 0,78 (a nota da última rodada dela, refeita depois da correção do LPA) para 0,42. A metade da cobertura melhorou, com 0,60 na VALE3 e 0,80 na WEGE3, e o que ficou de fora foi o Beta nas duas e, na VALE3, a posição dela entre as maiores do setor. Quem puxou a nota para baixo foi a outra metade, o alinhamento, de novo com erro do juiz, que diz que VaR, Alpha, dívida corrente e margem bruta não estavam na entrada quando estavam no bloco do YFinance. Apareceu também um efeito colateral. O relatório da VALE3 cita os metais da transição energética e as ferrovias próprias, que vêm do sumário, e sem o sumário na entrada o juiz marca isso como informação estranha. Como na segunda rodada, as fixtures são análises novas e o juiz não repete a nota, então a diferença não vem só do ajuste. O eval segue sem reprovar a suíte até a nota se mostrar estável nas duas ações.
+
+Fora a cobertura, passaram de novo 7 de 7 na VALE3 e 5 de 5 na WEGE3, por US\$ 0,23 e uns 6 minutos.
 
 ## O que ainda não resolvi
 
