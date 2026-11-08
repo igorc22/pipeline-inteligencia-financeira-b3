@@ -121,7 +121,7 @@ Este diário também nasceu nessa época.
 
 ## Trocar de provedor
 
-Troquei o LLM de todos os agentes e do supervisor pelo Gemini 3.5 Flash-Lite. O motivo é prático: tenho créditos no Gemini. O Flash-Lite é o equivalente do Haiku no Google, o modelo barato e rápido da família, a $0.30 /$2.50 por milhão de tokens.
+Troquei o LLM de todos os agentes e do supervisor pelo Gemini 3.5 Flash-Lite. O motivo é prático: tenho créditos no Gemini. O Flash-Lite é o equivalente do Haiku no Google, o modelo barato e rápido da família, a \$0.30 /\$2.50 por milhão de tokens.
 
 Aproveitei para concentrar a criação do modelo numa única função, com o nome vindo do `.env`. Trocar de modelo virou mudar uma variável, e trocar de provedor, mexer num arquivo só. Teve um detalhe chato: a biblioteca do Gemini exige a chave já na criação, e os agentes são criados na importação, então sem chave os testes quebravam. A função usa uma chave falsa e só avisa no log, e o erro de verdade aparece na primeira chamada.
 
@@ -131,9 +131,9 @@ A temperatura 0 também caiu. O Google recomenda manter a temperatura padrão no
 
 A busca na web teve de mudar junto, porque a da Anthropic só existe no Claude. Juntei as duas tools de busca numa função comum que chama o Gemini com Google Search. Isso evita duplicar código, e a resposta passou a trazer as fontes que o Google usou, que viram evidência para o Investigator.
 
-Só que a busca não funcionou de cara. Nos modelos Gemini 3+ ela exige faturamento ativo no projeto da chave (5.000 buscas grátis por mês, depois $14 a cada 1.000). No plano gratuito voltava erro de cota, e o modelo anterior, que tinha busca grátis, já tinha sido desativado. Enquanto isso, as tools devolviam o erro e o fluxo seguia com a NewsAPI e o histórico trimestral. Foi assim, sem web, que o Investigator acertou a causa no primeiro e2e da VALE3.
+Só que a busca não funcionou de cara. Nos modelos Gemini 3+ ela exige faturamento ativo no projeto da chave (5.000 buscas grátis por mês, depois \$14 a cada 1.000). No plano gratuito voltava erro de cota, e o modelo anterior, que tinha busca grátis, já tinha sido desativado. Enquanto isso, as tools devolviam o erro e o fluxo seguia com a NewsAPI e o histórico trimestral. Foi assim, sem web, que o Investigator acertou a causa no primeiro e2e da VALE3.
 
-Resolvi a cota com R$ 20 pré-pagos no AI Studio. 
+Resolvi a cota com R\$ 20 pré-pagos no AI Studio. 
 
 ## Enxergar o que acontece
 
@@ -141,7 +141,7 @@ Resolvi a cota com R$ 20 pré-pagos no AI Studio.
 
 Eu tinha no meu desenho um "logging de custo por etapa", e o LangSmith resolveu isso quase sem código. O LangChain e o LangGraph mandam os traces sozinhos. O único trabalho foi instrumentar a busca do Google, que chama o SDK direto, fora do LangChain, e sem isso os tokens dela sumiriam do trace.
 
-O primeiro trace da VALE3 mostrou 25 s, ~29,5 mil tokens e ~US$ 0,016 por análise. O Investigator é a etapa mais cara, com ~10 mil tokens, um terço do total. As passagens do supervisor resolvidas por guard aparecem com 0 tokens, ou seja, os guards economizam chamadas de verdade. Esse custo não inclui a taxa por busca do Google Search.
+O primeiro trace da VALE3 mostrou 25 s, ~29,5 mil tokens e ~US\$ 0,016 por análise. O Investigator é a etapa mais cara, com ~10 mil tokens, um terço do total. As passagens do supervisor resolvidas por guard aparecem com 0 tokens, ou seja, os guards economizam chamadas de verdade. Esse custo não inclui a taxa por busca do Google Search.
 
 Tropecei numa coisa: os traces chegavam mas não apareciam na interface. O LangSmith agora organiza tudo por agente e ambiente, e a configuração antiga, por projeto, manda para um lugar que a navegação nova não mostra. Troquei pela configuração por agente e descobri que as duas juntas não funcionam: com as duas ligadas, nada é enviado.
 
@@ -213,7 +213,7 @@ Também não é um agente com tools. É uma chamada ao LLM com saída estruturad
 - Se faltou uma etapa (no hard stop, por exemplo), o código escreve a limitação e descarta o que o LLM escreveu sobre ela. O relatório não finge ter dados que não coletou.
 - Se o LLM do Consolidador falhar, a resposta vira as respostas dos agentes juntadas, e a análise inteira não se perde no último passo.
 
-O LangSmith mediu ~2 mil tokens, de ~US$ 0,0015 a 0,0023 e ~2 s por análise, cerca de 10% do total. A VALE3 fechou em 5 loops com o diagnóstico completo no relatório, a WEGE3 em 4 loops sem a seção de diagnóstico, e a ABCD3, um ticker que não existe, saiu com 0 indicadores e 2 limitações, sem número inventado.
+O LangSmith mediu ~2 mil tokens, de ~US\$ 0,0015 a 0,0023 e ~2 s por análise, cerca de 10% do total. A VALE3 fechou em 5 loops com o diagnóstico completo no relatório, a WEGE3 em 4 loops sem a seção de diagnóstico, e a ABCD3, um ticker que não existe, saiu com 0 indicadores e 2 limitações, sem número inventado.
 
 No estado, só acrescentei o relatório como campo estruturado. As mensagens com nome continuam sendo o que os guards e o supervisor leem. Migrar tudo para campos (dados, notícias, diagnóstico, erros) mexeria em guards, prompt, testes e telas, e é um projeto à parte. Começar pelo relatório entregava a resposta final sem quebrar o que funcionava.
 
@@ -267,9 +267,9 @@ Enquanto este projeto crescia, eu tinha um segundo, o Fluxo Pesquisa, estudando 
 
 ### O lucro da Vale estava em dólar
 
-O yfinance entrega os demonstrativos na moeda em que a empresa publica, e a VALE3 publica em dólar. O código escrevia R$ na frente de todo número, então o lucro da Vale aparecia como "R$ 2,35 bi" quando eram dólares, e esse erro chegava ao detector de anomalias, ao Piotroski e ao histórico trimestral que o Investigator lê.
+O yfinance entrega os demonstrativos na moeda em que a empresa publica, e a VALE3 publica em dólar. O código escrevia R\$ na frente de todo número, então o lucro da Vale aparecia como "R\$ 2,35 bi" quando eram dólares, e esse erro chegava ao detector de anomalias, ao Piotroski e ao histórico trimestral que o Investigator lê.
 
-O `info` do yfinance tem um campo para isso, o `financialCurrency`, só que ele dizia BRL para a VALE3. A moeda certa estava na série de lucro trimestral do Yahoo, em que cada valor vem com um `currencyCode` que o yfinance joga fora ao montar a tabela. Passei a pedir essa série de novo e ler o código dali: BRL vira R$, USD vira US$ e qualquer outro sai como está. Quando a leitura falha, o número sai sem símbolo, nunca com R$ por padrão, porque um R$ chutado era justamente o erro que eu estava corrigindo.
+O `info` do yfinance tem um campo para isso, o `financialCurrency`, só que ele dizia BRL para a VALE3. A moeda certa estava na série de lucro trimestral do Yahoo, em que cada valor vem com um `currencyCode` que o yfinance joga fora ao montar a tabela. Passei a pedir essa série de novo e ler o código dali: BRL vira R\$, USD vira US\$ e qualquer outro sai como está. Quando a leitura falha, o número sai sem símbolo, nunca com R\$ por padrão, porque um R\$ chutado era justamente o erro que eu estava corrigindo.
 
 O preço da ação não passa por isso, porque a cotação na B3 é sempre em reais. O custo é depender de uma função interna do yfinance para pedir a série, e ela pode mudar numa versão nova.
 
@@ -291,7 +291,7 @@ Os evals ficam fora do `pytest` comum, que continua sem rede, e rodam com `make 
 
 ### O que a primeira rodada mostrou
 
-Passaram 7 de 7 na VALE3 e 5 de 5 na WEGE3 (sem Investigator, os dois evals dele não rodam), por US$ 0,19 no total e cerca de 5 minutos. As fidelidades ficaram entre 0,83 e 1,0, e a neutralidade deu 1,0 nas duas.
+Passaram 7 de 7 na VALE3 e 5 de 5 na WEGE3 (sem Investigator, os dois evals dele não rodam), por US\$ 0,19 no total e cerca de 5 minutos. As fidelidades ficaram entre 0,83 e 1,0, e a neutralidade deu 1,0 nas duas.
 
 A nota baixa foi a cobertura do Consolidador, 0,31 na VALE3 e 0,20 na WEGE3. Li os 14 vereditos de "não confirmado" e 13 eram erro do juiz, com o trecho presente na entrada (fluxo de caixa, dívida, China, recompra). As perguntas de cobertura saíam do sumário do Yahoo, como o ano de fundação da Vale, que o relatório não tem por que repetir. Deixei esse eval registrando a nota sem reprovar a suíte.
 
@@ -309,7 +309,7 @@ O que a Brapi faz agora cabe em duas frentes. Na entrada, a CLI, o dashboard, o 
 
 Pedi para explorar "algo extra no grátis que seja útil" e escolhi três: valor de mercado e LPA, sugestão quando o ticker não existe (WEGE4 volta com "Você quis dizer WEGE3?") e os maiores do setor por valor de mercado, com a posição da empresa. A lista de setores da Brapi vem em inglês e mistura os papéis fracionários, então o código tira os que terminam em F e fica com um papel por empresa. A WEGE3 saiu em primeiro de 27.
 
-O LPA trouxe um problema que só apareceu nos notebooks. Na VALE3, a Brapi dava LPA de R$ 0,52 e o yfinance dava P/L de 77,2, e o preço dividido por esse LPA passa de 120. Os dois números apareciam lado a lado e um desmentia o outro, e a fidelidade dos evals não pegaria isso, porque o número errado estava na própria fonte. Fui conferir. As duas somam o lucro dos últimos quatro trimestres, e o que muda é o caminho. A Brapi soma os balanços em reais da CVM e chega a R$ 2,19 bi, o que dá R$ 0,49 por ação. O yfinance parte dos números em dólar (US$ 0,68 bi) e, convertido, chega perto de R$ 0,85. A diferença fica enorme porque o prejuízo de R$ 21 bi do 4T25 quase anula os outros três trimestres, e sobra um número pequeno em que qualquer diferença de câmbio pesa muito. Escolhi mostrar o LPA só quando a conta preço sobre LPA fica a até 10% do P/L do yfinance. Na WEGE3 os dois batem e o LPA aparece, e na VALE3 ele some.
+O LPA trouxe um problema que só apareceu nos notebooks. Na VALE3, a Brapi dava LPA de R\$ 0,52 e o yfinance dava P/L de 77,2, e o preço dividido por esse LPA passa de 120. Os dois números apareciam lado a lado e um desmentia o outro, e a fidelidade dos evals não pegaria isso, porque o número errado estava na própria fonte. Fui conferir. As duas somam o lucro dos últimos quatro trimestres, e o que muda é o caminho. A Brapi soma os balanços em reais da CVM e chega a R\$ 2,19 bi, o que dá R\$ 0,49 por ação. O yfinance parte dos números em dólar (US\$ 0,68 bi) e, convertido, chega perto de R\$ 0,85. A diferença fica enorme porque o prejuízo de R\$ 21 bi do 4T25 quase anula os outros três trimestres, e sobra um número pequeno em que qualquer diferença de câmbio pesa muito. Escolhi mostrar o LPA só quando a conta preço sobre LPA fica a até 10% do P/L do yfinance. Na WEGE3 os dois batem e o LPA aparece, e na VALE3 ele some.
 
 Só um 404 recusa o ticker. Cota, timeout, token ausente ou recusado deixam a análise seguir com uma linha de log, e se a Brapi não responde na hora dos dados tudo vem do yfinance como antes. Nesse caso o Consolidador anota nas limitações que a cotação e o perfil vieram da reserva, e quem decide isso é o código, como nas outras limitações.
 
@@ -321,7 +321,7 @@ Na mesma branch corrigi o achado da primeira rodada. O prompt do Consolidador ga
 
 ### A segunda rodada dos evals
 
-Refiz as duas fixtures com a Brapi e rodei os evals de novo. Passaram outra vez 7 de 7 na VALE3 e 5 de 5 na WEGE3, por US$ 0,24 e quase 7 minutos. Todas as fidelidades deram 1,0, inclusive a do Analyzer no setor da VALE3, que tinha ficado em 0,83, e a neutralidade seguiu em 1,0.
+Refiz as duas fixtures com a Brapi e rodei os evals de novo. Passaram outra vez 7 de 7 na VALE3 e 5 de 5 na WEGE3, por US\$ 0,24 e quase 7 minutos. Todas as fidelidades deram 1,0, inclusive a do Analyzer no setor da VALE3, que tinha ficado em 0,83, e a neutralidade seguiu em 1,0.
 
 A cobertura do Consolidador subiu de 0,31 para 0,67 na VALE3 e caiu de 0,20 para 0,09 na WEGE3. O motivo que o juiz escreveu é o mesmo da primeira vez: na WEGE3 ele cobra o ano de fundação, a sede e a receita de 2024, que vêm do sumário do negócio, agora o da Brapi em português, e chama de informação estranha números que estão na entrada. Não dá para atribuir a diferença a uma causa só, porque as fixtures são análises novas, o prompt do Consolidador mudou e o juiz não repete a nota.
 
