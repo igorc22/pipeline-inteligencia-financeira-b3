@@ -140,7 +140,7 @@ def test_coletar_com_grafo_real_e_agentes_falsos(grafo_com_agentes_falsos):
     que as saídas das tools de cada passagem chegam ao script."""
     estado, passagens = gerar.rodar("VALE3")
     assert [(p["agente"], p["n"]) for p in passagens] == [
-        ("YFinance", 1), ("Analyzer", 1), ("Analyzer", 2), ("Investigator", 1)]
+        ("YFinance", 1), ("Analyzer", 1), ("Investigator", 1)]
     assert all(len(p["tools"]) == 1 for p in passagens)
     assert all(p["tools"][0]["conteudo"] for p in passagens)
     assert estado["messages"][-1].name == "Consolidador"

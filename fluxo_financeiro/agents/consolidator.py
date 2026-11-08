@@ -119,7 +119,7 @@ def consolidar(state: MessagesState) -> RelatorioFinal:
         limitacoes.append(LIMITACAO_SEM_NOTICIAS)
         ajustes["contexto"] = ""
     elif state.get("contexto_setor") is None:
-        # Só a passagem da empresa rodou (ex: hard stop): o contexto dela fica, mas falta o setor.
+        # O Analyzer respondeu sem a seção do setor: as notícias da empresa ficam, mas falta o setor.
         limitacoes.append(LIMITACAO_SEM_SETOR)
     # A tool termina com o aviso quando a Brapi não respondeu; o yfinance_node garante a linha nos dados.
     if AVISO_PERFIL_RESERVA in (dados_mercado or ""):

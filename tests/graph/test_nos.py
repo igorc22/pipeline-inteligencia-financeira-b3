@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
+from fluxo_financeiro.agents.analysts import SECAO_NOTICIAS, SECAO_SETOR
 from fluxo_financeiro.graph.graph import analyzer_node, investigator_node, yfinance_node
 from fluxo_financeiro.shared.types import ErroAgente, SinalAnomalia
 
@@ -97,30 +98,25 @@ def test_yfinance_com_resposta_ignora_as_tools():
     assert "saída crua da tool" not in resultado["dados_mercado"]
 
 
-def test_analyzer_primeira_passagem_grava_noticias():
-    """Confere que a primeira passagem do Analyzer grava em noticias e não toca em contexto_setor."""
-    resultado = _rodar_analyzer({"messages": [PEDIDO], "dados_mercado": "dados"})
+def test_analyzer_grava_os_dois_campos_numa_passagem():
+    """Confere que uma passagem do Analyzer grava noticias e contexto_setor e deixa uma mensagem só, com a resposta inteira."""
+    texto = f"{SECAO_NOTICIAS}\nA Vale anunciou X.\n\n{SECAO_SETOR}\nMineração em alta."
+
+    resultado = _rodar_analyzer({"messages": [PEDIDO], "dados_mercado": "dados"}, texto)
+
+    assert resultado["noticias"] == "A Vale anunciou X."
+    assert resultado["contexto_setor"] == "Mineração em alta."
+    assert len(resultado["messages"]) == 1
+    assert resultado["messages"][0].name == "Analyzer"
+    assert resultado["messages"][0].content == texto
+
+
+def test_analyzer_sem_secao_do_setor():
+    """Confere que, sem a seção do setor, o texto inteiro vai para noticias e contexto_setor fica None."""
+    resultado = _rodar_analyzer({"messages": [PEDIDO], "dados_mercado": "dados"}, "análise de notícias")
 
     assert resultado["noticias"] == "análise de notícias"
-    assert "contexto_setor" not in resultado
-
-
-def test_analyzer_segunda_grava_contexto_setor():
-    """Confere que, com noticias já preenchido, o Analyzer grava em contexto_setor."""
-    resultado = _rodar_analyzer({"messages": [PEDIDO], "noticias": "notícias da empresa"}, "contexto do setor")
-
-    assert resultado["contexto_setor"] == "contexto do setor"
-    assert "noticias" not in resultado
-
-
-def test_analyzer_terceira_nao_sobrescreve_noticias():
-    """Confere que uma terceira passagem do Analyzer vai para contexto_setor e deixa noticias como estava."""
-    state = {"messages": [PEDIDO], "noticias": "notícias da empresa", "contexto_setor": "setor antigo"}
-
-    resultado = _rodar_analyzer(state, "mais contexto")
-
-    assert "noticias" not in resultado
-    assert resultado["contexto_setor"] == "mais contexto"
+    assert resultado["contexto_setor"] is None
 
 
 def test_investigator_grava_diagnostico():
@@ -133,14 +129,11 @@ def test_investigator_grava_diagnostico():
 
 
 def test_no_grava_campo_mesmo_com_erro_em_texto():
-    """Confere que uma resposta com o erro de uma tool em texto também é gravada, e a passagem seguinte vai para contexto_setor."""
+    """Confere que uma resposta com o erro de uma tool em texto também é gravada (a etapa conta como feita)."""
     erro = _rodar_analyzer({"messages": [PEDIDO]}, "Erro ao buscar notícias: 429")
     assert erro["noticias"] == "Erro ao buscar notícias: 429"
+    assert erro["contexto_setor"] is None
     assert erro["erros"] == {"Analyzer": None}
-
-    seguinte = _rodar_analyzer({"messages": [PEDIDO], "noticias": erro["noticias"]}, "contexto do setor")
-    assert seguinte["contexto_setor"] == "contexto do setor"
-    assert "noticias" not in seguinte
 
 
 def _agente_em_sequencia(*resultados):
@@ -263,7 +256,7 @@ def test_resposta_vazia_e_transitoria_e_repete():
 
 
 def test_sucesso_depois_de_falha_limpa_erro_e_tentativas():
-    """Confere que o agente que acerta depois de ter falhado zera erro e tentativas, para a etapa seguinte ter o limite inteiro."""
+    """Confere que o agente que acerta depois de ter falhado zera erro e tentativas, para uma falha seguinte ter o limite inteiro."""
     anterior = ErroAgente(tipo="transitorio", mensagem="TimeoutError: lento", tentativas=1)
     state = {"messages": [PEDIDO], "erros": {"Analyzer": anterior}, "tentativas": {"Analyzer": 1}}
 

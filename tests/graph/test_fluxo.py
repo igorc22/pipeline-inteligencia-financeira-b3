@@ -8,10 +8,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
+from fluxo_financeiro.agents.analysts import SECAO_NOTICIAS, SECAO_SETOR
 from fluxo_financeiro.agents.consolidator import (
     LIMITACAO_PERFIL_RESERVA,
     LIMITACAO_SEM_DADOS,
     LIMITACAO_SEM_NOTICIAS,
+    LIMITACAO_SEM_SETOR,
 )
 from fluxo_financeiro.graph.graph import app
 from fluxo_financeiro.shared.types import RelatorioFinal, RouteDecision, SinalAnomalia
@@ -22,6 +24,8 @@ RELATORIO = RelatorioFinal(resumo="Resumo da análise.", indicadores=["P/L: 74,7
                            riscos=["minério"], limitacoes=[])
 BLOCO_BCB = ("INDICADORES ECONÔMICOS (Banco Central, buscados em código):\n"
              "- SELIC (meta): 13.75% a.a. (BCB, 08/12/2026)")
+# O Analyzer responde numa passagem só, com as duas seções (notícias da empresa e setor).
+RESPOSTA_ANALYZER = f"{SECAO_NOTICIAS}\nanálise de notícias\n\n{SECAO_SETOR}\nanálise do setor"
 
 
 def _agente(texto):
@@ -46,7 +50,7 @@ def grafo_mockado():
     """
     mocks = {
         "YFinance": _agente("Dados para VALE3.SA: P/L 74.7x, ROE 0.3%"),
-        "Analyzer": _agente("análise de notícias"),
+        "Analyzer": _agente(RESPOSTA_ANALYZER),
         "Investigator": _agente("- Causa identificada: prejuízo no 4T25"),
     }
     with patch("fluxo_financeiro.graph.graph.yfinance_agent", mocks["YFinance"]), \
@@ -82,11 +86,11 @@ def test_sinal_em_codigo_aciona_investigator_sem_llm(grafo_mockado):
 
     resultado = _rodar()
 
-    assert _quem_falou(resultado) == ["YFinance", "Analyzer", "Analyzer", "Investigator"]
+    assert _quem_falou(resultado) == ["YFinance", "Analyzer", "Investigator"]
     assert resultado["messages"][-1].name == "Consolidador"
-    assert resultado["loop_count"] == 5
+    assert resultado["loop_count"] == 4
     grafo_mockado["sinais"].assert_called_once_with("VALE3")  # ticker extraído do pedido
-    # Etapas 2, 3 e 4 e o FINISH final são guards: o LLM só decide a etapa 1
+    # Etapas 2 e 4 e o FINISH final são guards: o LLM só decide a etapa 1
     assert grafo_mockado["decisoes"].call_count == 1
     # O sinal aparece na mensagem do YFinance e vira a tarefa do Investigator
     msg_yfinance = next(m for m in resultado["messages"] if m.name == "YFinance")
@@ -105,13 +109,13 @@ def test_llm_pode_acionar_investigator_mesmo_sem_sinal(grafo_mockado):
 
     resultado = _rodar()
 
-    assert _quem_falou(resultado) == ["YFinance", "Analyzer", "Analyzer", "Investigator"]
+    assert _quem_falou(resultado) == ["YFinance", "Analyzer", "Investigator"]
     final = resultado["messages"][-1]
     assert final.name == "Consolidador"
     assert "- Causa identificada: prejuízo no 4T25" in final.content  # diagnóstico copiado
     assert resultado["relatorio"].diagnostico == "- Causa identificada: prejuízo no 4T25"
-    assert resultado["loop_count"] == 5
-    # Só 2 decisões passam pelo LLM (etapas 1 e 4): as etapas 2 e 3 e o FINISH final são guards
+    assert resultado["loop_count"] == 4
+    # Só 2 decisões passam pelo LLM (etapas 1 e 4): a etapa 2 e o FINISH final são guards
     assert grafo_mockado["decisoes"].call_count == 2
     # O Investigator recebe a tarefa do Supervisor como última mensagem do histórico
     historico = grafo_mockado["Investigator"].invoke.call_args.args[0]["messages"]
@@ -121,7 +125,7 @@ def test_llm_pode_acionar_investigator_mesmo_sem_sinal(grafo_mockado):
     msg_yfinance = next(m for m in resultado["messages"] if m.name == "YFinance")
     assert resultado["dados_mercado"] == msg_yfinance.content
     assert resultado["noticias"] == "análise de notícias"
-    assert resultado["contexto_setor"] == "análise de notícias"
+    assert resultado["contexto_setor"] == "análise do setor"
     assert resultado["diagnostico"] == "- Causa identificada: prejuízo no 4T25"
 
 
@@ -197,7 +201,7 @@ def test_yfinance_sem_indicadores_nao_anexa(grafo_mockado):
 
 
 def test_fluxo_sem_anomalia_nao_chama_o_investigator(grafo_mockado):
-    """Confere que, sem anomalia, a etapa 4 vai direto para FINISH."""
+    """Confere que, sem anomalia (a WEGE3), o Analyzer roda uma vez só e a etapa 4 vai direto para FINISH em 3 voltas."""
     grafo_mockado["decisoes"].side_effect = [
         _decisao("YFinance", "Colete os dados da WEGE3"),
         _decisao("FINISH"),
@@ -205,13 +209,34 @@ def test_fluxo_sem_anomalia_nao_chama_o_investigator(grafo_mockado):
 
     resultado = _rodar()
 
-    assert _quem_falou(resultado) == ["YFinance", "Analyzer", "Analyzer"]
+    assert _quem_falou(resultado) == ["YFinance", "Analyzer"]
+    assert grafo_mockado["Analyzer"].invoke.call_count == 1
     assert resultado["messages"][-1].name == "Consolidador"
     assert resultado["relatorio"].diagnostico is None
-    assert resultado["loop_count"] == 4
+    assert resultado["loop_count"] == 3
     grafo_mockado["Investigator"].invoke.assert_not_called()
     assert resultado.get("diagnostico") is None
-    assert resultado["noticias"] and resultado["contexto_setor"] and resultado["dados_mercado"]
+    assert resultado["noticias"] == "análise de notícias"
+    assert resultado["contexto_setor"] == "análise do setor"
+    assert resultado["dados_mercado"]
+    # A tarefa única do Analyzer pede as duas seções
+    tarefa = grafo_mockado["Analyzer"].invoke.call_args.args[0]["messages"][-1]
+    assert tarefa.name == "Supervisor"
+    assert SECAO_NOTICIAS in tarefa.content and SECAO_SETOR in tarefa.content
+
+
+def test_analyzer_sem_secao_do_setor_registra_a_limitacao(grafo_mockado):
+    """Confere que, com a resposta do Analyzer sem as seções, o texto vai para noticias, o Analyzer não roda de novo e o relatório anota o setor que faltou."""
+    grafo_mockado["Analyzer"].invoke.return_value = {"messages": [AIMessage(content="análise de notícias")]}
+    grafo_mockado["decisoes"].side_effect = [_decisao("YFinance", "Colete os dados da WEGE3"), _decisao("FINISH")]
+
+    resultado = _rodar()
+
+    assert grafo_mockado["Analyzer"].invoke.call_count == 1
+    assert resultado["noticias"] == "análise de notícias"
+    assert resultado.get("contexto_setor") is None
+    assert LIMITACAO_SEM_SETOR in resultado["relatorio"].limitacoes
+    assert resultado["loop_count"] == 3
 
 
 def test_hard_stop_segura_llm_que_nunca_encerra(grafo_mockado):
@@ -250,7 +275,7 @@ def test_falha_temporaria_no_investigator_nao_bate_no_hard_stop(grafo_mockado):
     assert resultado["diagnostico"] == "- Causa identificada: prejuízo no 4T25"
     assert resultado["relatorio"].diagnostico == "- Causa identificada: prejuízo no 4T25"
     assert resultado["decidido_por"] == "guard"
-    assert resultado["loop_count"] == 5
+    assert resultado["loop_count"] == 4
     assert grafo_mockado["Investigator"].invoke.call_count == 3
     assert resultado["erros"]["Investigator"] is None
     assert resultado["tentativas"]["Investigator"] == 0
@@ -270,7 +295,7 @@ def test_analyzer_permanente_segue_sem_noticias(grafo_mockado):
     limitacoes = resultado["relatorio"].limitacoes
     assert "O Analyzer falhou depois de 1 tentativa (erro permanente): a etapa ficou de fora." in limitacoes
     assert LIMITACAO_SEM_NOTICIAS in limitacoes
-    assert resultado["loop_count"] == 3  # YFinance, Analyzer (notícias) e a Etapa 4 pelo LLM: o setor não roda
+    assert resultado["loop_count"] == 3  # YFinance, Analyzer e a Etapa 4 pelo LLM
 
 
 @pytest.mark.parametrize("worker", sorted(WORKERS))
@@ -304,7 +329,7 @@ def test_falha_do_consolidador_nao_perde_a_analise(grafo_mockado):
 
     resultado = _rodar()
 
-    assert _quem_falou(resultado) == ["YFinance", "Analyzer", "Analyzer"]
+    assert _quem_falou(resultado) == ["YFinance", "Analyzer"]
     final = resultado["messages"][-1]
     assert final.name == "Consolidador"
     assert "análise de notícias" in final.content and "P/L 74.7x" in final.content
