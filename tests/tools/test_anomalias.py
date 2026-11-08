@@ -104,6 +104,25 @@ def test_erro_no_yfinance_devolve_lista_vazia():
         assert detectar_sinais_anomalia("VALE3") == []
 
 
+def test_anomalias_repete_e_depois_devolve_vazio(espera_falsa):
+    """Confere que a falha temporária do yfinance é repetida uma vez e, falhando de novo, o resultado é [] como antes."""
+    with patch("fluxo_financeiro.tools.anomalias.yf.Ticker", side_effect=TimeoutError("lento")) as ticker:
+        assert detectar_sinais_anomalia("VALE3") == []
+
+    assert ticker.call_count == 2
+    espera_falsa.assert_called_once_with(2.0)
+
+
+def test_anomalias_repete_e_acerta(mock_yf, espera_falsa):
+    """Confere que, se a segunda leitura do yfinance dá certo, os sinais saem normalmente."""
+    acao = mock_yf([1.26, 1.5, 1.6, 1.7, 2.69, 2.0])
+    with patch("fluxo_financeiro.tools.anomalias.yf.Ticker", side_effect=[TimeoutError("lento"), acao]):
+        sinais = detectar_sinais_anomalia("VALE3")
+
+    assert _tipos(sinais) == ["queda_lucro"]
+    espera_falsa.assert_called_once_with(2.0)
+
+
 def test_queda_de_lucro_em_dolar_usa_us(mock_yf):
     """Confere que demonstrativo em dólar (caso VALE3) sai como US$, não como R$."""
     mock_yf([1.26, 1.5, 1.6, 1.7, 2.69, 2.0], moeda="USD")

@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from langchain_core.tools import tool
 from fluxo_financeiro.shared.prompts import envolver_conteudo_externo
+from fluxo_financeiro.shared.retry import com_retentativas
 from fluxo_financeiro.shared.types import ConsultaBCBInput, IndicadorEconomico
 from fluxo_financeiro.shared.utils import logger
 from fluxo_financeiro.tools.brapi import ParesDoSetor, PerfilBrapi, buscar_pares_do_setor, buscar_perfil
@@ -164,11 +165,15 @@ def busca_indicador_bcb(input_data: ConsultaBCBInput) -> Dict[str, Any]:
 
     url = f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo}/dados/ultimos/1?formato=json"
 
-    logger.info(f"[tool] busca_indicador_bcb: indicador={input_data.indicador.name}")
-    try:
+    def _pedir_ao_bcb():
         response = requests.get(url, timeout=TIMEOUT_BCB)
         response.raise_for_status()
-        dados = response.json()[0]
+        return response.json()[0]
+
+    logger.info(f"[tool] busca_indicador_bcb: indicador={input_data.indicador.name}")
+    try:
+        # Retry local: timeout, conexão caída ou resposta que não é JSON (já aconteceu) pedem de novo uma vez.
+        dados = com_retentativas(_pedir_ao_bcb, contexto=f"[bcb] {input_data.indicador.name}")
 
         valor = float(dados["valor"])
         logger.info(f"[tool] busca_indicador_bcb: ok — {input_data.indicador.name}={valor}{unidade}")
