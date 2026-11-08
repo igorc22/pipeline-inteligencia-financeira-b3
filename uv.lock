@@ -362,6 +362,23 @@ css = [
 ]
 
 [[package]]
+name = "brapi"
+version = "1.13.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "distro" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "sniffio" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/57/aa/7e3003274c62ea6104fa6f48061e75844637900905245e84dcfdd940805e/brapi-1.13.0.tar.gz", hash = "sha256:9d0516b45ab46868d0f53bc600b68d99f056686d9d06f1f8810c25e6c4143aec", size = 267274, upload-time = "2026-11-08T05:58:35.208Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4a/1b/1e236e5e409559df50c53386ee413ff729240445b5c50d446b5272daaf07/brapi-1.13.0-py3-none-any.whl", hash = "sha256:673f1b32e56f0a42c94a3b777f236e17c63702c846d4f22664adee85dcfcb172", size = 385851, upload-time = "2026-11-08T05:58:33.408Z" },
+]
+
+[[package]]
 name = "certifi"
 version = "2026.10.23"
 source = { registry = "https://pypi.org/simple" }
@@ -718,6 +735,7 @@ name = "estudo-arquitetura-coordenador-langchain"
 version = "1.0.0"
 source = { editable = "." }
 dependencies = [
+    { name = "brapi" },
     { name = "ipykernel" },
     { name = "jupyter" },
     { name = "langchain" },
@@ -738,6 +756,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "brapi", specifier = ">=1.13.0" },
     { name = "ipykernel", specifier = ">=7.2.0" },
     { name = "jupyter", specifier = ">=1.1.1" },
     { name = "langchain", specifier = ">=1.2.18" },
