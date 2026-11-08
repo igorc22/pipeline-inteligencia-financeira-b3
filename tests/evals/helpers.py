@@ -6,6 +6,7 @@ offline em test_helpers.py, na suíte padrão.
 """
 import csv
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,8 +23,8 @@ FIXTURES_DIR = PASTA_EVALS / "fixtures"
 MAX_FONTES = 20
 MAX_CHARS_POR_FONTE = 6000
 
-# Juiz diferente do modelo julgado (gemini-3.5-flash-lite), para o modelo não corrigir a própria prova.
-# O 2.5-flash era a primeira escolha, mas a API recusa o modelo para chaves novas (404) e sugere o 3.8-flash.
+# Juiz escolhido pelo custo. O 2.5-flash era a primeira escolha, mas a API recusa o modelo para chaves
+# novas (404) e sugere o 3.8-flash.
 # O 3.8-flash tem preço registrado na deepeval (custo_usd preenchido). Temperatura não é enviada (None):
 # fica o padrão do Google, que ele recomenda para o Gemini 3+.
 JUIZ_PADRAO = "gemini-3.8-flash"
@@ -151,6 +152,21 @@ def formatar(metric) -> str:
     return "\n".join(linhas)
 
 
+def nota_rigida(metric) -> float | None:
+    """Fração de vereditos 'yes' da Faithfulness: o que a fonte não confirma ('idk', 'borderline') conta
+    contra, como o 'no'. Na nota normal da deepeval, só o 'no' conta contra.
+
+    Só para métrica com claims e verdicts (Faithfulness); outra métrica devolve None. Sem vereditos, 1.0
+    (nada afirmado, nada a contradizer). Sai dos vereditos que o juiz já devolveu: não há chamada nova.
+    """
+    if not (hasattr(metric, "claims") and hasattr(metric, "verdicts")):
+        return None
+    if not metric.verdicts:
+        return 1.0
+    sim = sum(1 for v in metric.verdicts if v.verdict.strip().lower() == "yes")
+    return sim / len(metric.verdicts)
+
+
 def medir_e_registrar(metric, tc, fixture: str, teste: str, juiz: str,
                       caminho: Path = NOTAS_CSV, diretorio: Path = FALHAS_DIR) -> None:
     """Mede sempre, registra a nota passando ou não, e só reprova o teste se a métrica reprovar.
@@ -158,6 +174,9 @@ def medir_e_registrar(metric, tc, fixture: str, teste: str, juiz: str,
     measure() que quebra (timeout, 429) vira linha 'erro' no CSV e a exceção sobe: o teste não passa
     em silêncio, nem dentro de um xfail(raises=pytest.fail.Exception). Reprovação despeja entrada,
     saída, vereditos e contexto em _falhas/ e a mensagem aponta para o arquivo.
+
+    Na Faithfulness entra uma segunda linha, "(rígida)", com a nota_rigida: custo 0 (sem chamada nova)
+    e nunca reprova. Quem decide a falha do teste continua sendo só metric.success.
     """
     try:
         metric.measure(tc)
@@ -165,6 +184,12 @@ def medir_e_registrar(metric, tc, fixture: str, teste: str, juiz: str,
         registrar_erro(fixture, teste, e, juiz, caminho=caminho)
         raise
     registrar(fixture, teste, metric, juiz, caminho=caminho)
+    rigida = nota_rigida(metric)
+    if rigida is not None:
+        _escrever_linha(caminho, [
+            fixture, teste, f"{metric.__name__} (rígida)", rigida, metric.threshold,
+            rigida >= metric.threshold, 0, juiz,
+        ])
     if not metric.success:
         caminho_despejo = despejar(fixture, teste, metric, tc, diretorio=diretorio)
         pytest.fail(f"{formatar(metric)}\n\nentrada, saída e contexto em {caminho_despejo}")
@@ -179,6 +204,32 @@ def limitar_fontes(textos: list[str], max_fontes: int = MAX_FONTES, max_chars: i
     máximo max_chars caracteres cada. A produção não corta nada; test_fixture.py confere que, nas
     fixtures geradas, este corte não tira nada."""
     return [texto[:max_chars] for texto in textos[:max_fontes]]
+
+
+# O cabeçalho que buscar_dados_acao_b3 escreve, seguido do sumário em um de quatro formatos, nesta ordem:
+# a tag como a tool escreve, a tag escapada (montar_insumos escapa uma tag que o agente tenha repassado),
+# "N/A" (sem sumário) e o texto sem tag até a linha do Histórico Recente, que é o caso real das fixtures
+# (o prompt do YFinance manda repassar o sumário sem as tags). Sem o Histórico depois, nada é cortado:
+# ir até o fim do texto levaria junto o Piotroski e as métricas de risco.
+_SUMARIO = re.compile(
+    r"^Sumario de Negócio:\n"
+    r"(?:"
+    r'<conteudo_externo origem="[^"]*">\n.*?\n</conteudo_externo>(?:\n|$)'
+    r'|&lt;conteudo_externo origem="[^"]*"&gt;\n.*?\n&lt;/conteudo_externo&gt;(?:\n|$)'
+    r"|N/A(?:\n|$)"
+    r"|.*?(?=^Histórico Recente)"
+    r")",
+    re.DOTALL | re.MULTILINE,
+)
+
+
+def sem_sumario(texto: str) -> str:
+    """Tira o sumário do negócio (o cabeçalho "Sumario de Negócio:" e o texto dele) da resposta do YFinance.
+
+    Usado na cobertura do Consolidador: as perguntas do juiz saíam do sumário (ano de fundação, sede, nome
+    antigo), que o relatório não precisa repetir. Texto sem o sumário volta igual.
+    """
+    return _SUMARIO.sub("", texto, count=1)
 
 
 def carregar_fixture(caminho: Path) -> dict:

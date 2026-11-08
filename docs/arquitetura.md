@@ -25,7 +25,8 @@ flowchart TD
         direction TB
         Y1["yfinance_agent<br/>cotação e perfil (Brapi), P/L, ROE, DY<br/>risco, Piotroski"]
         Y2["detectar_sinais_anomalia<br/>(código, sem LLM)"]
-        Y1 --> Y2
+        Y3["indicadores_economicos_em_texto<br/>SELIC, CDI, IPCA 12 meses<br/>(Banco Central, código)"]
+        Y1 --> Y2 --> Y3
     end
 
     subgraph A["Analyzer (analista)"]
@@ -42,7 +43,7 @@ flowchart TD
 
     C -->|"aresta fixa: relatório em markdown + relatorio no state"| F(["Fim"])
 
-    Y -->|"dados + sinais_anomalia"| S
+    Y -->|"dados + sinais_anomalia + indicadores do BCB"| S
     A -->|"análise"| S
     I -->|"diagnóstico: Causa, Natureza, Evidências, Impacto"| S
 ```
@@ -99,7 +100,7 @@ Dado faltando no yfinance → a regra é pulada, nunca acusa.
 
 ## 3. Uma análise com anomalia, passo a passo
 
-Exemplo real (VALE3, 02/11/2026): ~25 s, ~30 mil tokens, ~US$ 0,016 antes do Consolidador, que acrescenta uma chamada ao LLM.
+Exemplo real (VALE3, 02/11/2026): ~25 s, ~30 mil tokens, ~US\$ 0,016 antes do Consolidador, que acrescenta uma chamada ao LLM.
 
 ```mermaid
 sequenceDiagram
@@ -109,6 +110,7 @@ sequenceDiagram
     participant S as Supervisor
     participant Y as YFinance
     participant D as Detector de anomalias
+    participant BC as Banco Central
     participant A as Analyzer
     participant I as Investigator
     participant W as Google Search
@@ -122,7 +124,9 @@ sequenceDiagram
     B-->>Y: nome, preço, setor da B3, sumário
     Y->>D: ticker VALE3
     D-->>Y: queda_lucro: lucro caiu 35% contra o ano anterior
-    Y-->>S: dados + SINAIS DE ANOMALIA
+    Y->>BC: (código) SELIC, CDI e IPCA de 12 meses
+    BC-->>Y: cada série com a data do BCB (a que falha some)
+    Y-->>S: dados + SINAIS DE ANOMALIA + INDICADORES ECONÔMICOS
     S->>A: (guard) busque notícias da empresa
     A->>W: busca na web (NewsAPI só se falhar)
     A-->>S: notícias
@@ -140,7 +144,7 @@ sequenceDiagram
 
 ## 4. Camadas do código
 
-A dependência flui num único sentido: nenhuma camada importa de uma camada acima dela. As setas tracejadas são as duas exceções, e as duas ainda apontam para baixo: o grafo chama o detector de anomalias direto, porque é cálculo e não agente, e as entradas (CLI, dashboard, e2e e o gerador de fixture) chamam `tools/brapi.py` para recusar um ticker que não existe antes de rodar o grafo.
+A dependência flui num único sentido: nenhuma camada importa de uma camada acima dela. As setas tracejadas são as exceções, e todas ainda apontam para baixo: o grafo chama o detector de anomalias e os indicadores do Banco Central direto, porque é cálculo e não agente, e as entradas (CLI, dashboard, e2e e o gerador de fixture) chamam `tools/brapi.py` para recusar um ticker que não existe antes de rodar o grafo.
 
 ```mermaid
 flowchart BT
@@ -182,6 +186,7 @@ flowchart BT
     C_GRAPH --> C_AGENTS
     C_GRAPH --> C_SHARED
     GR -.->|"exceção: cálculo sem agente"| ANO
+    GR -.->|"mesma exceção: cálculo sem agente"| FD
     ENTRY --> C_GRAPH
     ENTRY -->|"validar_ticker"| C_SHARED
     ENTRY -.->|"exceção: ticker_existe"| BRP
@@ -206,7 +211,7 @@ flowchart LR
         GS["Google Search<br/>(via Gemini, exige faturamento)"]
         BRAPI["Brapi (plano gratuito)<br/>conferência do ticker, cotação,<br/>perfil, maiores do setor"]
         YF["yfinance<br/>P/L, ROE, DY, histórico,<br/>demonstrativos, IBOV"]
-        BCB["API do Banco Central<br/>SELIC"]
+        BCB["API do Banco Central<br/>SELIC, CDI, IPCA 12 meses"]
         NAPI["NewsAPI<br/>notícias"]
         LS["LangSmith<br/>agente pipeline-b3"]
     end
@@ -259,10 +264,10 @@ flowchart LR
 |---|---|---|
 | Analyzer (2 passagens) | Fidelidade | Saídas das tools da passagem, pedido, resposta do YFinance, tarefas do Supervisor |
 | Investigator | Fidelidade e diagnóstico (GEval) | O mesmo, com as tools dele |
-| Consolidador | Fidelidade, cobertura (não reprova) e relevância | `montar_insumos(messages)`, a mesma entrada que o nó usa |
+| Consolidador | Fidelidade, cobertura (não reprova) e relevância | `montar_insumos(messages)`, a mesma entrada que o nó usa; na cobertura, sem o sumário do negócio (`sem_sumario`) |
 | Relatório final | Neutralidade (GEval: sem recomendação de compra ou venda) | Só o pedido |
 
-As respostas anteriores de outros agentes ficam fora do contexto: um número inventado numa passagem contaria como confirmado na seguinte. Na Faithfulness da `deepeval`, só a afirmação que a fonte contradiz derruba a nota (a que a fonte não menciona conta como aprovada), então os vereditos dizem mais do que a nota.
+As respostas anteriores de outros agentes ficam fora do contexto: um número inventado numa passagem contaria como confirmado na seguinte. Na Faithfulness da `deepeval`, só a afirmação que a fonte contradiz derruba a nota (a que a fonte não menciona conta como aprovada), então os vereditos dizem mais do que a nota. Por isso cada fidelidade grava no `notas.csv` uma segunda linha, `(rígida)`, que conta só os vereditos "sim": sai dos vereditos que o juiz já devolveu, custa 0 e nunca reprova.
 
 ---
 

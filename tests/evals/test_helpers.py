@@ -12,18 +12,23 @@ from types import SimpleNamespace
 import pytest
 from langchain_core.messages import HumanMessage, messages_to_dict
 
+from fluxo_financeiro.agents.consolidator import montar_insumos
 from tests.evals.helpers import (
     AVISO_LIMITE,
     CABECALHO,
+    FIXTURES_DIR,
     carregar_fixture,
     contexto_do_agente,
     despejar,
     formatar,
     limitar_fontes,
     medir_e_registrar,
+    mensagens,
+    nota_rigida,
     registrar,
     registrar_erro,
     resposta_do_agente,
+    sem_sumario,
     tarefa_do_supervisor,
 )
 
@@ -314,6 +319,136 @@ def test_medir_e_registrar_metrica_que_reprova(tmp_path):
     assert list(csv.DictReader((tmp_path / "n.csv").open(encoding="utf-8")))[0]["passou"] == "False"
     despejo = next((tmp_path / "f").iterdir()).read_text(encoding="utf-8")
     assert "trecho-do-contexto-1" in despejo
+
+
+# ---------------------------------------------------------------------------
+# Nota rígida da fidelidade (segunda nota, sem portão)
+# ---------------------------------------------------------------------------
+
+def _veredito(texto):
+    return SimpleNamespace(verdict=texto, reason="r")
+
+
+def test_nota_rigida_conta_so_yes():
+    """Confere que só 'yes' conta (sem diferenciar maiúsculas e espaços): 'idk' e 'no' pesam igual contra."""
+    metric = _metrica(claims=["a", "b", "c"], verdicts=[_veredito("yes"), _veredito("idk"), _veredito("no")])
+    assert nota_rigida(metric) == pytest.approx(1 / 3)
+
+    metric = _metrica(claims=["a", "b"], verdicts=[_veredito("Yes "), _veredito("idk")])
+    assert nota_rigida(metric) == 0.5
+
+
+def test_nota_rigida_vazia_e_outras_metricas():
+    """Confere que fidelidade sem vereditos vale 1.0 e que métrica sem claims (GEval, Answer Relevancy) dá None."""
+    assert nota_rigida(_metrica(claims=[], verdicts=[])) == 1.0
+    assert nota_rigida(_metrica(**{"__name__": "Neutralidade [GEval]"})) is None
+    assert nota_rigida(_metrica(verdicts=[_veredito("yes")])) is None
+
+
+class FidelidadeFalsa(MetricaFalsa):
+    """Imita a Faithfulness: além da nota, guarda as afirmações e os vereditos que o juiz devolveu."""
+    def __init__(self, nota, vereditos, threshold=0.8):
+        super().__init__(nota, threshold=threshold)
+        self.__name__ = "Faithfulness"
+        self.claims = [f"afirmação {i}" for i in range(len(vereditos))]
+        self.verdicts = [_veredito(v) for v in vereditos]
+
+
+def test_medir_registra_nota_rigida_sem_reprovar(tmp_path):
+    """Confere que a fidelidade ganha uma segunda linha rígida no CSV e que ela nunca reprova o teste.
+
+    A normal passa (1.0) e a rígida fica em 0.5, abaixo do threshold: o teste segue passando, sem despejo.
+    """
+    medir_e_registrar(FidelidadeFalsa(1.0, ["yes", "idk"]), TC, "vale3", "t", "juiz-x",
+                      caminho=tmp_path / "n.csv", diretorio=tmp_path / "f")
+
+    linhas = list(csv.DictReader((tmp_path / "n.csv").open(encoding="utf-8")))
+    assert len(linhas) == 2
+    assert linhas[0]["metrica"] == "Faithfulness" and linhas[0]["passou"] == "True"
+    rigida = linhas[1]
+    assert rigida["metrica"] == "Faithfulness (rígida)"
+    assert float(rigida["nota"]) == 0.5
+    assert rigida["threshold"] == "0.8"
+    assert rigida["passou"] == "False"
+    assert rigida["custo_usd"] == "0"
+    assert rigida["juiz"] == "juiz-x"
+    assert not (tmp_path / "f").exists()
+
+
+def test_medir_registra_nota_rigida_mesmo_quando_a_normal_reprova(tmp_path):
+    """Confere que a linha rígida entra no CSV antes da reprovação da normal, e que a falha vem só da normal."""
+    with pytest.raises(pytest.fail.Exception):
+        medir_e_registrar(FidelidadeFalsa(0.5, ["yes", "no"]), TC, "vale3", "t", "juiz-x",
+                          caminho=tmp_path / "n.csv", diretorio=tmp_path / "f")
+    linhas = list(csv.DictReader((tmp_path / "n.csv").open(encoding="utf-8")))
+    assert [l["metrica"] for l in linhas] == ["Faithfulness", "Faithfulness (rígida)"]
+
+
+# ---------------------------------------------------------------------------
+# sem_sumario: a cobertura do Consolidador sem o sumário do negócio
+# ---------------------------------------------------------------------------
+
+ANTES = "Dados para WEGE3.SA:\nP/L:  32.3x\nSetor: Bens Industriais\nSumario de Negócio:\n"
+DEPOIS = (
+    "Histórico Recente (Últimos 5 dias de fechamento):\nDate\n2026-11-06    48.19\n"
+    "Fonte: cotação e perfil da Brapi; P/L, ROE, DY e histórico do yfinance.\n"
+)
+SUMARIO = "A WEG S.A. foi fundada em 1961, com sede em Jaraguá do Sul (SC).\n\nFabrica motores elétricos."
+
+
+@pytest.mark.parametrize("origem", ["brapi", "yfinance"])
+def test_sem_sumario_tira_o_bloco(origem):
+    """Confere que o cabeçalho e o bloco da tag saem, com qualquer origem, e o que vem antes e depois fica."""
+    texto = ANTES + f'<conteudo_externo origem="{origem}">\n{SUMARIO}\n</conteudo_externo>\n' + DEPOIS
+
+    saida = sem_sumario(texto)
+
+    assert saida == "Dados para WEGE3.SA:\nP/L:  32.3x\nSetor: Bens Industriais\n" + DEPOIS
+
+
+def test_sem_sumario_tira_o_bloco_escapado():
+    """Confere que a tag escapada (como montar_insumos deixa uma tag que o agente repassou) também sai."""
+    texto = ANTES + f'&lt;conteudo_externo origem="brapi"&gt;\n{SUMARIO}\n&lt;/conteudo_externo&gt;\n' + DEPOIS
+
+    assert sem_sumario(texto) == "Dados para WEGE3.SA:\nP/L:  32.3x\nSetor: Bens Industriais\n" + DEPOIS
+
+
+def test_sem_sumario_tira_o_texto_sem_tag():
+    """Confere o formato real das fixtures: o YFinance repassa o sumário sem a tag (o prompt manda tirar),
+    e o corte vai do cabeçalho até a linha do Histórico Recente."""
+    texto = ANTES + SUMARIO + "\n" + DEPOIS + "\nPiotroski F-Score para WEGE3.SA: 5/9\n"
+
+    saida = sem_sumario(texto)
+
+    assert "fundada em 1961" not in saida and "Sumario de Negócio" not in saida
+    assert saida.startswith("Dados para WEGE3.SA:\nP/L:  32.3x\nSetor: Bens Industriais\nHistórico Recente")
+    assert saida.endswith("Piotroski F-Score para WEGE3.SA: 5/9\n")
+
+
+def test_sem_sumario_texto_sem_bloco_fica_igual():
+    """Confere que texto sem o sumário volta igual, que 'N/A' perde só as duas linhas e que sumário sem tag
+    e sem o Histórico Recente depois fica como está (cortar até o fim levaria o Piotroski e o risco junto)."""
+    sem_bloco = "Dados para VALE3.SA:\nP/L:  5.2x\n" + DEPOIS
+    assert sem_sumario(sem_bloco) == sem_bloco
+    assert sem_sumario("") == ""
+
+    com_na = ANTES + "N/A\n" + DEPOIS
+    assert sem_sumario(com_na) == "Dados para WEGE3.SA:\nP/L:  32.3x\nSetor: Bens Industriais\n" + DEPOIS
+
+    sem_historico = ANTES + SUMARIO + "\nPiotroski F-Score: 5/9\n"
+    assert sem_sumario(sem_historico) == sem_historico
+
+
+def test_sem_sumario_na_fixture_da_wege3():
+    """Confere, nos insumos reais da fixture da WEGE3, que o sumário sai e os dados do YFinance ficam."""
+    estado = carregar_fixture(FIXTURES_DIR / "wege3.json")
+    insumos = [sem_sumario(t) for t in montar_insumos(mensagens(estado))]
+    yfinance = next(t for t in insumos if 'nome="YFinance"' in t)
+
+    assert "fundada em 1961" not in yfinance
+    assert "Histórico Recente" in yfinance
+    assert "Piotroski" in yfinance
+    assert "Sharpe" in yfinance
 
 
 def test_xfail_da_cobertura_nao_engole_erro_do_juiz(pytester):

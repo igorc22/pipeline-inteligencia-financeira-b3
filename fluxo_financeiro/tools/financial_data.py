@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from langchain_core.tools import tool
 from fluxo_financeiro.shared.prompts import envolver_conteudo_externo
-from fluxo_financeiro.shared.types import ConsultaBCBInput
+from fluxo_financeiro.shared.types import ConsultaBCBInput, IndicadorEconomico
 from fluxo_financeiro.shared.utils import logger
 from fluxo_financeiro.tools.brapi import ParesDoSetor, PerfilBrapi, buscar_pares_do_setor, buscar_perfil
 from fluxo_financeiro.tools.moeda import com_simbolo, ler_simbolo_moeda
@@ -18,6 +18,7 @@ FONTE_COM_BRAPI = "Fonte: cotação e perfil da Brapi; P/L, ROE, DY e histórico
 # e o P/L dizia 77,2. Mostrar os dois lado a lado seria contraditório, e a fidelidade dos evals não pega
 # (o número está na fonte). O LPA só aparece quando preço / LPA fica a até 10% do P/L.
 TOLERANCIA_LPA = 0.10
+TIMEOUT_BCB = 5
 
 
 def _numero(valor) -> Optional[float]:
@@ -151,21 +152,21 @@ def busca_indicador_bcb(input_data: ConsultaBCBInput) -> Dict[str, Any]:
     Consulta a API do Banco Central (SGS) para obter o valor mais recente
     de indicadores macroeconômicos brasileiros.
     Retorna: nome do indicador, valor numérico, data de referência e unidade.
-    Use para obter a taxa Selic vigente (432), variação mensal do IPCA (433)
-    ou taxa CDI (12) — especialmente quando precisar de benchmarks para
-    calcular Sharpe Ratio, retorno real ou comparar com renda fixa.
+    Use para obter a taxa Selic meta vigente (432), a variação do IPCA no mês (433),
+    o CDI anualizado (4389) ou o IPCA acumulado em 12 meses (13522), especialmente
+    quando precisar de benchmarks para retorno real ou comparar com a renda fixa.
     """
     codigo = input_data.indicador.value
 
-    # Unidades por série SGS: Selic e CDI são anualizados (% a.a.), IPCA é mensal (% a.m.)
-    unidades = {432: "% a.a.", 433: "% a.m.", 12: "% a.a."}
+    # Unidades por série SGS: Selic e CDI anualizados, IPCA do mês e IPCA acumulado em 12 meses
+    unidades = {432: "% a.a.", 433: "% a.m.", 4389: "% a.a.", 13522: "% em 12 meses"}
     unidade = unidades.get(codigo, "%")
 
     url = f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo}/dados/ultimos/1?formato=json"
 
     logger.info(f"[tool] busca_indicador_bcb: indicador={input_data.indicador.name}")
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=TIMEOUT_BCB)
         response.raise_for_status()
         dados = response.json()[0]
 
@@ -180,6 +181,35 @@ def busca_indicador_bcb(input_data: ConsultaBCBInput) -> Dict[str, Any]:
     except Exception as e:
         logger.exception(f"[tool] busca_indicador_bcb falhou para {input_data.indicador.name}")
         return {"error": f"Erro ao acessar o BCB: {str(e)}"}
+
+
+# Séries do bloco que o yfinance_node anexa à mensagem do YFinance: (indicador, rótulo, sufixo do valor).
+# O IPCA de 12 meses já diz o período no rótulo, então o valor leva só o "%".
+INDICADORES_DO_BLOCO = (
+    (IndicadorEconomico.SELIC_META, "SELIC (meta)", "% a.a."),
+    (IndicadorEconomico.CDI, "CDI", "% a.a."),
+    (IndicadorEconomico.IPCA_12M, "IPCA acumulado em 12 meses", "%"),
+)
+
+
+def indicadores_economicos_em_texto() -> str:
+    """SELIC, CDI e IPCA de 12 meses do Banco Central num bloco de texto, sem @tool (chamado pelo yfinance_node).
+
+    Cada série falha sozinha: a linha dela some. Com as três falhando, devolve "". Nunca levanta.
+    A data vai como o BCB manda (a da SELIC meta pode estar à frente de hoje: é a da meta vigente).
+    """
+    linhas = []
+    for indicador, rotulo, sufixo in INDICADORES_DO_BLOCO:
+        try:
+            dado = busca_indicador_bcb.invoke({"input_data": {"indicador": indicador.value}})
+            if "error" in dado:
+                continue
+            linhas.append(f"- {rotulo}: {dado['valor']:.2f}{sufixo} (BCB, {dado['data']})")
+        except Exception:
+            logger.exception(f"[bcb] indicadores_economicos_em_texto: falha em {indicador.name}")
+    if not linhas:
+        return ""
+    return "INDICADORES ECONÔMICOS (Banco Central, buscados em código):\n" + "\n".join(linhas)
 
 @tool
 def calcular_metricas_risco(ticker: str) -> str:
@@ -202,7 +232,7 @@ def calcular_metricas_risco(ticker: str) -> str:
     try:
         resp = requests.get(
             "https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json",
-            timeout=5,
+            timeout=TIMEOUT_BCB,
         )
         SELIC_ANUAL = float(resp.json()[0]["valor"]) / 100
     except Exception:

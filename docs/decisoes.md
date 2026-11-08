@@ -65,7 +65,7 @@ Logo depois mexi nas faixas: saíram 8-9 / 6-7 / 0-5 e entraram 7-9 / 4-6 / 0-3.
 
 A tool de indicadores do BCB aceita só SELIC, IPCA e CDI, através de um enum. Se aceitasse qualquer número, o LLM poderia inventar o código de uma série que não existe.
 
-O curioso é que nenhum agente usa essa tool até hoje, já que a SELIC do projeto vem de dentro do cálculo de risco. Preciso escolher entre registrá-la no agente de dados, para a SELIC e o IPCA aparecerem no relatório, ou apagá-la. Ainda não escolhi.
+Por muito tempo nenhum agente usou essa tool, já que a SELIC do projeto vinha de dentro do cálculo de risco. Fiquei na dúvida entre registrá-la no agente de dados, para a SELIC e o IPCA aparecerem no relatório, ou apagá-la, e só resolvi isso mais para frente.
 
 ### Notícias: NewsAPI primeiro, web como complemento
 
@@ -121,7 +121,7 @@ Este diário também nasceu nessa época.
 
 ## Trocar de provedor
 
-Troquei o LLM de todos os agentes e do supervisor pelo Gemini 3.5 Flash-Lite. O motivo é prático: tenho créditos no Gemini. O Flash-Lite é o equivalente do Haiku no Google, o modelo barato e rápido da família, a $0.30 /$2.50 por milhão de tokens.
+Troquei o LLM de todos os agentes e do supervisor pelo Gemini 3.5 Flash-Lite. O motivo é prático: tenho créditos no Gemini. O Flash-Lite é o equivalente do Haiku no Google, o modelo barato e rápido da família, a \$0.30 /\$2.50 por milhão de tokens.
 
 Aproveitei para concentrar a criação do modelo numa única função, com o nome vindo do `.env`. Trocar de modelo virou mudar uma variável, e trocar de provedor, mexer num arquivo só. Teve um detalhe chato: a biblioteca do Gemini exige a chave já na criação, e os agentes são criados na importação, então sem chave os testes quebravam. A função usa uma chave falsa e só avisa no log, e o erro de verdade aparece na primeira chamada.
 
@@ -131,9 +131,9 @@ A temperatura 0 também caiu. O Google recomenda manter a temperatura padrão no
 
 A busca na web teve de mudar junto, porque a da Anthropic só existe no Claude. Juntei as duas tools de busca numa função comum que chama o Gemini com Google Search. Isso evita duplicar código, e a resposta passou a trazer as fontes que o Google usou, que viram evidência para o Investigator.
 
-Só que a busca não funcionou de cara. Nos modelos Gemini 3+ ela exige faturamento ativo no projeto da chave (5.000 buscas grátis por mês, depois $14 a cada 1.000). No plano gratuito voltava erro de cota, e o modelo anterior, que tinha busca grátis, já tinha sido desativado. Enquanto isso, as tools devolviam o erro e o fluxo seguia com a NewsAPI e o histórico trimestral. Foi assim, sem web, que o Investigator acertou a causa no primeiro e2e da VALE3.
+Só que a busca não funcionou de cara. Nos modelos Gemini 3+ ela exige faturamento ativo no projeto da chave (5.000 buscas grátis por mês, depois \$14 a cada 1.000). No plano gratuito voltava erro de cota, e o modelo anterior, que tinha busca grátis, já tinha sido desativado. Enquanto isso, as tools devolviam o erro e o fluxo seguia com a NewsAPI e o histórico trimestral. Foi assim, sem web, que o Investigator acertou a causa no primeiro e2e da VALE3.
 
-Resolvi a cota com R$ 20 pré-pagos no AI Studio. 
+Resolvi a cota com R\$ 20 pré-pagos no AI Studio. 
 
 ## Enxergar o que acontece
 
@@ -141,7 +141,7 @@ Resolvi a cota com R$ 20 pré-pagos no AI Studio.
 
 Eu tinha no meu desenho um "logging de custo por etapa", e o LangSmith resolveu isso quase sem código. O LangChain e o LangGraph mandam os traces sozinhos. O único trabalho foi instrumentar a busca do Google, que chama o SDK direto, fora do LangChain, e sem isso os tokens dela sumiriam do trace.
 
-O primeiro trace da VALE3 mostrou 25 s, ~29,5 mil tokens e ~US$ 0,016 por análise. O Investigator é a etapa mais cara, com ~10 mil tokens, um terço do total. As passagens do supervisor resolvidas por guard aparecem com 0 tokens, ou seja, os guards economizam chamadas de verdade. Esse custo não inclui a taxa por busca do Google Search.
+O primeiro trace da VALE3 mostrou 25 s, ~29,5 mil tokens e ~US\$ 0,016 por análise. O Investigator é a etapa mais cara, com ~10 mil tokens, um terço do total. As passagens do supervisor resolvidas por guard aparecem com 0 tokens, ou seja, os guards economizam chamadas de verdade. Esse custo não inclui a taxa por busca do Google Search.
 
 Tropecei numa coisa: os traces chegavam mas não apareciam na interface. O LangSmith agora organiza tudo por agente e ambiente, e a configuração antiga, por projeto, manda para um lugar que a navegação nova não mostra. Troquei pela configuração por agente e descobri que as duas juntas não funcionam: com as duas ligadas, nada é enviado.
 
@@ -193,9 +193,7 @@ A tarefa ficou mais genérica, sem citar o setor pelo nome, e o LLM do superviso
 
 ### Rede bloqueada nos testes
 
-Duas vezes um mock esquecido já tinha virado chamada real à API, gastando crédito sem ninguém perceber. Simular tudo era convenção, e eu queria que fosse regra. Com o `pytest-socket`, qualquer conexão durante um teste levanta erro.
-
-Não bastou. As tools capturam qualquer exceção e devolvem `"Erro ao ..."`, então o erro seria engolido e o teste passaria. Uma fixture confere o aviso que o pytest-socket emite junto com o erro e reprova o teste. Um mock esquecido agora derruba o teste.
+Duas vezes um mock esquecido já tinha virado chamada real à API, gastando crédito sem ninguém perceber. Simular tudo era convenção, e eu queria que fosse regra. Com o `pytest-socket`, qualquer conexão durante um teste levanta erro, mas só isso não bastava porque as tools capturam qualquer exceção e devolvem `"Erro ao ..."`, engolindo a falha antes de o teste quebrar. Adicionei uma fixture que confere o aviso emitido pelo `pytest-socket` junto com a exceção e reprova o teste na hora.
 
 ### Web primeiro, NewsAPI de reserva
 
@@ -205,7 +203,7 @@ Nos e2e, a NewsAPI voltava vazia nas duas passagens do Analyzer e tudo caía na 
 
 A resposta final era a última mensagem do grafo: o contexto do setor, quando não havia anomalia, ou só o diagnóstico, quando havia. Nenhuma das duas juntava o resto. Criei um Consolidador que reúne dados, notícias, setor e diagnóstico num relatório só.
 
-Ele é fixo. Todo FINISH, inclusive o do hard stop, passa por ele antes do fim, e ele não está entre as opções do supervisor. Se o LLM do supervisor pudesse escolhê-lo, poderia chamá-lo cedo demais ou esquecer dele. É a mesma linha dos guards e da anomalia calculada: o que é objetivo fica em código.
+Ele entra num ponto fixo do grafo, fora das opções do supervisor, de modo que todo FINISH, inclusive o do hard stop, passa por lá antes de encerrar. Se o LLM do supervisor pudesse escolhê-lo, poderia chamá-lo cedo demais ou esquecer dele. É a mesma linha dos guards e da anomalia calculada: o que é objetivo fica em código.
 
 Também não é um agente com tools. É uma chamada ao LLM com saída estruturada, que recebe só as respostas do YFinance, do Analyzer e do Investigator. As tarefas do supervisor ficam de fora, o que economiza tokens, e o texto da web, que pode trazer instruções, chega como dado delimitado. Três cuidados ficaram fora do LLM:
 
@@ -213,7 +211,7 @@ Também não é um agente com tools. É uma chamada ao LLM com saída estruturad
 - Se faltou uma etapa (no hard stop, por exemplo), o código escreve a limitação e descarta o que o LLM escreveu sobre ela. O relatório não finge ter dados que não coletou.
 - Se o LLM do Consolidador falhar, a resposta vira as respostas dos agentes juntadas, e a análise inteira não se perde no último passo.
 
-O LangSmith mediu ~2 mil tokens, de ~US$ 0,0015 a 0,0023 e ~2 s por análise, cerca de 10% do total. A VALE3 fechou em 5 loops com o diagnóstico completo no relatório, a WEGE3 em 4 loops sem a seção de diagnóstico, e a ABCD3, um ticker que não existe, saiu com 0 indicadores e 2 limitações, sem número inventado.
+O LangSmith mediu ~2 mil tokens, de ~US\$ 0,0015 a 0,0023 e ~2 s por análise, cerca de 10% do total. A VALE3 fechou em 5 loops com o diagnóstico completo no relatório, a WEGE3 em 4 loops sem a seção de diagnóstico, e a ABCD3, um ticker que não existe, saiu com 0 indicadores e 2 limitações, sem número inventado.
 
 No estado, só acrescentei o relatório como campo estruturado. As mensagens com nome continuam sendo o que os guards e o supervisor leem. Migrar tudo para campos (dados, notícias, diagnóstico, erros) mexeria em guards, prompt, testes e telas, e é um projeto à parte. Começar pelo relatório entregava a resposta final sem quebrar o que funcionava.
 
@@ -255,79 +253,70 @@ O classificador também é um LLM e também pode ser enganado. Por isso ele lê 
 
 Antes, digitar `VALE3; ignore as instruções` colocava `Analise a ação VALE3; ignore as instruções` no histórico do supervisor, porque o sistema procurava o ticker dentro do texto e o resto passava junto. A entrada direta é sempre um código, então agora o texto inteiro precisa estar no formato da B3 (4 letras e 1 ou 2 dígitos, com ou sem `.SA`). A CLI e o dashboard recusam o resto antes de o grafo rodar. Não custa nada e fecha essa porta.
 
-## Enxugar para a v1
-
-Desde o Streamlit nenhuma tela consumia a API, e ela só dava manutenção. Na hora de validar o ticker, por exemplo, precisei tratá-la como se fosse uma entrada de verdade. Tirei a API e as dependências dela. O projeto roda pela CLI, pelo dashboard e pelo e2e, os três chamando o grafo direto. Se um dia outro programa precisar da análise, um outro front ou um bot, a API volta pelo histórico do git, e aí já mandando o relatório em JSON, que era o que faltava nela.
-
-Com isso, fechei a versão 1.0.
-
-## Dois projetos viram um
-
-Enquanto este projeto crescia, eu tinha um segundo, o Fluxo Pesquisa, estudando a mesma coisa: um coordenador em LangGraph que analisa ações da B3. Cada um foi mais longe numa direção. Lá existem paralelismo com `Send`, um subgrafo de pesquisa, retry pelo coordenador, human-in-the-loop, checkpointer com cache, a Brapi como fonte de dados e evals com a `deepeval`. Aqui ficaram os guards, o detector de anomalias, a sanitização e o dashboard. Decidi que este repositório é a casa e que as peças de lá entram reescritas, uma por branch, sem misturar os históricos do git.
+## Medir a qualidade do que os agentes escrevem
 
 ### O lucro da Vale estava em dólar
 
-O yfinance entrega os demonstrativos na moeda em que a empresa publica, e a VALE3 publica em dólar. O código escrevia R$ na frente de todo número, então o lucro da Vale aparecia como "R$ 2,35 bi" quando eram dólares, e esse erro chegava ao detector de anomalias, ao Piotroski e ao histórico trimestral que o Investigator lê.
+Antes de medir a qualidade do texto, precisei corrigir um erro de moeda nos dados. O yfinance entrega os demonstrativos na moeda em que a empresa publica, e a VALE3 publica em dólar, mas o código escrevia R\$ na frente de todo número. O lucro da Vale saía como "R\$ 2,35 bi" quando eram dólares, e esse rótulo errado chegava ao detector de anomalias, ao Piotroski e ao histórico trimestral que o Investigator lê.
 
-O `info` do yfinance tem um campo para isso, o `financialCurrency`, só que ele dizia BRL para a VALE3. A moeda certa estava na série de lucro trimestral do Yahoo, em que cada valor vem com um `currencyCode` que o yfinance joga fora ao montar a tabela. Passei a pedir essa série de novo e ler o código dali: BRL vira R$, USD vira US$ e qualquer outro sai como está. Quando a leitura falha, o número sai sem símbolo, nunca com R$ por padrão, porque um R$ chutado era justamente o erro que eu estava corrigindo *(motivo a confirmar)*.
+O `info` do yfinance tem um campo `financialCurrency`, só que ele devolvia BRL para a VALE3. A moeda certa estava na série de lucro trimestral do Yahoo, onde cada valor traz um `currencyCode` que o yfinance descarta ao montar a tabela. Passei a consultar essa série para ler o código dali: BRL vira R\$, USD vira US\$ e qualquer outro código sai como está. Quando a leitura falha, o número sai sem símbolo, nunca com R\$ por padrão, justamente para não repetir o chute que originou o bug. O preço da ação não passa por isso porque a cotação na B3 é sempre em reais, mas fica o custo de depender de uma função interna do yfinance que pode mudar numa versão futura.
 
-O preço da ação não passa por isso, porque a cotação na B3 é sempre em reais. O custo é depender de uma função interna do yfinance para pedir a série, e ela pode mudar numa versão nova.
+### Evals com um LLM como juiz
 
-### Medir antes de mexer
+Os testes com mock garantem o roteamento e o formato, mas não dizem se um agente inventou números ou ignorou o que as tools devolveram. Como o texto do relatório muda a cada execução e as mexidas seguintes iam tocar em fontes de dados e prompts, montei uma suíte de evals com a `deepeval` para ter uma linha de base.
 
-A primeira peça a vir foram os evals *(motivo a confirmar)*: as fases seguintes vão mexer no estado, no retry e na busca, e sem uma nota de antes não tenho como dizer se alguma delas piorou a análise. O texto do relatório muda a cada execução, então um teste com mock não responde isso.
+Cada eval usa um segundo LLM como juiz, que lê a resposta de um agente e confere contra o que aquele agente tinha em mãos na hora de responder. Para não gastar uma análise nova a cada teste, um script roda o grafo com `subgraphs=True` e grava uma fixture com o estado final e as saídas intermediárias das tools de cada passagem, que de outro modo se perderiam dentro do nó. Gerei duas fixtures, a da VALE3, que aciona o Investigator, e a da WEGE3, que não aciona. O contexto avaliado em cada etapa contém apenas as saídas das tools daquele agente, o pedido inicial, os dados do YFinance e a tarefa enviada pelo supervisor, deixando de fora respostas anteriores de outros LLMs para que um número inventado na primeira passagem do Analyzer não conte como fato confirmado na segunda. No Consolidador, o juiz recebe o retorno da mesma função que monta o prompt real do nó.
 
-Um eval aqui é um segundo LLM, o juiz, lendo o texto de um agente e conferindo contra o que aquele agente tinha em mãos. Para isso preciso de uma análise gravada, a fixture. O state final não basta, porque cada nó devolve só a última mensagem do agente e as saídas das tools se perdem lá dentro. Um script roda o grafo com `subgraphs=True` e guarda as mensagens de tool de cada agente, passagem por passagem. Gerei duas fixtures, a VALE3, que aciona o Investigator, e a WEGE3, que não aciona.
-
-O contexto de cada agente é o que ele leu: as saídas das tools dele, o pedido, a resposta do YFinance e as tarefas do supervisor. As respostas anteriores de outros LLMs ficam de fora, porque um número inventado pelo Analyzer na primeira passagem contaria como confirmado na segunda. O Consolidador é medido contra a mesma função que monta a entrada dele, e não contra uma cópia aproximada.
-
-### Um juiz que não é o julgado
-
-O juiz é um Gemini diferente do Flash-Lite que roda os agentes, para o modelo não corrigir a própria prova *(motivo a confirmar)*. Escolhi o `gemini-2.5-flash` com temperatura 0, e a API recusou, porque o modelo não está mais disponível para chaves novas. Fiquei com o `gemini-3.8-flash`, sem mandar temperatura. Lendo a `deepeval`, vi que ela não envia temperatura para os Gemini mais novos quando recebe `None`, e o Google recomenda o padrão nessa geração. O preço disso é um juiz que não repete a nota exata, então a mesma fixture pode sair com notas um pouco diferentes.
-
-A instalação mexeu numa dependência: a `deepeval` exige o `rich` abaixo da versão 15, e ele voltou para a 14. Só o `curl-cffi` do yfinance usava, e a suíte e o dashboard passaram iguais.
-
-Os evals ficam fora do `pytest` comum, que continua sem rede, e rodam com `make eval`. Cada nota vai para um `notas.csv`, passando ou não, com o custo que a `deepeval` calcula.
+Para economizar no juiz, tentei usar o `gemini-2.5-flash` com temperatura 0, mas a API recusou porque esse modelo não está mais disponível para chaves novas. Fiquei com o `gemini-3.8-flash` sem enviar temperatura, já que a `deepeval` omite o parâmetro nos Gemini mais novos quando recebe `None` e o próprio Google recomenda manter o padrão nessa geração. O preço é um juiz que pode variar um pouco a nota na mesma fixture de uma rodada para outra. A instalação também pediu um ajuste de dependência, voltando o `rich` da versão 15 para a 14 por exigência da `deepeval`, sem impacto nos testes nem no dashboard. Os evals ficam fora do `pytest` comum, que continua sem rede, e rodam pelo `make eval`, gravando cada nota e o custo estimado num `notas.csv`.
 
 ### O que a primeira rodada mostrou
 
-Passaram 7 de 7 na VALE3 e 5 de 5 na WEGE3 (sem Investigator, os dois evals dele não rodam), por US$ 0,19 no total e cerca de 5 minutos. As fidelidades ficaram entre 0,83 e 1,0, e a neutralidade deu 1,0 nas duas.
+Na primeira bateria passaram 7 de 7 na VALE3 e 5 de 5 na WEGE3 (sem Investigator, os dois evals dele não rodam), custando US\$ 0,19 no total e cerca de 5 minutos, com as fidelidades entre 0,83 e 1,0 e a neutralidade em 1,0 nas duas.
 
-A nota baixa foi a cobertura do Consolidador, 0,31 na VALE3 e 0,20 na WEGE3. Li os 14 vereditos de "não confirmado" e 13 eram erro do juiz, com o trecho presente na entrada (fluxo de caixa, dívida, China, recompra). As perguntas de cobertura saíam do sumário do Yahoo, como o ano de fundação da Vale, que o relatório não tem por que repetir. Deixei esse eval registrando a nota sem reprovar a suíte.
+A única nota baixa foi a cobertura do Consolidador, que marcou 0,31 na VALE3 e 0,20 na WEGE3. Olhando os 14 vereditos de "não confirmado", 13 eram erro do próprio juiz, que dizia não encontrar na entrada informações que estavam lá (fluxo de caixa, dívida, China, recompra) ou cobrava detalhes do sumário institucional do Yahoo, como o ano de fundação da Vale, que um relatório de análise não tem motivo para repetir. Deixei esse eval registrando a nota em modo `xfail`, sem reprovar a suíte. Sobrou um achado real: o relatório da WEGE3 listava "pressões cambiais" como risco sem que nenhuma fonte tivesse falado de câmbio.
 
-Um achado era real, e pequeno: o relatório da WEGE3 cita "pressões cambiais" como risco, e nenhuma fonte falou de câmbio. Corrigir o prompt fica para outra branch.
-
-E um detalhe da biblioteca mudou como eu leio a nota. Na fidelidade, só a afirmação que a fonte contradiz derruba a nota, e a que a fonte não menciona conta como aprovada. Nota 1,0 quer dizer que nada contradiz a fonte, não que tudo foi confirmado, e um número inventado que nenhuma fonte cita passaria. Por isso cada falha despeja os vereditos num arquivo, e ler esses vereditos diz mais do que a nota.
+Essa bateria também mostrou como a métrica de fidelidade da `deepeval` calcula a nota: só uma afirmação contradita pela fonte derruba o resultado, enquanto afirmações que a fonte não menciona contam como aprovadas. Uma nota 1,0 significa que nada contradiz a fonte, e não que tudo foi confirmado, então um número inventado sobre um assunto fora do contexto passaria. Por isso, sempre que um eval reprova, o teste despeja os vereditos em arquivo para leitura manual.
 
 ## A Brapi no plano gratuito
 
-A segunda peça do Fluxo Pesquisa foi a Brapi, uma API brasileira de dados da B3. A ideia era trocar o yfinance por ela em tudo, da cotação aos demonstrativos e ao Piotroski, deixando o yfinance de reserva *(motivo a confirmar)*. Conferi com a VALE3 e veio tudo, trimestrais, balanço e indicadores. Só depois descobri que a VALE3 é ticker de teste da Brapi, junto com PETR4, MGLU3 e ITUB4, e responde até sem token. Com a WEGE3 e o meu token do plano gratuito, todo módulo de demonstrativo voltou com 403, e só a cotação e o perfil da empresa passaram. A conferência tinha usado justamente o caso que não provava nada.
+Depois dos evals, testei a Brapi, uma API brasileira de dados da B3, com a ideia inicial de trocar o yfinance por ela desde a cotação até os demonstrativos e o Piotroski. Quando conferi com a VALE3, vieram trimestrais, balanço e indicadores completos, mas logo descobri que a VALE3 faz parte dos quatro tickers de demonstração da Brapi (ao lado de PETR4, MGLU3 e ITUB4), que respondem abertos até sem token. Ao testar a WEGE3 com o token do plano gratuito, todos os módulos de demonstrativos voltaram com erro 403 e só passaram a cotação e o perfil da empresa.
 
-Fiquei no gratuito, "sem flag pra modo premium do brapi porque não vai ter". Os demonstrativos continuam no yfinance, e com eles o Piotroski, o detector de anomalias e a leitura da moeda. As métricas de risco também ficam lá, porque usam um ano de preços e o gratuito só dá três meses de histórico.
+Decidi ficar no plano gratuito, sem criar flag para um modo pago que eu não pretendia assinar. Os demonstrativos continuaram no yfinance, levando junto o Piotroski, o detector de anomalias e a leitura da moeda, assim como as métricas de risco, que precisam de um ano de cotações enquanto o plano gratuito da Brapi entrega só três meses.
 
-O que a Brapi faz agora cabe em duas frentes. Na entrada, a CLI, o dashboard, o e2e e o gerador de fixture perguntam se o ticker existe antes de rodar o grafo, e a XXXX3 volta com "Ticker não encontrado na B3" sem gastar uma chamada ao Gemini. Antes, um ticker assim rodava a análise inteira e terminava sem indicadores, como aconteceu com a ABCD3. Nos dados da ação, ela traz nome, cotação, faixa de 52 semanas, setor e subsetor da B3 e o sumário do negócio em português, enquanto P/L, ROE, DY e o histórico de fechamento seguem do yfinance.
+A Brapi ficou responsável por duas frentes onde o plano gratuito resolve bem:
 
-Pedi para explorar "algo extra no grátis que seja útil" e escolhi três: valor de mercado e LPA, sugestão quando o ticker não existe (WEGE4 volta com "Você quis dizer WEGE3?") e os maiores do setor por valor de mercado, com a posição da empresa. A lista de setores da Brapi vem em inglês e mistura os papéis fracionários, então o código tira os que terminam em F e fica com um papel por empresa. A WEGE3 saiu em primeiro de 27.
+- Na entrada, a CLI, o dashboard, o e2e e o gerador de fixture consultam se o ticker existe antes de iniciar o grafo, barrando códigos como `XXXX3` com "Ticker não encontrado na B3" e sugerindo tickers parecidos quando existem (`WEGE4` sugere `WEGE3`), sem gastar chamadas ao Gemini como acontecia antes com a `ABCD3`. Só um erro 404 recusa o ticker, então se faltar token, estourar a cota ou der timeout, a análise segue normalmente com uma linha de log. Para fazer essa checagem antes do grafo, a CLI, o dashboard e os scripts importam direto de `tools/`, abrindo a segunda exceção à regra de camadas depois do detector de anomalias.
+- Na coleta de dados da ação, a Brapi entrega nome, cotação, faixa de 52 semanas, valor de mercado, LPA, setor e subsetor da B3, o sumário do negócio em português e a posição da empresa entre as maiores do setor por valor de mercado (filtrando os tickers fracionários terminados em F, o que colocou a WEGE3 em primeiro lugar entre 27 empresas). Se a Brapi falhar na hora da coleta, tudo vem do yfinance como antes e o código registra nas limitações do relatório que a cotação e o perfil vieram da fonte de reserva.
 
-O LPA trouxe um problema que só apareceu nos notebooks. Na VALE3, a Brapi dava LPA de R$ 0,52 e o yfinance dava P/L de 77,2, e o preço dividido por esse LPA passa de 120. Os dois números apareciam lado a lado e um desmentia o outro, e a fidelidade dos evals não pegaria isso, porque o número errado estava na própria fonte. Não sei qual das duas fontes está certa, e talvez cada uma use um lucro de 12 meses diferente *(motivo a confirmar)*. Escolhi mostrar o LPA só quando a conta preço sobre LPA fica a até 10% do P/L do yfinance. Na WEGE3 os dois batem e o LPA aparece, e na VALE3 ele some.
+O LPA da Brapi trouxe uma divergência grande na VALE3 que só apareceu nos notebooks: a Brapi informava LPA de R\$ 0,52 enquanto o yfinance dava P/L de 77,2, mas o preço dividido por esse LPA passava de 120. Os dois números saíam lado a lado desmentindo um ao outro, e o eval de fidelidade nunca apontaria o problema porque ambos vinham das fontes. A diferença nasce na forma como cada API soma os últimos quatro trimestres: a Brapi soma os balanços em reais da CVM e chega a R\$ 2,19 bi (R\$ 0,49 por ação), enquanto o yfinance parte dos demonstrativos em dólar (US\$ 0,68 bi) e converte para algo próximo de R\$ 0,85 por ação. Como o prejuízo de R\$ 21 bi no 4T25 quase anula o lucro dos outros três trimestres, sobra um denominador muito pequeno em que qualquer variação cambial distorce o múltiplo. Resolvi exibir o LPA apenas quando a razão entre o preço e o LPA fica a até 10% do P/L do yfinance, o que mantém o número na WEGE3 e o omite na VALE3.
 
-Só um 404 recusa o ticker. Cota, timeout, token ausente ou recusado deixam a análise seguir com uma linha de log, e se a Brapi não responde na hora dos dados tudo vem do yfinance como antes. Nesse caso o Consolidador anota nas limitações que a cotação e o perfil vieram da reserva, e quem decide isso é o código, como nas outras limitações.
+### Riscos restritos às fontes e a segunda rodada de evals
 
-Para a entrada conferir o ticker, a CLI, o dashboard e os scripts passaram a importar direto de `tools/`, pulando o grafo. É a segunda exceção à regra de camadas, depois do detector de anomalias no grafo.
+Aproveitei a mudança para corrigir o risco de câmbio inventado na WEGE3 que a primeira rodada de evals tinha pego. Adicionei ao prompt do Consolidador e à descrição do schema a regra de que todo risco listado precisa sair de algum insumo recebido, seja um indicador do YFinance, uma notícia ou o diagnóstico do Investigator. Nas novas fixtures com a Brapi, o câmbio sumiu do relatório da WEGE3 e os três riscos que não vêm direto dos múltiplos (juros altos, concorrentes chineses e barreiras comerciais) estavam todos na análise setorial do Analyzer.
 
-### O risco que ninguém citou
+Rodando os evals de novo sobre as novas fixtures, passaram outra vez 7 de 7 na VALE3 e 5 de 5 na WEGE3, por US\$ 0,24 e quase 7 minutos, agora com todas as notas de fidelidade em 1,0 (incluindo a passagem setorial da VALE3, que era 0,83) e neutralidade em 1,0. Já a cobertura do Consolidador subiu de 0,31 para 0,67 na VALE3 e caiu de 0,20 para 0,09 na WEGE3 pelo mesmo comportamento do juiz na primeira rodada, cobrando ano de fundação, sede e dados institucionais do sumário da Brapi.
 
-Na mesma branch corrigi o achado da primeira rodada. O prompt do Consolidador ganhou uma regra dizendo que cada risco precisa vir de um insumo, seja um número do YFinance, uma notícia ou o diagnóstico, e a descrição do campo de riscos repete isso. No relatório novo da WEGE3 não aparece câmbio, e os três riscos que não saem dos números (juros altos, importados chineses e barreiras comerciais) estão na resposta do Analyzer sobre o setor.
+Também notei nessa fase que a suíte de testes unitários tinha subido de uns 12 s para 18 s desde a entrada da `deepeval`. Testei desligar os plugins que vieram com ela (`xdist`, `rerunfailures` e `repeat`), mas a mediana de três execuções ficou praticamente igual (18,25 s contra 18,11 s). O tempo extra vem de três testes que rodam um `pytest` num subprocesso para verificar o bloqueio de rede e o comportamento de `xfail` da cobertura, que juntos levam cerca de 5 s.
 
-### A segunda rodada dos evals
+## A régua da renda fixa
 
-Refiz as duas fixtures com a Brapi e rodei os evals de novo. Passaram outra vez 7 de 7 na VALE3 e 5 de 5 na WEGE3, por US$ 0,24 e quase 7 minutos. Todas as fidelidades deram 1,0, inclusive a do Analyzer no setor da VALE3, que tinha ficado em 0,83, e a neutralidade seguiu em 1,0.
+A tool do Banco Central estava no projeto desde a primeira versão sem nenhum agente chamar. A SELIC só aparecia escondida dentro do cálculo de risco, e o relatório saía sem CDI nem inflação, quando um DY de 6,82% só diz alguma coisa ao lado do CDI.
 
-A cobertura do Consolidador subiu de 0,31 para 0,67 na VALE3 e caiu de 0,20 para 0,09 na WEGE3. O motivo que o juiz escreveu é o mesmo da primeira vez: na WEGE3 ele cobra o ano de fundação, a sede e a receita de 2024, que vêm do sumário do negócio, agora o da Brapi em português, e chama de informação estranha números que estão na entrada. Não dá para atribuir a diferença a uma causa só, porque as fixtures são análises novas, o prompt do Consolidador mudou e o juiz não repete a nota.
+Coloquei a chamada em código dentro do nó do YFinance, logo depois dos sinais de anomalia, em vez de entregá-la como mais uma tool do agente de dados. Como tool, quem decidiria se os indicadores aparecem seria o LLM, e eles devem entrar em toda análise, seguindo a mesma regra do Consolidador fixo e da anomalia calculada. O bloco acrescenta a SELIC meta, o CDI e o IPCA acumulado em 12 meses com a data devolvida pelo BCB, omitindo apenas a linha que falhar ou o bloco inteiro se o BCB estiver fora do ar. Como o nó já importava o detector de anomalias de `tools/`, isso não criou uma nova exceção entre as camadas.
 
-### A suíte ficou mais lenta
+Passar a chamar a função revelou um bug que estava lá desde o começo: a série 12 do BCB, usada até então para o CDI, informa a taxa diária (0,050788% ao dia), mas o texto acrescentava "% a.a." ao lado, o que faria o relatório dizer que o CDI estava em 0,05% ao ano. Troquei pela série 4389, que traz o CDI anualizado na base de 252 dias úteis (13,65% a.a.), e mudei o IPCA da série 433, que é a inflação de um único mês (0,82%), para a série 13522, que traz o acumulado em 12 meses (4,58%) e pode ser comparado direto com a SELIC anual para medir o juro real. Nas fixtures geradas em seguida, o Consolidador incluiu os três indicadores no quadro das duas ações e ainda usou a SELIC de 13,75% para contextualizar o risco de desaceleração da demanda interna na WEGE3.
 
-Desde a deepeval, a suíte passou de uns 12 s para 18 s. Os plugins que chegaram com ela (xdist, rerunfailures e repeat) pareciam os culpados, mas, na mediana de três execuções, desligá-los deu 18,25 s contra 18,11 s com eles ligados, e não mexi em nada. O tempo se concentra em poucos testes: os dois que conferem o bloqueio da rede e o que confere o xfail da cobertura rodam um pytest dentro do pytest e somam uns 5 s.
+### Nota rígida de fidelidade e cobertura sem o sumário
+
+Como a fidelidade padrão da `deepeval` aprova afirmações que a fonte não menciona, passei a calcular uma segunda nota, mais rígida, que divide apenas os vereditos "sim" pelo total de afirmações e grava o valor no `notas.csv` ao lado da nota normal, aproveitando os mesmos vereditos sem gastar outra chamada ao juiz. Enquanto a fidelidade normal marcou 1,0 nas sete avaliações, a rígida ficou entre 0,14 e 0,58 (0,14 no Analyzer da empresa e no Investigator da VALE3, e entre 0,38 e 0,50 na WEGE3), mostrando que boa parte do que os agentes escrevem a fonte nem confirma nem contradiz. Como essa nota sozinha não distingue o que é extrapolação do agente do que é falha do juiz ao procurar o trecho, e os vereditos só são salvos em disco quando o teste reprova, mantive a nota rígida apenas para observação.
+
+Na mesma rodada, tirei o sumário institucional da empresa da entrada que o juiz lê no eval de cobertura do Consolidador, para evitar que ele continuasse cobrando data de fundação, cidade da sede ou nome antigo da companhia, mantendo a entrada completa na avaliação de fidelidade. A nota da WEGE3 subiu de 0,09 para 0,50 e a da VALE3 foi a 0,42: a fatia de cobertura melhorou nas duas (0,60 na VALE3 e 0,80 na WEGE3, sentindo falta basicamente do Beta e do ranking no setor), mas a fatia de alinhamento continuou puxando a média para baixo por erro do juiz ao dar como ausentes números como VaR, Alpha e margem bruta que estavam no bloco do YFinance, além de marcar como informação estranha na VALE3 a menção a ferrovias próprias e metais de transição energética que vinham justamente do sumário removido. Fora a cobertura, que segue sem reprovar a suíte, passaram de novo 7 de 7 na VALE3 e 5 de 5 na WEGE3, por US\$ 0,23 e cerca de 6 minutos.
+
+## Enxugar para a v1
+
+Desde a mudança para o Streamlit nenhuma tela consumia a API FastAPI, e mantê-la só adicionava trabalho a cada ajuste, como na hora de validar o formato do ticker em todas as portas de entrada. Removi a API e as dependências dela, deixando o projeto com três pontos de entrada que chamam o grafo direto: a CLI, o dashboard e o script de e2e. Se mais para frente outro serviço ou interface precisar consumir a análise via HTTP, recupero a API pelo histórico do git já devolvendo o relatório estruturado em JSON.
+
+Com isso, fechei a versão 1.0.
 
 ## O que ainda não resolvi
 

@@ -9,6 +9,7 @@ from fluxo_financeiro.tools.financial_data import (
     busca_indicador_bcb,
     calcular_metricas_risco,
     calcular_piotroski_score,
+    indicadores_economicos_em_texto,
 )
 from tests.tools.yahoo_falso import com_moeda
 
@@ -301,13 +302,14 @@ def test_buscar_dados_ticker_vazio(mock_ticker):
 
 @patch('fluxo_financeiro.tools.financial_data.requests.get')
 def test_busca_indicador_bcb_selic(mock_get):
-    """Confere que busca_indicador_bcb retorna Selic com unidade anual."""
+    """Confere que busca_indicador_bcb retorna Selic com unidade anual e usa o timeout de 5 s."""
     mock_response = MagicMock()
     mock_response.json.return_value = [{'valor': '10.75', 'data': '09/05/2026'}]
     mock_get.return_value = mock_response
 
     result = busca_indicador_bcb.invoke({'input_data': {'indicador': 432}})
 
+    assert mock_get.call_args.kwargs['timeout'] == 5
     assert result['indicador'] == 'SELIC_META'
     assert result['valor'] == 10.75
     assert result['unidade'] == '% a.a.'
@@ -330,15 +332,32 @@ def test_busca_indicador_bcb_ipca(mock_get):
 
 @patch('fluxo_financeiro.tools.financial_data.requests.get')
 def test_busca_indicador_bcb_cdi(mock_get):
-    """Confere que CDI retorna unidade anual."""
+    """Confere que o CDI vem da série anualizada (4389) com unidade anual, e não da diária (12)."""
     mock_response = MagicMock()
-    mock_response.json.return_value = [{'valor': '10.65', 'data': '09/05/2026'}]
+    mock_response.json.return_value = [{'valor': '13.65', 'data': '05/11/2026'}]
     mock_get.return_value = mock_response
 
-    result = busca_indicador_bcb.invoke({'input_data': {'indicador': 12}})
+    result = busca_indicador_bcb.invoke({'input_data': {'indicador': 4389}})
 
+    assert 'bcdata.sgs.4389/' in mock_get.call_args.args[0]
     assert result['indicador'] == 'CDI'
+    assert result['valor'] == 13.65
     assert result['unidade'] == '% a.a.'
+
+
+@patch('fluxo_financeiro.tools.financial_data.requests.get')
+def test_bcb_ipca_12m(mock_get):
+    """Confere que o IPCA acumulado em 12 meses vem da série 13522 com a unidade de 12 meses."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = [{'valor': '4.58', 'data': '01/09/2026'}]
+    mock_get.return_value = mock_response
+
+    result = busca_indicador_bcb.invoke({'input_data': {'indicador': 13522}})
+
+    assert 'bcdata.sgs.13522/' in mock_get.call_args.args[0]
+    assert result['indicador'] == 'IPCA_12M'
+    assert result['valor'] == 4.58
+    assert result['unidade'] == '% em 12 meses'
 
 
 @patch('fluxo_financeiro.tools.financial_data.requests.get')
@@ -350,6 +369,62 @@ def test_busca_indicador_bcb_erro_api(mock_get):
 
     assert 'error' in result
     assert 'BCB' in result['error']
+
+
+# ---------------------------------------------------------------------------
+# indicadores_economicos_em_texto
+# ---------------------------------------------------------------------------
+
+RESPOSTAS_BCB = {
+    432: {'valor': '13.75', 'data': '08/12/2026'},  # meta vigente com data à frente de hoje, como o BCB manda
+    4389: {'valor': '13.65', 'data': '05/11/2026'},
+    13522: {'valor': '4.58', 'data': '01/09/2026'},
+}
+
+
+def _bcb_falso(falhas=()):
+    """requests.get falso que responde pela série da URL; as séries em `falhas` levantam."""
+    def responder(url, timeout=None):
+        serie = int(url.split('bcdata.sgs.')[1].split('/')[0])
+        if serie in falhas:
+            raise TimeoutError(f"série {serie} fora do ar")
+        resposta = MagicMock()
+        resposta.json.return_value = [RESPOSTAS_BCB[serie]]
+        return resposta
+    return responder
+
+
+@patch('fluxo_financeiro.tools.financial_data.requests.get')
+def test_indicadores_em_texto_tres_series(mock_get):
+    """Confere o bloco com SELIC, CDI e IPCA de 12 meses, com a data da SELIC à frente de hoje como veio."""
+    mock_get.side_effect = _bcb_falso()
+
+    assert indicadores_economicos_em_texto() == (
+        "INDICADORES ECONÔMICOS (Banco Central, buscados em código):\n"
+        "- SELIC (meta): 13.75% a.a. (BCB, 08/12/2026)\n"
+        "- CDI: 13.65% a.a. (BCB, 05/11/2026)\n"
+        "- IPCA acumulado em 12 meses: 4.58% (BCB, 01/09/2026)"
+    )
+
+
+@patch('fluxo_financeiro.tools.financial_data.requests.get')
+def test_indicadores_em_texto_uma_falha(mock_get):
+    """Confere que a série que falha some do bloco e as outras continuam."""
+    mock_get.side_effect = _bcb_falso(falhas={4389})
+
+    texto = indicadores_economicos_em_texto()
+
+    assert "CDI" not in texto
+    assert "- SELIC (meta): 13.75% a.a. (BCB, 08/12/2026)" in texto
+    assert "- IPCA acumulado em 12 meses: 4.58% (BCB, 01/09/2026)" in texto
+
+
+@patch('fluxo_financeiro.tools.financial_data.requests.get')
+def test_indicadores_em_texto_tudo_falha(mock_get):
+    """Confere que, com o BCB fora do ar, o bloco vem vazio e nada levanta."""
+    mock_get.side_effect = _bcb_falso(falhas={432, 4389, 13522})
+
+    assert indicadores_economicos_em_texto() == ""
 
 
 # ---------------------------------------------------------------------------

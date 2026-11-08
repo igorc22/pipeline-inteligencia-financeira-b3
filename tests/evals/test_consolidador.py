@@ -16,7 +16,7 @@ Nada da deepeval no topo do módulo: a coleta importa este arquivo em todo pytes
 import pytest
 
 from fluxo_financeiro.agents.consolidator import montar_insumos
-from tests.evals.helpers import limitar_fontes, mensagens, resposta_do_agente
+from tests.evals.helpers import limitar_fontes, mensagens, resposta_do_agente, sem_sumario
 
 pytestmark = [pytest.mark.eval, pytest.mark.enable_socket]
 
@@ -25,7 +25,12 @@ MOTIVO_COBERTURA = (
     "na WEGE3, e 13 de 14 vereditos 'não confirmado' eram erro do juiz (o trecho estava na entrada: fluxo de "
     "caixa, dívida, margem, China, recompra). As perguntas de cobertura saem do sumário do Yahoo (ano de "
     "fundação, sede, nome antigo), que o relatório não precisa repetir. A nota segue registrada no notas.csv. "
-    "Erro do juiz (timeout, 429) não é absorvido: aparece como failed."
+    "Erro do juiz (timeout, 429) não é absorvido: aparece como failed. "
+    "Desde a segunda rodada da Brapi, a entrada é sem o sumário do negócio. "
+    "Na rodada com os indicadores do BCB (08/11/2026), já sem o sumário, a nota foi 0,42 na VALE3 e 0,50 na "
+    "WEGE3: a metade de cobertura deu 0,60 e 0,80 (ficou de fora o Beta nas duas), e quem puxou a nota foi o "
+    "alinhamento, com o juiz dizendo que VaR, Alpha, dívida corrente e margem bruta não estavam na entrada "
+    "(estavam, no bloco do YFinance). Continua em xfail até se mostrar estável."
 )
 
 
@@ -58,12 +63,15 @@ def test_cobertura_consolidador(juiz, estado, medir):
     O input é o texto dos insumos (o "original"); a metade de cobertura gera n=5 perguntas que ele
     responde e checa se o relatório também responde. Nenhuma outra métrica pega "resumiu demais e
     perdeu o setor". A nota é a menor das duas metades; o score_breakdown do despejo diz qual puxou.
+
+    O original vai sem o sumário do negócio (sem_sumario): as perguntas saíam dele (ano de fundação, sede,
+    nome antigo), e o relatório não precisa repetir fundação e sede. O Faithfulness continua com tudo.
     """
     from deepeval.metrics import SummarizationMetric
     from deepeval.test_case import LLMTestCase
 
     tc = LLMTestCase(
-        input="\n\n".join(limitar_fontes(montar_insumos(mensagens(estado)))),
+        input="\n\n".join(sem_sumario(t) for t in limitar_fontes(montar_insumos(mensagens(estado)))),
         actual_output=_relatorio(estado),
     )
     medir(SummarizationMetric(threshold=0.7, model=juiz, n=5), tc)

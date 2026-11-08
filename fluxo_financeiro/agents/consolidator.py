@@ -30,7 +30,7 @@ CONSOLIDADOR_PROMPT = f"""<papel>
 Você escreve o relatório final de uma análise de ação da B3 para um investidor pessoa física.
 Você recebe o pedido do usuário (em <pedido_usuario>) e as respostas de agentes especializados
 (cada uma em <resposta_agente nome="..." n="...">):
-- YFinance: dados de mercado (preço, P/L, ROE, risco, Piotroski)
+- YFinance: dados de mercado (preço, P/L, ROE, risco, Piotroski) e indicadores do Banco Central (SELIC, CDI, IPCA de 12 meses)
 - Analyzer: notícias da empresa e contexto do setor
 - Investigator (só quando houve anomalia): diagnóstico da causa
 </papel>

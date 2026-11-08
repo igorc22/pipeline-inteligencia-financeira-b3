@@ -17,10 +17,10 @@ A busca na web usa o Google Search pelo Gemini e só funciona com **faturamento 
 
 Um **Supervisor** central orquestra três agentes, e um **Consolidador** fecha toda análise com um relatório:
 
-- **YFinance Agent**: coleta dados de mercado (cotação, setor, valor de mercado e os maiores do setor pela Brapi; P/L, ROE, DY e histórico pelo yfinance) e tem tools para métricas de risco (Sharpe, Sortino, Max Drawdown, VaR, Beta, Alpha) e Piotroski F-Score
+- **YFinance Agent**: coleta dados de mercado (cotação, setor, valor de mercado e os maiores do setor pela Brapi; P/L, ROE, DY e histórico pelo yfinance) e tem tools para métricas de risco (Sharpe, Sortino, Max Drawdown, VaR, Beta, Alpha) e Piotroski F-Score. Em código, sem depender do LLM, a resposta dele ganha a SELIC, o CDI e o IPCA de 12 meses do Banco Central
 - **Analyzer Agent**: busca notícias (Google Search via Gemini, com a NewsAPI de reserva) em duas passagens, uma sobre a empresa e outra sobre o setor
 - **Investigator Agent** *(condicional)*: acionado só quando o Supervisor detecta uma anomalia; busca fatos relevantes e histórico trimestral para explicar a causa
-- **Consolidador** *(sempre no fim)*: junta dados, notícias, setor e diagnóstico num relatório (resumo, indicadores, riscos e limitações), sem recomendação de compra ou venda
+- **Consolidador** *(sempre no fim)*: junta dados, notícias, setor e diagnóstico num relatório (resumo, indicadores da empresa e da economia, riscos e limitações), sem recomendação de compra ou venda
 
 ```
 Usuário → Supervisor → YFinance → Supervisor → Analyzer (empresa) → Supervisor
@@ -75,7 +75,6 @@ Onde tirar cada chave: veja [Chaves de API](#chaves-de-api), no topo.
 - O agente YFinance escolhe as tools pelo texto do pedido. Com "Analise a ação X", às vezes ele chama só a de preço e múltiplos, e o relatório sai sem risco e Piotroski.
 - Sem faturamento na chave do Gemini, a busca na web falha (erro 429) e as notícias dependem da NewsAPI, que acha pouca coisa sobre ações brasileiras.
 - O classificador da sanitização também é um LLM e pode errar para os dois lados.
-- `busca_indicador_bcb` (SELIC, IPCA e CDI pela API do Banco Central) existe e tem testes, mas nenhum agente a usa por enquanto.
 
 ## Próximos passos
 
@@ -145,7 +144,7 @@ make eval FIXTURE=vale3   # roda os evals numa fixture (~US$ 0,12 a 0,16 na VALE
 make -k eval-todos        # as duas fixtures (o -k deixa a WEGE3 rodar mesmo se a VALE3 reprovar)
 ```
 
-Toda nota vai para `tests/evals/notas.csv` (passando ou não, com o custo e o juiz). Uma reprovação grava entrada, saída, vereditos e contexto em `tests/evals/_falhas/`. A cobertura do Consolidador registra a nota mas não reprova a suíte: na primeira rodada, quase todos os itens que ela apontou eram erro do juiz.
+Toda nota vai para `tests/evals/notas.csv` (passando ou não, com o custo e o juiz). Uma reprovação grava entrada, saída, vereditos e contexto em `tests/evals/_falhas/`. A cobertura do Consolidador registra a nota mas não reprova a suíte: na primeira rodada, quase todos os itens que ela apontou eram erro do juiz. Ela lê a entrada sem o sumário do negócio, que o relatório não precisa repetir. Cada fidelidade grava também uma nota rígida, que conta como falha o que a fonte não confirma (a nota normal só desconta o que a fonte contradiz); ela não custa chamada nova e não reprova nada.
 
 ### Testar tools individualmente (chamadas reais)
 
@@ -178,7 +177,7 @@ docs/          # arquitetura.md (diagramas) e decisoes.md (a história das decis
 |--------|-----------|
 | Orquestração | LangGraph 1.x |
 | LLM | Gemini 3.5 Flash-Lite (langchain-google-genai) |
-| Dados de mercado | Brapi (plano gratuito: ticker, cotação, perfil), yfinance (múltiplos, histórico, demonstrativos), API SGS do Banco Central |
+| Dados de mercado | Brapi (plano gratuito: ticker, cotação, perfil), yfinance (múltiplos, histórico, demonstrativos), API SGS do Banco Central (SELIC meta, CDI anualizado, IPCA de 12 meses) |
 | Notícias | NewsAPI, Google Search (Gemini) |
 | Dashboard | Streamlit (graphviz para o caminho da análise) |
 | Observabilidade | LangSmith (tracing de agentes, tools e buscas) |
