@@ -278,6 +278,46 @@ def test_erro_temporario_abaixo_do_limite_nao_vira_limitacao(mock_llm):
     assert not any("falhou depois de" in l for l in consolidar(estado).limitacoes)
 
 
+ERRO_INVESTIGATOR = HumanMessage(
+    "Erro: Investigator falhou depois de 2 tentativas (transitorio): TimeoutError: lento", name="Investigator"
+)
+
+
+def test_erro_superado_nao_vai_aos_insumos(mock_llm):
+    """Confere que o erro de uma rodada que o reenvio superou não vira insumo: o diagnóstico real é o n=1."""
+    messages = [HumanMessage("Analise VALE3"), ERRO_INVESTIGATOR, HumanMessage(DIAG, name="Investigator")]
+
+    consolidar({"messages": messages, "diagnostico": DIAG,
+                "erros": {"Investigator": None}, "tentativas": {"Investigator": 0}})
+
+    _, insumos = _enviado(mock_llm)
+    assert "falhou depois de" not in insumos
+    assert '<resposta_agente nome="Investigator" n="1">' in insumos
+    assert 'n="2"' not in insumos
+
+
+def test_so_o_erro_superado_sai_dos_insumos():
+    """Confere que, no Analyzer, o erro das notícias recuperadas sai e o do setor, que desistiu, fica."""
+    erro_noticias = HumanMessage("Erro: Analyzer falhou depois de 2 tentativas (transitorio): TimeoutError: a", name="Analyzer")
+    erro_setor = HumanMessage("Erro: Analyzer falhou depois de 1 tentativa (permanente): ValueError: b", name="Analyzer")
+    blocos = montar_insumos([HumanMessage("Analise VALE3"), erro_noticias,
+                             HumanMessage("notícias", name="Analyzer"), erro_setor])
+
+    texto = "\n".join(blocos)
+    assert "TimeoutError: a" not in texto
+    assert "ValueError: b" in texto
+    assert blocos[1].startswith('<resposta_agente nome="Analyzer" n="1">\nnotícias')
+
+
+def test_relatorio_de_emergencia_sem_erro_superado():
+    """Confere que o fallback sem LLM também deixa de fora o erro que o reenvio superou."""
+    texto = relatorio_de_emergencia([HumanMessage("Analise VALE3"), ERRO_INVESTIGATOR,
+                                     HumanMessage(DIAG, name="Investigator")])
+
+    assert "falhou depois de" not in texto
+    assert DIAG in texto
+
+
 def test_consolidar_erro_do_llm_sobe(mock_llm):
     """Confere que erro do LLM sobe: quem decide o fallback é o nó do grafo."""
     mock_llm.with_structured_output.return_value.invoke.side_effect = Exception("429")

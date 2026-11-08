@@ -200,6 +200,34 @@ def test_no_soma_as_tentativas_do_coordenador():
     assert resultado["erros"]["Investigator"].tentativas == 2
 
 
+def test_reenvio_nao_entrega_o_erro_anterior_ao_agente():
+    """Confere que, na rodada mandada pelo coordenador, a última mensagem que o agente recebe é a tarefa, não o próprio erro."""
+    tarefa = HumanMessage("Investigue a queda do lucro", name="Supervisor")
+    erro = HumanMessage("Erro: Investigator falhou depois de 2 tentativas (transitorio): TimeoutError: lento",
+                        name="Investigator")
+    agente = _agente("- Causa identificada: impairment")
+
+    with patch("fluxo_financeiro.graph.graph.investigator_agent", agente):
+        resultado = investigator_node({"messages": [PEDIDO, tarefa, erro], "tentativas": {"Investigator": 1}})
+
+    recebidas = agente.invoke.call_args.args[0]["messages"]
+    assert recebidas == [PEDIDO, tarefa]
+    assert resultado["diagnostico"] == "- Causa identificada: impairment"
+
+
+def test_yfinance_reenvio_le_as_tools_depois_do_historico_filtrado():
+    """Confere que, sem o erro anterior no histórico, o YFinance ainda acha a saída das tools da rodada nova."""
+    erro = HumanMessage("Erro: YFinance falhou depois de 2 tentativas (transitorio): TimeoutError: lento", name="YFinance")
+    agente = _agente_com_tools("", "Dados para VALE3.SA: P/L 74.7x")
+
+    with patch("fluxo_financeiro.graph.graph.yfinance_agent", agente), \
+         patch("fluxo_financeiro.graph.graph.detectar_sinais_anomalia", return_value=[]), \
+         patch("fluxo_financeiro.graph.graph.indicadores_economicos_em_texto", return_value=""):
+        resultado = yfinance_node({"messages": [PEDIDO, erro]})
+
+    assert resultado["dados_mercado"] == "Dados para VALE3.SA: P/L 74.7x"
+
+
 def test_no_permanente_nao_repete():
     """Confere que um erro permanente não repete o agente e sai como permanente, com a contagem real de tentativas."""
     agente = _agente_em_sequencia(ValueError("ticker não existe"), "não chega aqui")

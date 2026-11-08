@@ -120,6 +120,17 @@ def desistiu(state: Mapping, agente: str) -> bool:
     return erro.tipo == PERMANENTE or (state.get("tentativas") or {}).get(agente, 0) >= MAX_TENTATIVAS
 
 
+def prefixo_de_erro(agente: str) -> str:
+    """Começo da mensagem que o nó deixa no histórico quando o agente falha de vez (graph/graph.py)."""
+    return f"Erro: {agente} falhou depois de "
+
+
+def e_mensagem_de_erro(mensagem, agente: str) -> bool:
+    """A mensagem é o "Erro: ..." que o nó do `agente` deixou no histórico depois do retry local."""
+    texto = getattr(mensagem, "text", "")
+    return getattr(mensagem, "name", None) == agente and isinstance(texto, str) and texto.startswith(prefixo_de_erro(agente))
+
+
 def _esperar(segundos: float) -> None:
     """A espera entre tentativas. Os testes trocam esta função (tests/conftest.py): nenhum teste dorme."""
     time.sleep(segundos)

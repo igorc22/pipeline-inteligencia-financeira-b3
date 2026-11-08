@@ -397,6 +397,9 @@ dot_em_progresso = dot_do_caminho_em_progresso
 
 
 def _jsonavel(valor):
+    # Dicionários do state (erros, tentativas) guardam modelos dentro: converte os valores também.
+    if isinstance(valor, dict):
+        return {k: _jsonavel(v) for k, v in valor.items()}
     return valor.model_dump() if hasattr(valor, "model_dump") else valor
 
 

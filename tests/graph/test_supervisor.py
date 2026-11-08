@@ -290,6 +290,29 @@ def test_investigator_desistiu_vai_para_finish(mock_llm):
     mock_llm.with_structured_output.assert_not_called()
 
 
+def test_llm_nao_reenvia_agente_que_desistiu(mock_llm):
+    """Confere que, se o LLM escolhe o Analyzer que desistiu nas notícias (1 mensagem dele, a do erro), o fluxo vai ao FINISH."""
+    _llm_decide(mock_llm, RouteDecision(reasoning="falta o setor", next_agent="Analyzer",
+                                        task_for_agent="Busque informações sobre o setor da WEGE3"))
+    state = _state(
+        [HumanMessage(content="Analise WEGE3"),
+         HumanMessage(content="dados da WEGE3", name="YFinance"),
+         HumanMessage(content="Busque notícias recentes...", name="Supervisor"),
+         HumanMessage(content="Erro: Analyzer falhou depois de 1 tentativa (permanente): ValueError: chave", name="Analyzer")],
+        loop_count=2, dados_mercado="dados da WEGE3",
+        erros={"Analyzer": _erro("permanente")}, tentativas={"Analyzer": 1},
+    )
+
+    result = supervisor_node(state)
+
+    mock_llm.with_structured_output.return_value.invoke.assert_called_once()
+    assert result["next_agent"] == "FINISH"
+    assert result["decidido_por"] == "guard"
+    assert result["loop_count"] == 1
+    assert "messages" not in result
+    assert "Analyzer" in result["supervisor_reasoning"]
+
+
 def test_erro_limpo_nao_reenvia(mock_llm):
     """Confere que um erro já limpo ({agente: None}) não dispara o reenvio: o guard de etapa decide."""
     state = _state([HumanMessage(content="Analise VALE3")], loop_count=2, **CAMPOS_ETAPA_3,

@@ -144,6 +144,17 @@ def supervisor_node(state: MessagesState):
 
     logger.info(f"[supervisor] decisao={decision.next_agent} | tarefa={decision.task_for_agent!r}")
 
+    # O LLM não vê `erros`: com 1 mensagem do Analyzer (o "Erro: ..." de quem desistiu nas notícias),
+    # o prompt manda a Etapa 3 e ele escolheria o mesmo agente de novo. Agente que desistiu não volta.
+    if decision.next_agent != "FINISH" and desistiu(state, decision.next_agent):
+        logger.warning(f"[supervisor] LLM escolheu {decision.next_agent}, que já desistiu → FINISH")
+        return {
+            "next_agent": "FINISH",
+            "loop_count": 1,
+            "decidido_por": "guard",
+            "supervisor_reasoning": f"O LLM escolheu o {decision.next_agent}, que já desistiu depois do retry: a análise segue sem ele.",
+        }
+
     result = {
         "next_agent": decision.next_agent,
         "loop_count": 1,

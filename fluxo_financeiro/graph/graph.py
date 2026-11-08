@@ -4,7 +4,13 @@ from typing import Callable
 from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 from langgraph.graph import StateGraph, START, END
 
-from fluxo_financeiro.shared.retry import RespostaVazia, classificar_erro, com_retentativas
+from fluxo_financeiro.shared.retry import (
+    RespostaVazia,
+    classificar_erro,
+    com_retentativas,
+    e_mensagem_de_erro,
+    prefixo_de_erro,
+)
 from fluxo_financeiro.shared.types import ErroAgente, MessagesState
 from fluxo_financeiro.agents.collectors import yfinance_agent
 from fluxo_financeiro.agents.analysts import analyzer_agent
@@ -64,7 +70,7 @@ def _rodar_com_retry(nome: str, rodar: Callable[[], dict], state: MessagesState)
         tipo = classificar_erro(e)
         falhas = (state.get("tentativas") or {}).get(nome, 0) + 1
         mensagem = _resumo_do_erro(e)
-        texto = f"Erro: {nome} falhou depois de {rodadas} {'tentativa' if rodadas == 1 else 'tentativas'} ({tipo}): {mensagem}"
+        texto = f"{prefixo_de_erro(nome)}{rodadas} {'tentativa' if rodadas == 1 else 'tentativas'} ({tipo}): {mensagem}"
         logger.error(f"[node] {texto}")
         logger.debug(f"[node] {nome}: traceback da falha", exc_info=True)
         return {
@@ -73,6 +79,15 @@ def _rodar_com_retry(nome: str, rodar: Callable[[], dict], state: MessagesState)
             "tentativas": {nome: falhas},
         }
     return {**resultado, "erros": {nome: None}, "tentativas": {nome: 0}}
+
+
+def _historico(nome: str, state: MessagesState) -> list[BaseMessage]:
+    """O histórico que o agente recebe, sem os "Erro: ..." dele mesmo.
+
+    Na rodada mandada pelo coordenador, a última mensagem volta a ser a tarefa do Supervisor, como
+    na primeira vez, e não o erro da rodada anterior.
+    """
+    return [m for m in state["messages"] if not e_mensagem_de_erro(m, nome)]
 
 
 def _saida_das_tools(mensagens_novas) -> str:
@@ -101,11 +116,12 @@ def _texto_final(nome: str, response: dict) -> str:
 
 
 def _rodar_yfinance(state: MessagesState) -> dict:
-    logger.info(f"[node] YFinance: invocando agente ({len(state['messages'])} msgs)")
-    response = yfinance_agent.invoke({"messages": state["messages"]})
+    historico = _historico("YFinance", state)
+    logger.info(f"[node] YFinance: invocando agente ({len(historico)} msgs)")
+    response = yfinance_agent.invoke({"messages": historico})
     conteudo = response["messages"][-1].text
     logger.info(f"[node] YFinance: resposta recebida ({len(conteudo)} chars)")
-    mensagens_novas = response["messages"][len(state["messages"]):]
+    mensagens_novas = response["messages"][len(historico):]
     if not conteudo.strip():
         conteudo = _saida_das_tools(mensagens_novas)
 
@@ -138,8 +154,9 @@ def yfinance_node(state: MessagesState):
 
 
 def _rodar_analyzer(state: MessagesState) -> dict:
-    logger.info(f"[node] Analyzer: invocando agente ({len(state['messages'])} msgs)")
-    texto = _texto_final("Analyzer", analyzer_agent.invoke({"messages": state["messages"]}))
+    historico = _historico("Analyzer", state)
+    logger.info(f"[node] Analyzer: invocando agente ({len(historico)} msgs)")
+    texto = _texto_final("Analyzer", analyzer_agent.invoke({"messages": historico}))
     # A primeira passagem é a das notícias da empresa; as seguintes, a do setor. `is None` e não
     # falsidade: uma primeira resposta com erro em texto também conta como passagem feita. Uma
     # passagem que falhou de vez não grava o campo, então a nova tentativa ainda cai em noticias.
@@ -152,8 +169,9 @@ def analyzer_node(state: MessagesState):
 
 
 def _rodar_investigator(state: MessagesState) -> dict:
-    logger.info(f"[node] Investigator: invocando agente ({len(state['messages'])} msgs)")
-    texto = _texto_final("Investigator", investigator_agent.invoke({"messages": state["messages"]}))
+    historico = _historico("Investigator", state)
+    logger.info(f"[node] Investigator: invocando agente ({len(historico)} msgs)")
+    texto = _texto_final("Investigator", investigator_agent.invoke({"messages": historico}))
     return {"messages": [HumanMessage(content=texto, name="Investigator")], "diagnostico": texto}
 
 

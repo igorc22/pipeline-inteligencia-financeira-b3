@@ -378,6 +378,18 @@ def test_bcb_repete_json_invalido(mock_get, espera_falsa):
 
 
 @patch('fluxo_financeiro.tools.financial_data.requests.get')
+def test_bcb_timeout_duas_vezes_devolve_erro(mock_get, espera_falsa):
+    """Confere que o timeout repetido do BCB é pedido 2 vezes e depois vira o dict com 'error', sem levantar."""
+    mock_get.side_effect = requests.Timeout('lento')
+
+    result = busca_indicador_bcb.invoke({'input_data': {'indicador': 432}})
+
+    assert 'error' in result
+    assert mock_get.call_count == 2
+    espera_falsa.assert_called_once_with(2.0)
+
+
+@patch('fluxo_financeiro.tools.financial_data.requests.get')
 def test_busca_indicador_bcb_erro_api(mock_get):
     """Confere que retorna dict com 'error' quando API falha."""
     mock_get.side_effect = Exception("timeout")
