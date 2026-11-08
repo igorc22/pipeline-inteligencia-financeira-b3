@@ -9,7 +9,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from fluxo_financeiro.shared.llm import criar_llm
 from fluxo_financeiro.shared.prompts import REGRA_CONTEUDO_EXTERNO, escapar_tags
-from fluxo_financeiro.shared.types import RelatorioFinal
+from fluxo_financeiro.shared.types import MessagesState, RelatorioFinal
 from fluxo_financeiro.tools.financial_data import AVISO_PERFIL_RESERVA
 
 llm = criar_llm()
@@ -75,30 +75,34 @@ def montar_insumos(messages: list[BaseMessage]) -> list[str]:
     return blocos
 
 
-def consolidar(messages: list[BaseMessage]) -> RelatorioFinal:
-    """Relatório final a partir do histórico. Erros do LLM sobem (o nó do grafo trata)."""
-    insumos = "\n\n".join(montar_insumos(messages))
+def consolidar(state: MessagesState) -> RelatorioFinal:
+    """Relatório final a partir do state. Erros do LLM sobem (o nó do grafo trata).
+
+    O texto que vai ao LLM sai das mensagens (montar_insumos, a mesma função dos evals); o que
+    faltou é decidido pelos campos que cada agente grava no state, não pela contagem de mensagens.
+    """
+    insumos = "\n\n".join(montar_insumos(state["messages"]))
     relatorio = llm.with_structured_output(RelatorioFinal).invoke(
         [SystemMessage(content=CONSOLIDADOR_PROMPT), HumanMessage(content=insumos)]
     )
 
-    falaram = {getattr(m, "name", None) for m in messages}
-    diagnostico = next((m.text for m in messages if getattr(m, "name", None) == "Investigator"), None)
-    ajustes: dict = {"diagnostico": diagnostico}
+    dados_mercado = state.get("dados_mercado")
+    ajustes: dict = {"diagnostico": state.get("diagnostico")}
     limitacoes = list(relatorio.limitacoes)
+    # `is None` e não falsidade: um campo gravado vazio (ou com erro) é etapa que rodou.
     # Etapa que não rodou: além da limitação, descarta o que o LLM escreveu sobre ela (ele tende a
     # preencher com o que já sabe da empresa, e o relatório fingiria ter dados ou notícias).
-    if "YFinance" not in falaram:
+    if dados_mercado is None:
         limitacoes.append(LIMITACAO_SEM_DADOS)
         ajustes["indicadores"] = []
-    if "Analyzer" not in falaram:
+    if state.get("noticias") is None:
         limitacoes.append(LIMITACAO_SEM_NOTICIAS)
         ajustes["contexto"] = ""
-    elif sum(getattr(m, "name", None) == "Analyzer" for m in messages) == 1:
+    elif state.get("contexto_setor") is None:
         # Só a passagem da empresa rodou (ex: hard stop): o contexto dela fica, mas falta o setor.
         limitacoes.append(LIMITACAO_SEM_SETOR)
-    # A tool termina com o aviso quando a Brapi não respondeu; o yfinance_node garante a linha na mensagem.
-    if any(getattr(m, "name", None) == "YFinance" and AVISO_PERFIL_RESERVA in m.text for m in messages):
+    # A tool termina com o aviso quando a Brapi não respondeu; o yfinance_node garante a linha nos dados.
+    if AVISO_PERFIL_RESERVA in (dados_mercado or ""):
         limitacoes.append(LIMITACAO_PERFIL_RESERVA)
     # O LLM pode repetir uma limitação escrita aqui: remove repetidas, mantendo a ordem.
     ajustes["limitacoes"] = list(dict.fromkeys(l.strip() for l in limitacoes if l.strip()))

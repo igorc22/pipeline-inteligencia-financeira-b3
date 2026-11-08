@@ -80,7 +80,7 @@ def consolidador_node(state: MessagesState):
     """Fim de todo fluxo: junta as respostas dos agentes num relatório. Não soma loop_count."""
     logger.info(f"[node] Consolidador: consolidando ({len(state['messages'])} msgs)")
     try:
-        relatorio = consolidar(state["messages"])
+        relatorio = consolidar(state)
         conteudo = formatar_relatorio(relatorio, _ticker_da_conversa(state))
     except Exception:
         # A análise já custou várias chamadas: se o último passo falha, entrega o que os agentes disseram.
