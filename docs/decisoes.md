@@ -269,13 +269,13 @@ Enquanto este projeto crescia, eu tinha um segundo, o Fluxo Pesquisa, estudando 
 
 O yfinance entrega os demonstrativos na moeda em que a empresa publica, e a VALE3 publica em dólar. O código escrevia R$ na frente de todo número, então o lucro da Vale aparecia como "R$ 2,35 bi" quando eram dólares, e esse erro chegava ao detector de anomalias, ao Piotroski e ao histórico trimestral que o Investigator lê.
 
-O `info` do yfinance tem um campo para isso, o `financialCurrency`, só que ele dizia BRL para a VALE3. A moeda certa estava na série de lucro trimestral do Yahoo, em que cada valor vem com um `currencyCode` que o yfinance joga fora ao montar a tabela. Passei a pedir essa série de novo e ler o código dali: BRL vira R$, USD vira US$ e qualquer outro sai como está. Quando a leitura falha, o número sai sem símbolo, nunca com R$ por padrão, porque um R$ chutado era justamente o erro que eu estava corrigindo *(motivo a confirmar)*.
+O `info` do yfinance tem um campo para isso, o `financialCurrency`, só que ele dizia BRL para a VALE3. A moeda certa estava na série de lucro trimestral do Yahoo, em que cada valor vem com um `currencyCode` que o yfinance joga fora ao montar a tabela. Passei a pedir essa série de novo e ler o código dali: BRL vira R$, USD vira US$ e qualquer outro sai como está. Quando a leitura falha, o número sai sem símbolo, nunca com R$ por padrão, porque um R$ chutado era justamente o erro que eu estava corrigindo.
 
 O preço da ação não passa por isso, porque a cotação na B3 é sempre em reais. O custo é depender de uma função interna do yfinance para pedir a série, e ela pode mudar numa versão nova.
 
 ### Medir antes de mexer
 
-A primeira peça a vir foram os evals *(motivo a confirmar)*: as fases seguintes vão mexer no estado, no retry e na busca, e sem uma nota de antes não tenho como dizer se alguma delas piorou a análise. O texto do relatório muda a cada execução, então um teste com mock não responde isso.
+A primeira peça a vir foram os evals: as fases seguintes vão mexer no estado, no retry e na busca, e sem uma nota de antes não tenho como dizer se alguma delas piorou a análise. O texto do relatório muda a cada execução, então um teste com mock não responde isso.
 
 Um eval aqui é um segundo LLM, o juiz, lendo o texto de um agente e conferindo contra o que aquele agente tinha em mãos. Para isso preciso de uma análise gravada, a fixture. O state final não basta, porque cada nó devolve só a última mensagem do agente e as saídas das tools se perdem lá dentro. Um script roda o grafo com `subgraphs=True` e guarda as mensagens de tool de cada agente, passagem por passagem. Gerei duas fixtures, a VALE3, que aciona o Investigator, e a WEGE3, que não aciona.
 
@@ -283,7 +283,7 @@ O contexto de cada agente é o que ele leu: as saídas das tools dele, o pedido,
 
 ### Um juiz que não é o julgado
 
-O juiz é um Gemini diferente do Flash-Lite que roda os agentes, para o modelo não corrigir a própria prova *(motivo a confirmar)*. Escolhi o `gemini-2.5-flash` com temperatura 0, e a API recusou, porque o modelo não está mais disponível para chaves novas. Fiquei com o `gemini-3.8-flash`, sem mandar temperatura. Lendo a `deepeval`, vi que ela não envia temperatura para os Gemini mais novos quando recebe `None`, e o Google recomenda o padrão nessa geração. O preço disso é um juiz que não repete a nota exata, então a mesma fixture pode sair com notas um pouco diferentes.
+Para o juiz, o critério foi economizar. Escolhi o `gemini-2.5-flash` com temperatura 0, e a API recusou, porque o modelo não está mais disponível para chaves novas. Fiquei com o `gemini-3.8-flash`, sem mandar temperatura. Lendo a `deepeval`, vi que ela não envia temperatura para os Gemini mais novos quando recebe `None`, e o Google recomenda o padrão nessa geração. O preço disso é um juiz que não repete a nota exata, então a mesma fixture pode sair com notas um pouco diferentes.
 
 A instalação mexeu numa dependência: a `deepeval` exige o `rich` abaixo da versão 15, e ele voltou para a 14. Só o `curl-cffi` do yfinance usava, e a suíte e o dashboard passaram iguais.
 
@@ -301,7 +301,7 @@ E um detalhe da biblioteca mudou como eu leio a nota. Na fidelidade, só a afirm
 
 ## A Brapi no plano gratuito
 
-A segunda peça do Fluxo Pesquisa foi a Brapi, uma API brasileira de dados da B3. A ideia era trocar o yfinance por ela em tudo, da cotação aos demonstrativos e ao Piotroski, deixando o yfinance de reserva *(motivo a confirmar)*. Conferi com a VALE3 e veio tudo, trimestrais, balanço e indicadores. Só depois descobri que a VALE3 é ticker de teste da Brapi, junto com PETR4, MGLU3 e ITUB4, e responde até sem token. Com a WEGE3 e o meu token do plano gratuito, todo módulo de demonstrativo voltou com 403, e só a cotação e o perfil da empresa passaram. A conferência tinha usado justamente o caso que não provava nada.
+A segunda peça do Fluxo Pesquisa foi a Brapi, uma API brasileira de dados da B3. A ideia era trocar o yfinance por ela em tudo, da cotação aos demonstrativos e ao Piotroski, deixando o yfinance de reserva. Conferi com a VALE3 e veio tudo, trimestrais, balanço e indicadores. Só depois descobri que a VALE3 é ticker de teste da Brapi, junto com PETR4, MGLU3 e ITUB4, e responde até sem token. Com a WEGE3 e o meu token do plano gratuito, todo módulo de demonstrativo voltou com 403, e só a cotação e o perfil da empresa passaram. A conferência tinha usado justamente o caso que não provava nada.
 
 Fiquei no gratuito, "sem flag pra modo premium do brapi porque não vai ter". Os demonstrativos continuam no yfinance, e com eles o Piotroski, o detector de anomalias e a leitura da moeda. As métricas de risco também ficam lá, porque usam um ano de preços e o gratuito só dá três meses de histórico.
 
@@ -309,7 +309,7 @@ O que a Brapi faz agora cabe em duas frentes. Na entrada, a CLI, o dashboard, o 
 
 Pedi para explorar "algo extra no grátis que seja útil" e escolhi três: valor de mercado e LPA, sugestão quando o ticker não existe (WEGE4 volta com "Você quis dizer WEGE3?") e os maiores do setor por valor de mercado, com a posição da empresa. A lista de setores da Brapi vem em inglês e mistura os papéis fracionários, então o código tira os que terminam em F e fica com um papel por empresa. A WEGE3 saiu em primeiro de 27.
 
-O LPA trouxe um problema que só apareceu nos notebooks. Na VALE3, a Brapi dava LPA de R$ 0,52 e o yfinance dava P/L de 77,2, e o preço dividido por esse LPA passa de 120. Os dois números apareciam lado a lado e um desmentia o outro, e a fidelidade dos evals não pegaria isso, porque o número errado estava na própria fonte. Não sei qual das duas fontes está certa, e talvez cada uma use um lucro de 12 meses diferente *(motivo a confirmar)*. Escolhi mostrar o LPA só quando a conta preço sobre LPA fica a até 10% do P/L do yfinance. Na WEGE3 os dois batem e o LPA aparece, e na VALE3 ele some.
+O LPA trouxe um problema que só apareceu nos notebooks. Na VALE3, a Brapi dava LPA de R$ 0,52 e o yfinance dava P/L de 77,2, e o preço dividido por esse LPA passa de 120. Os dois números apareciam lado a lado e um desmentia o outro, e a fidelidade dos evals não pegaria isso, porque o número errado estava na própria fonte. Fui conferir. As duas somam o lucro dos últimos quatro trimestres, e o que muda é o caminho. A Brapi soma os balanços em reais da CVM e chega a R$ 2,19 bi, o que dá R$ 0,49 por ação. O yfinance parte dos números em dólar (US$ 0,68 bi) e, convertido, chega perto de R$ 0,85. A diferença fica enorme porque o prejuízo de R$ 21 bi do 4T25 quase anula os outros três trimestres, e sobra um número pequeno em que qualquer diferença de câmbio pesa muito. Escolhi mostrar o LPA só quando a conta preço sobre LPA fica a até 10% do P/L do yfinance. Na WEGE3 os dois batem e o LPA aparece, e na VALE3 ele some.
 
 Só um 404 recusa o ticker. Cota, timeout, token ausente ou recusado deixam a análise seguir com uma linha de log, e se a Brapi não responde na hora dos dados tudo vem do yfinance como antes. Nesse caso o Consolidador anota nas limitações que a cotação e o perfil vieram da reserva, e quem decide isso é o código, como nas outras limitações.
 

@@ -22,8 +22,8 @@ FIXTURES_DIR = PASTA_EVALS / "fixtures"
 MAX_FONTES = 20
 MAX_CHARS_POR_FONTE = 6000
 
-# Juiz diferente do modelo julgado (gemini-3.5-flash-lite), para o modelo não corrigir a própria prova.
-# O 2.5-flash era a primeira escolha, mas a API recusa o modelo para chaves novas (404) e sugere o 3.8-flash.
+# Juiz escolhido pelo custo. O 2.5-flash era a primeira escolha, mas a API recusa o modelo para chaves
+# novas (404) e sugere o 3.8-flash.
 # O 3.8-flash tem preço registrado na deepeval (custo_usd preenchido). Temperatura não é enviada (None):
 # fica o padrão do Google, que ele recomenda para o Gemini 3+.
 JUIZ_PADRAO = "gemini-3.8-flash"
