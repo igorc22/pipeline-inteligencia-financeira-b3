@@ -8,7 +8,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from fluxo_financeiro.agents.consolidator import LIMITACAO_PERFIL_RESERVA, LIMITACAO_SEM_DADOS
+from fluxo_financeiro.agents.consolidator import (
+    LIMITACAO_PERFIL_RESERVA,
+    LIMITACAO_SEM_DADOS,
+    LIMITACAO_SEM_NOTICIAS,
+)
 from fluxo_financeiro.graph.graph import app
 from fluxo_financeiro.shared.types import RelatorioFinal, RouteDecision, SinalAnomalia
 from fluxo_financeiro.tools.financial_data import AVISO_PERFIL_RESERVA
@@ -224,6 +228,70 @@ def test_hard_stop_segura_llm_que_nunca_encerra(grafo_mockado):
     assert resultado.get("dados_mercado") is None
     assert LIMITACAO_SEM_DADOS in resultado["relatorio"].limitacoes
     assert resultado["relatorio"].indicadores == []
+
+
+# ---------------------------------------------------------------------------
+# Retry em camadas: o nó repete localmente, o coordenador reenvia uma vez ou segue sem o agente
+# ---------------------------------------------------------------------------
+
+QUEDA = SinalAnomalia(tipo="queda_lucro", descricao="O lucro líquido de VALE3.SA caiu 35% contra o ano anterior.")
+
+
+def test_falha_temporaria_no_investigator_nao_bate_no_hard_stop(grafo_mockado):
+    """Confere que o reenvio do coordenador não conta volta: a VALE3 chega ao FINISH pelo guard, não pelo hard stop."""
+    grafo_mockado["sinais"].return_value = [QUEDA]
+    grafo_mockado["decisoes"].side_effect = [_decisao("YFinance", "Colete os dados da VALE3")]
+    resposta = {"messages": [AIMessage(content="- Causa identificada: prejuízo no 4T25")]}
+    # As 2 tentativas locais da 1ª rodada falham; a 2ª rodada (mandada pelo coordenador) acerta.
+    grafo_mockado["Investigator"].invoke.side_effect = [TimeoutError("lento"), TimeoutError("lento"), resposta]
+
+    resultado = _rodar()
+
+    assert resultado["diagnostico"] == "- Causa identificada: prejuízo no 4T25"
+    assert resultado["relatorio"].diagnostico == "- Causa identificada: prejuízo no 4T25"
+    assert resultado["decidido_por"] == "guard"
+    assert resultado["loop_count"] == 5
+    assert grafo_mockado["Investigator"].invoke.call_count == 3
+    assert resultado["erros"]["Investigator"] is None
+    assert resultado["tentativas"]["Investigator"] == 0
+    assert not any("falhou depois de" in l for l in resultado["relatorio"].limitacoes)
+
+
+def test_analyzer_permanente_segue_sem_noticias(grafo_mockado):
+    """Confere que o Analyzer com erro permanente roda uma vez só e o relatório registra a etapa que ficou de fora."""
+    grafo_mockado["decisoes"].side_effect = [_decisao("YFinance", "Colete os dados da VALE3"), _decisao("FINISH")]
+    grafo_mockado["Analyzer"].invoke.side_effect = ValueError("chave inválida")
+
+    resultado = _rodar()
+
+    assert grafo_mockado["Analyzer"].invoke.call_count == 1
+    assert resultado.get("noticias") is None and resultado.get("contexto_setor") is None
+    assert resultado["erros"]["Analyzer"].tipo == "permanente"
+    limitacoes = resultado["relatorio"].limitacoes
+    assert "O Analyzer falhou depois de 1 tentativa (erro permanente): a etapa ficou de fora." in limitacoes
+    assert LIMITACAO_SEM_NOTICIAS in limitacoes
+    assert resultado["loop_count"] == 3  # YFinance, Analyzer (notícias) e a Etapa 4 pelo LLM: o setor não roda
+
+
+@pytest.mark.parametrize("worker", sorted(WORKERS))
+@pytest.mark.parametrize("excecao", [TimeoutError("lento"), RuntimeError("quebrou")], ids=["temporario", "permanente"])
+def test_excecao_no_agente_nao_derruba_a_analise(grafo_mockado, worker, excecao):
+    """Confere que uma exceção em qualquer worker, sempre, não derruba o grafo: a análise chega ao Consolidador."""
+    grafo_mockado["sinais"].return_value = [QUEDA]  # com sinais, o Investigator roda pelo guard
+    grafo_mockado["decisoes"].side_effect = [_decisao("YFinance", "Colete os dados da VALE3"), _decisao("FINISH")]
+    grafo_mockado[worker].invoke.side_effect = excecao
+
+    resultado = _rodar()
+
+    assert resultado["messages"][-1].name == "Consolidador"
+    assert resultado["relatorio"] is not None
+    assert resultado["decidido_por"] == "guard"
+    erro = resultado["erros"][worker]
+    temporario = isinstance(excecao, TimeoutError)
+    assert erro.tipo == ("transitorio" if temporario else "permanente")
+    # Temporário: 2 rodadas do nó (a local e a do coordenador), 2 tentativas cada. Permanente: 1 chamada.
+    assert grafo_mockado[worker].invoke.call_count == (4 if temporario else 1)
+    assert any(l.startswith(f"O {worker} falhou depois de") for l in resultado["relatorio"].limitacoes)
 
 
 def test_falha_do_consolidador_nao_perde_a_analise(grafo_mockado):

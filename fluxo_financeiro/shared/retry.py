@@ -7,7 +7,8 @@ Três camadas, de baixo para cima:
    workers (graph/graph.py) repetem o agente inteiro do mesmo jeito e, se não conseguem, devolvem um
    erro estruturado no state em vez de levantar. As tools que o LLM chama continuam devolvendo
    "Erro ao ..." para o agente decidir.
-3. Coordenador: recebe o erro que sobrou e decide se manda o agente de novo ou segue sem ele.
+3. Coordenador: recebe o erro que sobrou e decide se manda o agente de novo ou segue sem ele
+   (`desistiu`, com o limite `MAX_TENTATIVAS`; o Consolidador lê a mesma regra para as limitações).
 
 `classificar_erro` separa o erro temporário (repetir pode dar certo) do permanente (repetir só gasta):
 timeout, conexão caída, resposta que não é JSON e 429/500/503/504 são temporários. A cota zerada
@@ -18,7 +19,7 @@ Sem dependência interna além do logger: o módulo fica em shared/ e importa s�
 """
 import json
 import time
-from typing import Callable, Optional, TypeVar
+from typing import Callable, Mapping, Optional, TypeVar
 
 import brapi
 import httpx
@@ -100,6 +101,23 @@ def classificar_erro(e: BaseException) -> str:
         if any(marca in texto for marca in MARCAS_DE_COTA):
             return PERMANENTE
     return TRANSITORIO
+
+
+# Camada 3 (coordenador): rodadas do nó por etapa, a local mais 1 mandada pelo coordenador.
+# A regra fica aqui, e não no supervisor, porque o Consolidador (agents/) também a lê e não pode importar graph/.
+MAX_TENTATIVAS = 2
+
+
+def desistiu(state: Mapping, agente: str) -> bool:
+    """O agente falhou e o coordenador não manda de novo: erro permanente ou limite de rodadas atingido.
+
+    `state` é o MessagesState (lido como dicionário: aqui não se importa types.py). Erro limpo
+    (`None`, a última rodada deu certo) ou ausente não é desistência.
+    """
+    erro = (state.get("erros") or {}).get(agente)
+    if erro is None:
+        return False
+    return erro.tipo == PERMANENTE or (state.get("tentativas") or {}).get(agente, 0) >= MAX_TENTATIVAS
 
 
 def _esperar(segundos: float) -> None:

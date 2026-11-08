@@ -14,7 +14,7 @@ from fluxo_financeiro.agents.consolidator import (
     montar_insumos,
     relatorio_de_emergencia,
 )
-from fluxo_financeiro.shared.types import RelatorioFinal
+from fluxo_financeiro.shared.types import ErroAgente, RelatorioFinal
 from fluxo_financeiro.tools.financial_data import AVISO_PERFIL_RESERVA
 
 REL = RelatorioFinal(
@@ -247,6 +247,35 @@ def test_consolidar_anota_perfil_da_reserva(mock_llm):
 def test_consolidar_sem_aviso_nao_anota_reserva(mock_llm):
     """Confere que, com a Brapi tendo respondido (sem o aviso), a limitação da reserva não aparece."""
     assert LIMITACAO_PERFIL_RESERVA not in consolidar(ESTADO).limitacoes
+
+
+def test_limitacao_de_agente_que_desistiu(mock_llm):
+    """Confere que cada agente que desistiu (temporário no limite ou permanente) vira uma limitação escrita em código."""
+    estado = {
+        **ESTADO,
+        "contexto_setor": None,
+        "erros": {
+            "Analyzer": ErroAgente(tipo="transitorio", mensagem="TimeoutError: lento", tentativas=2),
+            "Investigator": ErroAgente(tipo="permanente", mensagem="ValueError: chave", tentativas=1),
+            "YFinance": None,  # falhou e depois acertou: não é limitação
+        },
+        "tentativas": {"Analyzer": 2, "Investigator": 1, "YFinance": 0},
+    }
+
+    lim = consolidar(estado).limitacoes
+
+    assert "O Analyzer falhou depois de 2 tentativas (erro temporário): a etapa ficou de fora." in lim
+    assert "O Investigator falhou depois de 1 tentativa (erro permanente): a etapa ficou de fora." in lim
+    assert LIMITACAO_SEM_SETOR in lim
+    assert not any(l.startswith("O YFinance") for l in lim)
+
+
+def test_erro_temporario_abaixo_do_limite_nao_vira_limitacao(mock_llm):
+    """Confere que um erro temporário que ainda seria reenviado (hard stop no meio) não vira limitação de desistência."""
+    estado = {**ESTADO, "erros": {"Analyzer": ErroAgente(tipo="transitorio", mensagem="x", tentativas=1)},
+              "tentativas": {"Analyzer": 1}}
+
+    assert not any("falhou depois de" in l for l in consolidar(estado).limitacoes)
 
 
 def test_consolidar_erro_do_llm_sobe(mock_llm):
