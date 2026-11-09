@@ -4,9 +4,11 @@ Funções puras, sem Streamlit: o app.py só desenha o que sai daqui. O dashboar
 que está no state; nunca calcula nem reformata números.
 """
 from dataclasses import dataclass
-from typing import Optional
+from typing import Collection, Optional
 
 WORKERS = ("YFinance", "Analyzer", "Investigator")
+PARALELO = "Analyzer+Investigator"
+RAMOS_PARALELO = ("Analyzer", "Investigator")
 
 ROTULO_DECISAO = {"guard": "guard", "llm": "LLM", "hard_stop": "hard stop"}
 COR_DECISAO = {"guard": "#2e7d32", "llm": "#1565c0", "hard_stop": "#c62828"}
@@ -93,10 +95,22 @@ def montar_passos(eventos: list[tuple[str, dict]]) -> list[Passo]:
     passos: list[Passo] = []
     supervisor: Optional[dict] = None
     passagens_analyzer = 0
+    passo_numero = 0
+    ramos_pendentes: set[str] = set()
+
     for no, update in eventos:
         dados = _dict(update)
         if no == "Supervisor":
             supervisor = dados
+            proximo = supervisor.get("next_agent")
+            if proximo == PARALELO:
+                passo_numero += 1
+                ramos_pendentes = set(WORKERS) & set(RAMOS_PARALELO)
+            elif proximo != "FINISH":
+                passo_numero += 1
+                ramos_pendentes = {proximo} if proximo in WORKERS else set()
+            else:
+                ramos_pendentes = set()
             continue
         if no not in WORKERS:
             continue
@@ -105,7 +119,17 @@ def montar_passos(eventos: list[tuple[str, dict]]) -> list[Passo]:
             passagens_analyzer += 1
             rotulo = ROTULO_ANALYZER.get(passagens_analyzer, f"Analyzer ({passagens_analyzer})")
         sup = supervisor or {}
-        tarefa = sup.get("messages") or []
+        tarefas = sup.get("messages") or []
+
+        if sup.get("next_agent") == PARALELO and isinstance(tarefas, list) and len(tarefas) >= 2:
+            if no == "Analyzer":
+                tarefa_msg = next((m for m in tarefas if "## Notícias da empresa" in _conteudo(m) or "notícias" in _conteudo(m).lower()), tarefas[0])
+            else:
+                tarefa_msg = next((m for m in tarefas if "Investigue" in _conteudo(m) or "investig" in _conteudo(m).lower()), tarefas[1])
+            entrada = _conteudo(tarefa_msg)
+        else:
+            entrada = _conteudo(tarefas[-1]) if isinstance(tarefas, list) and tarefas else (_conteudo(tarefas) if tarefas else None)
+
         msgs_saida = dados.get("messages")
         if isinstance(msgs_saida, list) and msgs_saida:
             saida = _conteudo(msgs_saida[-1])
@@ -116,16 +140,19 @@ def montar_passos(eventos: list[tuple[str, dict]]) -> list[Passo]:
         else:
             saida = ""
 
+        numero_atual = passo_numero if passo_numero > 0 else (len(passos) + 1)
         passos.append(Passo(
-            numero=len(passos) + 1,
+            numero=numero_atual,
             agente=no,
             rotulo=rotulo,
             decidido_por=sup.get("decidido_por"),
             raciocinio=sup.get("supervisor_reasoning"),
-            entrada=_conteudo(tarefa[-1]) if isinstance(tarefa, list) and tarefa else (_conteudo(tarefa) if tarefa else None),
+            entrada=entrada,
             saida=saida,
         ))
-        supervisor = None  # a decisão já foi usada; o próximo worker precisa de outra
+        ramos_pendentes.discard(no)
+        if not ramos_pendentes:
+            supervisor = None
     return passos
 
 
@@ -186,6 +213,8 @@ def rotulo_agente_em_execucao(proximo: Optional[str], passagens_analyzer: int = 
     if proximo == "Analyzer":
         passo_atual = passagens_analyzer + 1
         return ROTULO_ANALYZER.get(passo_atual, f"Analyzer ({passo_atual})")
+    if proximo == PARALELO:
+        return "Analyzer e Investigator"
     return proximo
 
 
@@ -207,10 +236,11 @@ def resumo_em_progresso(eventos: list[tuple[str, dict]]) -> str:
         acao = DESCRICAO_CONCLUIDA.get(p.rotulo, "concluiu a etapa")
         linhas.append(f"- :material/check_circle: **{p.numero} · {p.rotulo}**{via} — {acao}")
 
+    proximo_num = max((p.numero for p in passos), default=0) + 1
     if consolidou:
         decisao = ROTULO_DECISAO.get(decisao_do_fim(eventos) or "")
         via = f" *(via {decisao})*" if decisao else ""
-        linhas.append(f"- :material/check_circle: **{len(passos) + 1} · Consolidador**{via} — montou o relatório")
+        linhas.append(f"- :material/check_circle: **{proximo_num} · Consolidador**{via} — montou o relatório")
     elif eventos and eventos[-1][0] == "Supervisor":
         sup = _dict(eventos[-1][1])
         passagens_analyzer = sum(1 for p in passos if p.agente == "Analyzer")
@@ -218,7 +248,7 @@ def resumo_em_progresso(eventos: list[tuple[str, dict]]) -> str:
         if rotulo_ativo:
             decisao = ROTULO_DECISAO.get(sup.get("decidido_por") or "")
             via = f" *(decidido por {decisao})*" if decisao else ""
-            linhas.append(f"- :material/pending: **{len(passos) + 1} · {rotulo_ativo}** — rodando agora{via}")
+            linhas.append(f"- :material/pending: **{proximo_num} · {rotulo_ativo}** — rodando agora{via}")
             raciocinio = sup.get("supervisor_reasoning")
             if raciocinio:
                 linhas.append(f"  > _{escapar_markdown(str(raciocinio))}_")
@@ -275,11 +305,12 @@ def dot_do_caminho(
     passos: list[Passo],
     decisao_fim: Optional[str],
     consolidou: bool = True,
-    em_execucao: Optional[str] = None,
+    em_execucao: Optional[str | Collection[str]] = None,
     decisao_ativa: Optional[str] = None,
     raciocinio_ativo: Optional[str] = None,
     em_progresso: bool = False,
     raciocinio_fim: Optional[str] = None,
+    numero_ativo: Optional[int] = None,
 ) -> str:
     """DOT do grafo com o Supervisor no centro e o caminho desta análise aceso.
 
@@ -293,6 +324,13 @@ def dot_do_caminho(
     consolidou=False (a análise falhou antes do fim): nada chega ao Consolidador; o último
     agente que rodou aponta para um nó "Interrompido".
     """
+    if isinstance(em_execucao, str):
+        ativos = {em_execucao}
+    elif em_execucao:
+        ativos = set(em_execucao)
+    else:
+        ativos = set()
+
     rodaram = list(dict.fromkeys(p.agente for p in passos))  # na ordem da primeira execução
     linhas = [
         "digraph caminho {",
@@ -310,18 +348,18 @@ def dot_do_caminho(
             agente,
             COR_AGENTE[agente],
             rodou=agente in rodaram,
-            ativo=(em_progresso and agente == em_execucao),
+            ativo=(em_progresso and agente in ativos),
         ))
     linhas.append("  { rank=same; yfinance; analyzer; investigator; }")
     for agente in WORKERS:
-        if agente not in rodaram and not (em_progresso and agente == em_execucao):  # sem seta, o graphviz o jogaria para longe dos outros
+        if agente not in rodaram and not (em_progresso and agente in ativos):  # sem seta, o graphviz o jogaria para longe dos outros
             linhas.append(f"  supervisor -> {NO_DO_AGENTE[agente]} [style=invis];")
     linhas.append(_no(
         "consolidador",
         "Consolidador",
         COR_AGENTE["Consolidador"],
         rodou=consolidou,
-        ativo=(em_progresso and em_execucao == "Consolidador"),
+        ativo=(em_progresso and "Consolidador" in ativos),
     ))
     linhas.append("  analyzer -> consolidador [style=invis];  // põe o Consolidador abaixo dos agentes")
     linhas.append(f'  inicio -> supervisor [color="{COR_APAGADA}"];')
@@ -337,15 +375,18 @@ def dot_do_caminho(
             linhas.append(f'  supervisor -> {destino} [dir=back, style=dashed, color="{COR_VOLTA}", '
                           'arrowsize=0.7];')
 
+    proximo_numero = numero_ativo if numero_ativo is not None else (max((p.numero for p in passos), default=0) + 1)
     if em_progresso:
-        if em_execucao in WORKERS:
-            destino = NO_DO_AGENTE.get(em_execucao)
-            if destino:
-                linhas.append(_ida(destino, len(passos) + 1, decisao_ativa, raciocinio_ativo, ativo=True))
-        elif em_execucao == "Consolidador":
-            linhas.append(_ida("consolidador", len(passos) + 1, decisao_ativa, raciocinio_ativo, ativo=True))
+        for ag in WORKERS:
+            if ag in ativos:
+                destino = NO_DO_AGENTE.get(ag)
+                if destino:
+                    linhas.append(_ida(destino, proximo_numero, decisao_ativa, raciocinio_ativo, ativo=True))
+        if "Consolidador" in ativos:
+            linhas.append(_ida("consolidador", proximo_numero, decisao_ativa, raciocinio_ativo, ativo=True))
     elif consolidou:
-        linhas.append(_ida("consolidador", len(passos) + 1, decisao_fim, raciocinio_fim))
+        num_consolidador = max((p.numero for p in passos), default=0) + 1
+        linhas.append(_ida("consolidador", num_consolidador, decisao_fim, raciocinio_fim))
         linhas.append(f'  fim [label="Fim", shape=oval, color="{COR_APAGADA}", fontcolor="{COR_APAGADA}"];')
         linhas.append(f'  consolidador -> fim [color="{COR_APAGADA}"];')
     else:
@@ -368,28 +409,39 @@ def dot_do_caminho_em_progresso(eventos: list[tuple[str, dict]]) -> str:
         )
 
     passos = montar_passos(eventos)
-    agente_ativo: Optional[str] = None
+    agentes_ativos: set[str] = set()
     decisao_ativa: Optional[str] = None
     raciocinio_ativo: Optional[str] = None
+    numero_ativo: Optional[int] = None
 
-    if eventos and eventos[-1][0] == "Supervisor":
-        sup = _dict(eventos[-1][1])
-        proximo = sup.get("next_agent")
-        if proximo == "FINISH":
-            agente_ativo = "Consolidador"
-        elif proximo in WORKERS:
-            agente_ativo = proximo
-        decisao_ativa = sup.get("decidido_por")
-        raciocinio_ativo = sup.get("supervisor_reasoning")
+    for i in range(len(eventos) - 1, -1, -1):
+        no, u = eventos[i]
+        if no == "Supervisor":
+            sup = _dict(u)
+            proximo = sup.get("next_agent")
+            decisao_ativa = sup.get("decidido_por")
+            raciocinio_ativo = sup.get("supervisor_reasoning")
+            if proximo == "FINISH":
+                agentes_ativos = {"Consolidador"}
+                numero_ativo = max((p.numero for p in passos), default=0) + 1
+            elif proximo == PARALELO:
+                completados = {n for n, _ in eventos[i + 1:] if n in RAMOS_PARALELO}
+                agentes_ativos = set(RAMOS_PARALELO) - completados
+                numero_ativo = sum(1 for n, d in eventos[:i + 1] if n == "Supervisor" and _dict(d).get("next_agent") != "FINISH")
+            elif proximo in WORKERS:
+                agentes_ativos = {proximo}
+                numero_ativo = sum(1 for n, d in eventos[:i + 1] if n == "Supervisor" and _dict(d).get("next_agent") != "FINISH")
+            break
 
     return dot_do_caminho(
         passos=passos,
         decisao_fim=None,
         consolidou=False,
-        em_execucao=agente_ativo,
+        em_execucao=agentes_ativos,
         decisao_ativa=decisao_ativa,
         raciocinio_ativo=raciocinio_ativo,
         em_progresso=True,
+        numero_ativo=numero_ativo,
     )
 
 

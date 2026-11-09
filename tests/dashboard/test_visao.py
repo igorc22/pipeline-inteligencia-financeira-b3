@@ -14,6 +14,7 @@ from dashboard.visao import (
     parou_no_hard_stop,
     passo_do_consolidador,
     raciocinio_do_fim,
+    resumo_em_progresso,
     rotulo_agente_em_execucao,
     separar_indicador,
     state_para_json,
@@ -475,4 +476,155 @@ def test_state_para_json_com_tipos_nao_dicionario():
     assert state_para_json(None) == {}
     assert state_para_json("invalido") == {}
     assert state_para_json({"messages": "mensagem única"}) == {"messages": "mensagem única"}
+
+
+def test_montar_passos_paralelo_atribui_tarefas_e_decisao_corretas():
+    """Confere que o passo paralelo gera passos com mesmo número, tarefas isoladas e decisão preservada."""
+    eventos = [
+        _sup("llm", "YFinance", "Colete dados da VALE3"),
+        _worker("YFinance", "P/L: 5.2x"),
+        ("Supervisor", {
+            "next_agent": "Analyzer+Investigator",
+            "loop_count": 1,
+            "decidido_por": "guard",
+            "supervisor_reasoning": "Sinais de anomalia encontrados.",
+            "messages": [
+                HumanMessage("## Notícias da empresa: Busque notícias da VALE3", name="Supervisor"),
+                HumanMessage("Investigue a anomalia na queda de lucro", name="Supervisor"),
+            ],
+        }),
+        _worker("Analyzer", "Notícias e setor da VALE3"),
+        _worker("Investigator", "Diagnóstico: impairment"),
+        _sup("guard", "FINISH", None, "Concluir"),
+        ("Consolidador", {"messages": [HumanMessage("# Relatório Final", name="Consolidador")]}),
+    ]
+
+    passos = montar_passos(eventos)
+
+    assert len(passos) == 3
+    assert [p.numero for p in passos] == [1, 2, 2]
+    assert [p.agente for p in passos] == ["YFinance", "Analyzer", "Investigator"]
+
+    assert passos[1].entrada == "## Notícias da empresa: Busque notícias da VALE3"
+    assert passos[1].decidido_por == "guard"
+    assert passos[1].raciocinio == "Sinais de anomalia encontrados."
+
+    assert passos[2].entrada == "Investigue a anomalia na queda de lucro"
+    assert passos[2].decidido_por == "guard"
+    assert passos[2].raciocinio == "Sinais de anomalia encontrados."
+
+    num_consolidador = max(p.numero for p in passos) + 1
+    final = passo_do_consolidador(eventos, numero=num_consolidador)
+    assert final is not None
+    assert final.numero == 3
+    assert final.decidido_por == "guard"
+
+
+def test_dot_do_caminho_paralelo_duas_setas_mesmo_passo():
+    """Confere que o diagrama final concluído do paralelo tem setas de ida com label 2 para ambos e 3 para o consolidador."""
+    eventos = [
+        _sup("llm", "YFinance", "Colete"),
+        _worker("YFinance", "dados"),
+        ("Supervisor", {
+            "next_agent": "Analyzer+Investigator",
+            "loop_count": 1,
+            "decidido_por": "guard",
+            "supervisor_reasoning": "Anomalia detectada.",
+            "messages": [
+                HumanMessage("## Notícias da empresa", name="Supervisor"),
+                HumanMessage("Investigue", name="Supervisor"),
+            ],
+        }),
+        _worker("Analyzer", "notícias"),
+        _worker("Investigator", "diagnóstico"),
+        _sup("guard", "FINISH", None, "Pronto"),
+        ("Consolidador", {"messages": [HumanMessage("# Relatório", name="Consolidador")]}),
+    ]
+    passos = montar_passos(eventos)
+    dot = dot_do_caminho(passos, decisao_fim="guard", consolidou=True, raciocinio_fim="Pronto")
+
+    setas_analyzer = _arestas(dot, "supervisor", "analyzer")
+    assert any('label="2 · guard"' in s for s in setas_analyzer)
+
+    setas_investigator = _arestas(dot, "supervisor", "investigator")
+    assert any('label="2 · guard"' in s for s in setas_investigator)
+
+    setas_consolidador = _arestas(dot, "supervisor", "consolidador")
+    assert any('label="3 · guard"' in s for s in setas_consolidador)
+
+    assert "dashed" in _arestas(dot, "analyzer", "supervisor")[0]
+    assert "dashed" in _arestas(dot, "investigator", "supervisor")[0]
+
+
+def test_dot_do_caminho_em_progresso_paralelo_ambos_ativos():
+    """Confere que enquanto o passo paralelo inicia, ambos os nós aparecem como rodando agora e com setas ativas."""
+    eventos = [
+        _sup("llm", "YFinance", "Colete"),
+        _worker("YFinance", "dados"),
+        ("Supervisor", {
+            "next_agent": "Analyzer+Investigator",
+            "loop_count": 1,
+            "decidido_por": "guard",
+            "supervisor_reasoning": "Paralelo iniciado.",
+            "messages": [
+                HumanMessage("## Notícias da empresa", name="Supervisor"),
+                HumanMessage("Investigue", name="Supervisor"),
+            ],
+        }),
+    ]
+    dot = dot_do_caminho_em_progresso(eventos)
+
+    assert 'analyzer [label="Analyzer\\n(rodando agora)"' in dot
+    assert 'investigator [label="Investigator\\n(rodando agora)"' in dot
+
+    setas_ana = _arestas(dot, "supervisor", "analyzer")
+    assert any('label="2 · guard"' in s and 'penwidth=2.5' in s and 'style="bold"' in s for s in setas_ana)
+
+    setas_inv = _arestas(dot, "supervisor", "investigator")
+    assert any('label="2 · guard"' in s and 'penwidth=2.5' in s and 'style="bold"' in s for s in setas_inv)
+
+
+def test_dot_do_caminho_em_progresso_paralelo_um_ramo_concluido():
+    """Confere que quando o Analyzer termina mas o Investigator ainda roda, o Investigator permanece destacado."""
+    eventos = [
+        _sup("llm", "YFinance", "Colete"),
+        _worker("YFinance", "dados"),
+        ("Supervisor", {
+            "next_agent": "Analyzer+Investigator",
+            "loop_count": 1,
+            "decidido_por": "guard",
+            "supervisor_reasoning": "Paralelo iniciado.",
+            "messages": [
+                HumanMessage("## Notícias da empresa", name="Supervisor"),
+                HumanMessage("Investigue", name="Supervisor"),
+            ],
+        }),
+        _worker("Analyzer", "notícias concluídas"),
+    ]
+    dot = dot_do_caminho_em_progresso(eventos)
+
+    assert 'analyzer [label="Analyzer", color="#3fb37f"' in dot
+    assert len(_arestas(dot, "analyzer", "supervisor")) == 1
+
+    assert 'investigator [label="Investigator\\n(rodando agora)"' in dot
+    setas_inv = _arestas(dot, "supervisor", "investigator")
+    assert any('label="2 · guard"' in s and 'penwidth=2.5' in s and 'style="bold"' in s for s in setas_inv)
+
+
+def test_resumo_em_progresso_paralelo():
+    """Confere que o resumo em progresso exibe rótulo combinado e passo correto durante o paralelo."""
+    eventos = [
+        _sup("llm", "YFinance", "Colete"),
+        _worker("YFinance", "dados"),
+        ("Supervisor", {
+            "next_agent": "Analyzer+Investigator",
+            "loop_count": 1,
+            "decidido_por": "guard",
+            "supervisor_reasoning": "Anomalias na receita.",
+            "messages": [HumanMessage("notícias"), HumanMessage("investigue")],
+        }),
+    ]
+    resumo = resumo_em_progresso(eventos)
+    assert "**2 · Analyzer e Investigator** — rodando agora" in resumo
+    assert "Anomalias na receita." in resumo
 

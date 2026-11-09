@@ -248,6 +248,30 @@ def _texto(mensagem: BaseMessage) -> str:
     return mensagem.content if isinstance(mensagem.content, str) else mensagem.text
 
 
+def _e_tarefa_investigador(mensagem: BaseMessage) -> bool:
+    texto = _texto(mensagem).lower()
+    return "investig" in texto or "anomalia" in texto
+
+
+def _filtrar_mensagens_do_ramo(mensagens_anteriores: list[BaseMessage], agente: str) -> list[BaseMessage]:
+    """Filtra mensagens anteriores para que cada ramo veja apenas a sua própria tarefa quando
+    houver tarefas do Supervisor adjacentes (despacho em paralelo)."""
+    indices_para_remover = set()
+    for i in range(len(mensagens_anteriores) - 1):
+        m1 = mensagens_anteriores[i]
+        m2 = mensagens_anteriores[i + 1]
+        if getattr(m1, "name", None) == "Supervisor" and getattr(m2, "name", None) == "Supervisor":
+            # Par adjacente emitido no paralelo: m1 é Analyzer, m2 é Investigator
+            m2_e_inv = _e_tarefa_investigador(m2) or not _e_tarefa_investigador(m1)
+            idx_analista = i if m2_e_inv else (i + 1)
+            idx_investigador = (i + 1) if m2_e_inv else i
+            if agente == "Analyzer":
+                indices_para_remover.add(idx_investigador)
+            elif agente == "Investigator":
+                indices_para_remover.add(idx_analista)
+    return [m for i, m in enumerate(mensagens_anteriores) if i not in indices_para_remover]
+
+
 def _indice_da_resposta(msgs: list[BaseMessage], agente: str, n: int) -> int | None:
     """Posição da n-ésima resposta do agente no histórico, ou None se ele não respondeu n vezes."""
     contagem = 0
@@ -272,7 +296,8 @@ def tarefa_do_supervisor(estado: dict, agente: str, n: int = 1) -> str | None:
     indice = _indice_da_resposta(msgs, agente, n)
     if indice is None:
         return None
-    return next((_texto(m) for m in reversed(msgs[:indice]) if m.name == "Supervisor"), None)
+    anteriores = _filtrar_mensagens_do_ramo(msgs[:indice], agente)
+    return next((_texto(m) for m in reversed(anteriores) if m.name == "Supervisor"), None)
 
 
 def contexto_do_agente(estado: dict, agente: str, n: int = 1) -> list[str]:
@@ -290,5 +315,6 @@ def contexto_do_agente(estado: dict, agente: str, n: int = 1) -> list[str]:
     msgs = mensagens(estado)
     indice = _indice_da_resposta(msgs, agente, n)
     anteriores = msgs if indice is None else msgs[:indice]
+    anteriores = _filtrar_mensagens_do_ramo(anteriores, agente)
     contexto += [f"{m.name or 'Usuario'}: {_texto(m)}" for m in anteriores if m.name in NOMES_NO_CONTEXTO]
     return contexto

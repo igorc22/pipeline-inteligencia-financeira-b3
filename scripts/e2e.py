@@ -9,6 +9,7 @@ Com --espera-*, o script sai com código 1 se o comportamento não for o esperad
 """
 import argparse
 import sys
+import time
 
 from langchain_core.messages import HumanMessage
 
@@ -46,6 +47,7 @@ def conferir_tags_vazadas(mensagens: list[tuple[str, str]]) -> list[str]:
 
 
 def rodar(ticker: str) -> dict:
+    t_inicio = time.perf_counter()
     caminho: list[str] = []
     mensagens: dict[str, str] = {}
     todas: list[tuple[str, str]] = []  # cada resposta (o Analyzer fala duas vezes; o dict guarda só a última)
@@ -59,8 +61,9 @@ def rodar(ticker: str) -> dict:
             loops += update.get("loop_count", 0)
             if node == "Supervisor":
                 decisao = update.get("next_agent", "?")
-                caminho.append(f"Supervisor→{decisao}")
-                print(f"\n[Supervisor] → {decisao}")
+                rotulo = f"[{decisao}]" if decisao == "Analyzer+Investigator" else decisao
+                caminho.append(f"Supervisor→{rotulo}")
+                print(f"\n[Supervisor] → {rotulo}")
                 if update.get("supervisor_reasoning"):
                     print(f"  motivo: {update['supervisor_reasoning']}")
                 for m in update.get("messages", []):
@@ -74,7 +77,15 @@ def rodar(ticker: str) -> dict:
                     relatorio = update.get("relatorio")
                 print(f"\n[{node}] ({len(conteudo)} chars)\n{conteudo[:600]}{'...' if len(conteudo) > 600 else ''}")
 
-    return {"caminho": caminho, "mensagens": mensagens, "todas": todas, "relatorio": relatorio, "loops": loops}
+    tempo_total = time.perf_counter() - t_inicio
+    return {
+        "caminho": caminho,
+        "mensagens": mensagens,
+        "todas": todas,
+        "relatorio": relatorio,
+        "loops": loops,
+        "tempo_total": tempo_total,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -105,6 +116,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Loops:         {resultado['loops']} (hard stop em {HARD_STOP})")
     print(f"Investigator:  {'ATIVADO' if ativou else 'não ativado'}")
     print(f"Sanitização:   {'LIGADA' if SANITIZACAO_ATIVA else 'desligada'} (SANITIZACAO_ATIVA)")
+    tempo = resultado.get("tempo_total", 0.0)
+    print(f"Tempo total:   {tempo:.1f} s")
     vazaram = conferir_tags_vazadas(resultado["todas"])
     if vazaram:
         print(f"AVISO: tags de conteúdo externo vazaram nas mensagens de: {', '.join(vazaram)}")

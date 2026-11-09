@@ -74,3 +74,75 @@ def test_conferir_tags_vazadas():
     ]
     assert e2e.conferir_tags_vazadas(mensagens) == ["YFinance", "Analyzer"]
     assert e2e.conferir_tags_vazadas([("Analyzer", "ok")]) == []
+
+
+def test_rodar_caminho_com_paralelo_e_tempo():
+    """Confere que rodar() inclui Supervisor→[Analyzer+Investigator] no caminho e calcula tempo_total."""
+    from langchain_core.messages import HumanMessage
+    from fluxo_financeiro.shared.types import RelatorioFinal
+
+    eventos = [
+        {"Supervisor": {"next_agent": "YFinance", "loop_count": 1}},
+        {"YFinance": {"messages": [HumanMessage("dados", name="YFinance")]}},
+        {"Supervisor": {"next_agent": "Analyzer+Investigator", "loop_count": 1}},
+        {"Analyzer": {"messages": [HumanMessage("noticias", name="Analyzer")]}},
+        {"Investigator": {"messages": [HumanMessage(DIAG, name="Investigator")]}},
+        {"Supervisor": {"next_agent": "FINISH", "loop_count": 1}},
+        {"Consolidador": {
+            "messages": [HumanMessage(f"# Relatório\n## Diagnóstico da anomalia\n{DIAG}", name="Consolidador")],
+            "relatorio": RelatorioFinal(resumo="ok", indicadores=["P/L: 5.0x"], contexto="ctx", riscos=[], limitacoes=[]),
+        }},
+    ]
+    with patch.object(e2e.app, "stream", return_value=iter(eventos)):
+        res = e2e.rodar("VALE3")
+    assert "Supervisor→[Analyzer+Investigator]" in res["caminho"]
+    assert res["tempo_total"] >= 0.0
+    assert "Investigator" in res["mensagens"]
+
+
+def test_main_espera_investigator_com_paralelo(capsys):
+    """Confere que main com --espera-investigator passa quando Investigator ativou no paralelo e exibe o tempo total."""
+    from fluxo_financeiro.shared.types import RelatorioFinal
+
+    resultado_falso = {
+        "caminho": ["Supervisor→YFinance", "YFinance", "Supervisor→[Analyzer+Investigator]", "Analyzer", "Investigator", "Supervisor→FINISH", "Consolidador"],
+        "mensagens": {
+            "YFinance": "dados",
+            "Analyzer": "noticias",
+            "Investigator": DIAG,
+            "Consolidador": f"# Relatório\n## Diagnóstico da anomalia\n{DIAG}",
+        },
+        "todas": [("YFinance", "dados"), ("Analyzer", "noticias"), ("Investigator", DIAG)],
+        "relatorio": RelatorioFinal(resumo="ok", indicadores=["P/L: 5.0x"], contexto="ctx", riscos=[], limitacoes=[]),
+        "loops": 3,
+        "tempo_total": 4.2,
+    }
+    with patch.object(e2e, "rodar", return_value=resultado_falso):
+        codigo = e2e.main(["VALE3", "--espera-investigator"])
+    saida = capsys.readouterr().out
+    assert codigo == 0
+    assert "Tempo total:   4.2 s" in saida
+    assert "Investigator:  ATIVADO" in saida
+
+
+def test_main_espera_investigator_falha_quando_nao_ativa(capsys):
+    """Confere que main com --espera-investigator falha com código 1 se o Investigator não ativou."""
+    from fluxo_financeiro.shared.types import RelatorioFinal
+
+    resultado_falso = {
+        "caminho": ["Supervisor→YFinance", "YFinance", "Supervisor→Analyzer", "Analyzer", "Supervisor→FINISH", "Consolidador"],
+        "mensagens": {
+            "YFinance": "dados",
+            "Analyzer": "noticias",
+            "Consolidador": "# Relatório",
+        },
+        "todas": [("YFinance", "dados"), ("Analyzer", "noticias")],
+        "relatorio": RelatorioFinal(resumo="ok", indicadores=["P/L: 5.0x"], contexto="ctx", riscos=[], limitacoes=[]),
+        "loops": 3,
+        "tempo_total": 2.1,
+    }
+    with patch.object(e2e, "rodar", return_value=resultado_falso):
+        codigo = e2e.main(["WEGE3", "--espera-investigator"])
+    saida = capsys.readouterr().out
+    assert codigo == 1
+    assert "FALHA: esperava o Investigator e ele não foi ativado" in saida
