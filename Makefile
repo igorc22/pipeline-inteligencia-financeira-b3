@@ -5,7 +5,7 @@ TICKER ?= VALE3
 FIXTURE ?= vale3
 
 .DEFAULT_GOAL := help
-.PHONY: help install test test-tools test-agents test-graph check run streamlit e2e e2e-anomalia e2e-estavel e2e-sanitizacao eval-fixtures eval-fixtures-tavily evaleval-vale3 eval-wege3 eval-todos notebook clean
+.PHONY: help install test test-tools test-agents test-graph check run streamlit e2e e2e-anomalia e2e-estavel e2e-sanitizacao eval-fixtures eval-fixtures-tavily eval eval-vale3 eval-wege3 eval-todos notebook clean
 
 help:
 	@echo Alvos disponiveis:
