@@ -11,7 +11,7 @@ Três camadas, de baixo para cima:
    (`desistiu`, com o limite `MAX_TENTATIVAS`; o Consolidador lê a mesma regra para as limitações).
 
 `classificar_erro` separa o erro temporário (repetir pode dar certo) do permanente (repetir só gasta):
-timeout, conexão caída, resposta que não é JSON e 429/500/503/504 são temporários. A cota zerada
+timeout, conexão caída, resposta que não é JSON e 429/500/502/503/504 são temporários. A cota zerada
 por falta de faturamento volta do Gemini como 429, igual a uma instabilidade, mas é permanente:
 por isso o 429 com texto de cota ou faturamento conta como permanente.
 
@@ -54,7 +54,7 @@ ERROS_BRAPI_TEMPORARIOS = (
     brapi.RateLimitError,
     brapi.InternalServerError,
 )
-CODIGOS_TEMPORARIOS = {429, 500, 503, 504}
+CODIGOS_TEMPORARIOS = {429, 500, 502, 503, 504}
 # Textos do 429 que repetir não resolve: cota zero, faturamento desligado, crédito pré-pago no fim.
 # "quota" sozinho não serve: o limite por minuto ("You exceeded your current quota ... limit: 15")
 # também traz a palavra, e esse passa sozinho em segundos.

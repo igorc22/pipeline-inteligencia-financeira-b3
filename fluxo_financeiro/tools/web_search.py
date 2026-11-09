@@ -4,7 +4,10 @@
 pesquisar_pergunta. `pesquisar_na_web` é a implementação Google (o Gemini busca e resume); a da
 Tavily é uma API de busca: devolve a resposta curta dela e os trechos das páginas, sem LLM nosso.
 """
+import contextvars
 import re
+import threading
+from functools import lru_cache
 from urllib.parse import urlparse
 
 from google import genai
@@ -21,6 +24,9 @@ MAX_FONTES = 5
 MAX_ERRO_LOG = 300
 # Trecho de cada página que a Tavily devolve, cortado: 5 resultados inteiros encheriam o contexto dos agentes.
 MAX_TRECHO = 400
+# Segundos que a busca da Tavily pode levar. O langchain-tavily faz o POST sem timeout: com a conexão
+# parada, a chamada nunca voltaria e travaria o subgrafo de pesquisa (e o passo paralelo inteiro).
+TIMEOUT_TAVILY = 30.0
 FORMATO_PADRAO = "Seja conciso: no máximo 3 parágrafos."
 
 PROVEDORES = ("google", "tavily")
@@ -58,12 +64,12 @@ def buscar_na_web(consulta: str, instrucao: str, *, empresa: str = "", formato: 
     onde vira a <tarefa> do prompt do Gemini; a Tavily recebe só a consulta, com a `empresa` na frente.
     Exceções (chave inválida, rede, cota) sobem para quem chamou: as tools convertem em mensagem de
     erro e o subgrafo de pesquisa repete o erro temporário. Provedor inválido ou Tavily sem chave: uma
-    linha de aviso e a busca vai ao Google.
+    linha de aviso por processo e a busca vai ao Google.
     """
     provedor = provedor_da_busca()
     if provedor != BUSCA_PROVEDOR:
         motivo = "sem TAVILY_API_KEY" if BUSCA_PROVEDOR == "tavily" else f"valor inválido, aceitos: {', '.join(PROVEDORES)}"
-        logger.warning(f"[busca] BUSCA_PROVEDOR={BUSCA_PROVEDOR!r} ({motivo}): usando o google")
+        _avisar_provedor(BUSCA_PROVEDOR, motivo)
     if provedor == "tavily":
         return _buscar_na_tavily(f"{empresa} {consulta}" if empresa else consulta)
     linha_empresa = f"<empresa>{escapar_tags(empresa)}</empresa>\n" if empresa else ""
@@ -73,6 +79,12 @@ def buscar_na_web(consulta: str, instrucao: str, *, empresa: str = "", formato: 
         + f"<consulta>{escapar_tags(consulta)}</consulta>\n"
         f"<formato_resposta>{formato}</formato_resposta>"
     )
+
+
+@lru_cache(maxsize=None)
+def _avisar_provedor(provedor: str, motivo: str) -> None:
+    """Avisa uma vez por processo que a busca caiu no Google: sem o cache, cada busca da análise repetiria a linha."""
+    logger.warning(f"[busca] BUSCA_PROVEDOR={provedor!r} ({motivo}): usando o google")
 
 
 def _criar_cliente() -> genai.Client:
@@ -126,7 +138,7 @@ def _buscar_na_tavily(consulta: str) -> str:
         include_answer=True,
         tavily_api_key=TAVILY_API_KEY,
     )
-    resposta = tavily.invoke({"query": consulta})
+    resposta = _invocar_com_limite(tavily.invoke, {"query": consulta}, TIMEOUT_TAVILY)
     if not isinstance(resposta, dict):
         logger.info(f"[busca] tavily sem resultados para '{consulta[:80]}'")
         return ""
@@ -153,6 +165,31 @@ def _buscar_na_tavily(consulta: str) -> str:
     if fontes:
         texto += "\n\nFontes: " + ", ".join(fontes[:MAX_FONTES])
     return texto
+
+
+def _invocar_com_limite(funcao, argumento, limite: float):
+    """Chama `funcao(argumento)` numa thread e levanta TimeoutError (temporário no retry) se passar de `limite` segundos.
+
+    A thread é daemon: uma chamada presa não segura a saída do programa (as do ThreadPoolExecutor
+    seguram). O alvo guarda qualquer exceção para levantar aqui, com a classe original, e roda
+    numa cópia do contexto para o trace do LangSmith continuar aninhado na tool que chamou.
+    """
+    saida: dict = {}
+
+    def rodar():
+        try:
+            saida["valor"] = funcao(argumento)
+        except BaseException as erro:  # noqa: BLE001 (levantada de novo na thread de quem chamou)
+            saida["erro"] = erro
+
+    linha = threading.Thread(target=contextvars.copy_context().run, args=(rodar,), daemon=True, name="busca_tavily")
+    linha.start()
+    linha.join(limite)
+    if linha.is_alive():
+        raise TimeoutError(f"Tavily não respondeu em {limite:g} s")
+    if "erro" in saida:
+        raise saida["erro"]
+    return saida["valor"]
 
 
 def _levantar_erro_da_tavily(erro) -> None:

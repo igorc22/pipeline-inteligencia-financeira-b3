@@ -1,16 +1,18 @@
 import logging
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
 
-from fluxo_financeiro.shared.retry import ErroTavily
+from fluxo_financeiro.shared.retry import TRANSITORIO, ErroTavily, classificar_erro
 from fluxo_financeiro.tools.sanitizacao import VereditoInjecao
 from fluxo_financeiro.tools.news import buscar_noticias_web
 from fluxo_financeiro.tools.web_search import (
     MAX_FONTES,
     MAX_TRECHO,
     REDES_SOCIAIS,
+    _avisar_provedor,
     _criar_cliente,
     buscar_na_web,
     origem_da_busca,
@@ -281,15 +283,17 @@ def test_buscar_na_web_padrao_e_o_google(mock_pesquisa, mock_tavily, caplog):
 @patch(TAVILY)
 @patch('fluxo_financeiro.tools.web_search.pesquisar_na_web')
 def test_provedor_invalido_ou_tavily_sem_chave_cai_no_google(mock_pesquisa, mock_tavily, provedor, chave, caplog):
-    """Confere que provedor inválido ou Tavily sem chave dá uma linha de aviso e a busca vai ao Google, sem derrubar."""
+    """Confere que provedor inválido ou Tavily sem chave dá uma linha de aviso só (não uma por busca) e a busca vai ao Google."""
     caplog.set_level(logging.INFO, logger="fluxo_financeiro")
     mock_pesquisa.return_value = "Resumo."
+    _avisar_provedor.cache_clear()  # outro teste pode já ter avisado neste processo
 
     with patch(PROVEDOR, provedor), patch(CHAVE_TAVILY, chave):
         assert buscar_na_web("Vale", "Busque.") == "Resumo."
+        assert buscar_na_web("Vale lucro", "Busque.") == "Resumo."
         assert origem_da_busca() == "google_search"
 
-    mock_pesquisa.assert_called_once()
+    assert mock_pesquisa.call_count == 2
     mock_tavily.assert_not_called()
     avisos = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
     assert len(avisos) == 1
@@ -376,6 +380,30 @@ def test_tavily_erro_de_rede_sobe_como_veio(tavily_ligada):
         buscar_na_web("Vale", "Busque.")
 
     assert levantado.value is erro
+
+
+def test_tavily_que_nao_responde_levanta_timeout(tavily_ligada):
+    """Confere que a Tavily parada (o POST do langchain-tavily não tem timeout) vira TimeoutError temporário, sem travar."""
+    liberar = threading.Event()
+    tavily_ligada.return_value.invoke.side_effect = lambda _: liberar.wait()
+
+    try:
+        # Limite zero: o join volta na hora e a busca ainda está presa no Event. Nenhuma espera de verdade.
+        with patch("fluxo_financeiro.tools.web_search.TIMEOUT_TAVILY", 0):
+            with pytest.raises(TimeoutError) as levantado:
+                buscar_na_web("Vale", "Busque.")
+    finally:
+        liberar.set()
+
+    assert classificar_erro(levantado.value) == TRANSITORIO
+
+
+def test_tavily_excecao_da_chamada_sobe_com_a_classe_original(tavily_ligada):
+    """Confere que a exceção levantada dentro da thread da Tavily chega a quem chamou com a classe original."""
+    tavily_ligada.return_value.invoke.side_effect = requests.Timeout("lento")
+
+    with pytest.raises(requests.Timeout):
+        buscar_na_web("Vale", "Busque.")
 
 
 def test_buscar_noticias_web_com_a_tavily_usa_a_origem_tavily(tavily_ligada):

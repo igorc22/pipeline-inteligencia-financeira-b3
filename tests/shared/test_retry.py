@@ -137,6 +137,7 @@ def test_429_de_cota_e_permanente_e_de_instabilidade_e_transitorio():
     [
         (429, TRANSITORIO),
         (500, TRANSITORIO),
+        (502, TRANSITORIO),
         (503, TRANSITORIO),
         (504, TRANSITORIO),
         (400, PERMANENTE),
@@ -148,7 +149,7 @@ def test_429_de_cota_e_permanente_e_de_instabilidade_e_transitorio():
     ],
 )
 def test_classifica_erro_http_da_tavily(codigo, esperado):
-    """Confere que o 429 e o 5xx da Tavily são temporários e o resto (chave, plano, sem código) é permanente."""
+    """Confere que o 429 e o 5xx da Tavily (inclusive o 502) são temporários e o resto (chave, plano, sem código) é permanente."""
     assert classificar_erro(ErroTavily(codigo, f"Error {codigo}: algo")) == esperado
 
 

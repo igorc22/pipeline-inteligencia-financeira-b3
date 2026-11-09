@@ -364,6 +364,24 @@ def test_pesquisar_pergunta_repete_o_429_da_tavily(mock_tavily, espera_falsa):
 @patch("fluxo_financeiro.tools.web_search.TAVILY_API_KEY", "chave-falsa")
 @patch("fluxo_financeiro.tools.web_search.BUSCA_PROVEDOR", "tavily")
 @patch("fluxo_financeiro.tools.web_search.TavilySearch")
+@patch("fluxo_financeiro.tools.web_search._invocar_com_limite")
+def test_pesquisar_pergunta_repete_o_timeout_da_tavily(mock_invocar, mock_tavily, espera_falsa):
+    """Confere que a Tavily que estoura o tempo limite é repetida e a segunda tentativa vale."""
+    mock_invocar.side_effect = [
+        TimeoutError("Tavily não respondeu em 30 s"),
+        _tavily_ok("Achado depois do timeout."),
+    ]
+
+    result = pesquisar_pergunta(PERGUNTA, "VALE3")
+
+    assert mock_invocar.call_count == 2
+    assert "Achado depois do timeout." in result
+    espera_falsa.assert_called_once()
+
+
+@patch("fluxo_financeiro.tools.web_search.TAVILY_API_KEY", "chave-falsa")
+@patch("fluxo_financeiro.tools.web_search.BUSCA_PROVEDOR", "tavily")
+@patch("fluxo_financeiro.tools.web_search.TavilySearch")
 def test_pesquisar_pergunta_401_da_tavily_vira_vazio(mock_tavily, espera_falsa):
     """Confere que o 401 da Tavily (chave inválida) não é repetido e a pergunta fica sem achado."""
     mock_tavily.return_value.invoke.return_value = {"error": ValueError("Error 401: Unauthorized")}

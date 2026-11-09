@@ -332,7 +332,7 @@ flowchart TD
 | Chamadas que o **código** faz (`com_retentativas`): Banco Central, Brapi, leitura do yfinance no detector de anomalias, buscas do subgrafo de pesquisa | A própria chamada, até 2 vezes | Levanta para quem chamou, que já tratava a falha (linha do BCB omitida, yfinance como reserva da Brapi, detector sem sinais, pergunta sem achado) |
 | Tools que o **LLM** chama | Nada | Devolvem `"Erro ao ..."` como texto, e o agente decide |
 
-**Temporário ou permanente** (`classificar_erro`, em `shared/retry.py`): timeout, conexão caída, resposta que não é JSON (o Banco Central já devolveu isso numa execução real) e os códigos 429, 500, 503 e 504 repetem. O resto sobe na primeira falha: chave errada, modelo ou ticker que não existe, e o 429 de cota zerada, que tem o mesmo código de uma sobrecarga e se distingue pelo texto (`limit: 0`, `billing is not enabled`, `credits`, `prepay`). O 429 de limite por minuto (`limit: 15`) é temporário.
+**Temporário ou permanente** (`classificar_erro`, em `shared/retry.py`): timeout, conexão caída, resposta que não é JSON (o Banco Central já devolveu isso numa execução real) e os códigos 429, 500, 502, 503 e 504 repetem. O resto sobe na primeira falha: chave errada, modelo ou ticker que não existe, e o 429 de cota zerada, que tem o mesmo código de uma sobrecarga e se distingue pelo texto (`limit: 0`, `billing is not enabled`, `credits`, `prepay`). O 429 de limite por minuto (`limit: 15`) é temporário.
 
 **Por que o reenvio não conta volta:** a análise com Investigator usa 5 passagens pelo Supervisor e o hard stop é 6. O reenvio devolve `loop_count: 0`, e quem garante que ele termina é o limite por agente. No pior caso, o agente roda 4 vezes (2 locais em cada uma das 2 rodadas).
 
