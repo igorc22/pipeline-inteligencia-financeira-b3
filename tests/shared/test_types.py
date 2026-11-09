@@ -47,6 +47,13 @@ def test_formatar_diagnostico_une_evidencias_na_mesma_linha():
     assert "- Evidências: baixa contábil de US$ 2B no 3T26; lucro dos trimestres anteriores estável" in texto.splitlines()
 
 
+def test_formatar_diagnostico_sem_ponto_antes_do_separador():
+    """Confere que a frase do LLM que termina em ponto não sai como '.;' (aconteceu no e2e da VALE3)."""
+    texto = formatar_diagnostico(_diagnostico(evidencias=["Lucro caiu 53%.", "Impairment de US$ 242 mi. "]), [])
+
+    assert "- Evidências: Lucro caiu 53%; Impairment de US$ 242 mi" in texto.splitlines()
+
+
 def test_formatar_diagnostico_sem_evidencias_mantem_a_linha():
     """Confere que, sem evidências, a linha continua lá e diz que não houve evidência, sem ficar vazia."""
     texto = formatar_diagnostico(_diagnostico(evidencias=[]), [])

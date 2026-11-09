@@ -69,10 +69,12 @@ SEM_EVIDENCIAS = "nenhuma evidência encontrada nas buscas"
 
 def formatar_diagnostico(d: DiagnosticoPesquisa, fontes: list[str]) -> str:
     """As 4 linhas-contrato do diagnóstico (Causa, Natureza, Evidências, Impacto) e as fontes no fim, quando houver."""
+    # Cada evidência é uma frase do LLM, que costuma terminar em ponto: sem tirar, sairia ".;".
+    evidencias = [e.strip().rstrip(".").strip() for e in d.evidencias if e.strip()]
     linhas = [
         f"- Causa identificada: {d.causa}",
         f"- Natureza do evento: {d.natureza}",
-        f"- Evidências: {'; '.join(d.evidencias) if d.evidencias else SEM_EVIDENCIAS}",
+        f"- Evidências: {'; '.join(evidencias) if evidencias else SEM_EVIDENCIAS}",
         f"- Impacto no investimento: {d.impacto}",
     ]
     if fontes:
