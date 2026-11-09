@@ -3,10 +3,9 @@ from newsapi import NewsApiClient
 from langchain_core.tools import tool
 
 from fluxo_financeiro.shared.config import NEWS_API_KEY
-from fluxo_financeiro.shared.prompts import escapar_tags
 from fluxo_financeiro.shared.utils import logger
 from fluxo_financeiro.tools.sanitizacao import tratar_conteudo_externo
-from fluxo_financeiro.tools.web_search import pesquisar_na_web, registrar_falha_busca
+from fluxo_financeiro.tools.web_search import buscar_na_web, origem_da_busca, registrar_falha_busca
 
 
 @tool
@@ -77,26 +76,23 @@ def buscar_noticias(query: str) -> str:
 @tool
 def buscar_noticias_web(query: str) -> str:
     """
-    Busca notícias em tempo real sobre uma empresa ou ação via Google Search (Gemini).
+    Busca notícias em tempo real sobre uma empresa ou ação na web.
     É a busca padrão de notícias: use primeiro, para a empresa ou para o setor. Cobre
     também as últimas horas (eventos corporativos recentes, resultados, M&A).
     A resposta termina com a lista de fontes consultadas.
     """
     logger.info(f"[tool] buscar_noticias_web: query='{query}'")
     try:
-        resultado = pesquisar_na_web(
-            "<tarefa>\n"
+        resultado = buscar_na_web(
+            query,
             "Busque e resuma as notícias mais recentes sobre a consulta abaixo, no contexto da bolsa brasileira B3.\n"
-            "Foque em eventos corporativos e movimentos de mercado.\n"
-            "</tarefa>\n"
-            f"<consulta>{escapar_tags(query)}</consulta>\n"
-            "<formato_resposta>Seja conciso: no máximo 3 parágrafos.</formato_resposta>"
+            "Foque em eventos corporativos e movimentos de mercado.",
         )
         if not resultado:
             logger.warning(f"[tool] buscar_noticias_web: nenhum resultado para '{query}'")
             return f'Nenhuma notícia encontrada para: {query}'
         logger.info(f"[tool] buscar_noticias_web: ok ({len(resultado)} chars)")
-        return tratar_conteudo_externo(resultado, "google_search")
+        return tratar_conteudo_externo(resultado, origem_da_busca())
     except Exception as e:
         registrar_falha_busca(f"[tool] buscar_noticias_web falhou para '{query}'", e)
         return f'Erro ao buscar notícias via web search: {e}'

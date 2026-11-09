@@ -12,6 +12,9 @@ os.environ["LANGCHAIN_TRACING_V2"] = "false"
 # Com SANITIZACAO_ATIVA=true no .env, cada tool de busca chamaria o classificador (Gemini) nos testes.
 # Os testes que precisam da flag ligada fazem patch no módulo e mockam o LLM.
 os.environ["SANITIZACAO_ATIVA"] = "false"
+# Com BUSCA_PROVEDOR=tavily no .env, a suíte seguiria a escolha do usuário. Os testes da Tavily fazem
+# patch no módulo (fluxo_financeiro.tools.web_search) e mockam a TavilySearch.
+os.environ["BUSCA_PROVEDOR"] = "google"
 # A deepeval manda telemetria por padrão (PostHog e OpenTelemetry) ao ser importada; aqui fica desligada.
 os.environ["DEEPEVAL_TELEMETRY_OPT_OUT"] = "1"
 

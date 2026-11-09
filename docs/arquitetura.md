@@ -148,7 +148,7 @@ Dado faltando no yfinance → a regra é pulada, nunca acusa.
 
 ## 3. Uma análise com anomalia, passo a passo
 
-Exemplo real (VALE3, 02/11/2026): ~25 s, ~30 mil tokens, ~US\$ 0,016 antes do Consolidador, que acrescenta uma chamada ao LLM. Com o paralelo e o subgrafo de pesquisa, o e2e de 09/11/2026 fechou em 3 loops e 24,1 s, com 3 perguntas e o crítico aprovando sem volta.
+Exemplo real (VALE3, 02/11/2026): ~25 s, ~30 mil tokens, ~US\$ 0,016 antes do Consolidador, que acrescenta uma chamada ao LLM. Com o paralelo e o subgrafo de pesquisa, o e2e de 09/11/2026 fechou em 3 loops e 24,1 s, com 3 perguntas e o crítico aprovando sem volta. Na rodada que comparou os provedores de busca, a VALE3 fechou em 3 loops nos dois: 25,3 s com o Google e 22,0 s com a Tavily (uma execução de cada).
 
 ```mermaid
 sequenceDiagram
@@ -161,7 +161,7 @@ sequenceDiagram
     participant BC as Banco Central
     participant A as Analyzer
     participant I as Investigator
-    participant W as Google Search
+    participant W as Busca na web (Google ou Tavily)
     participant C as Consolidador
 
     U->>B: (entrada) VALE3 existe?
@@ -213,7 +213,7 @@ flowchart BT
         FD["financial_data.py"]
         NW["news.py"]
         INVT["investigation.py"]
-        WS["web_search.py"]
+        WS["web_search.py<br/>buscar_na_web(): Google ou Tavily"]
         ANO["anomalias.py"]
         SAN["sanitizacao.py<br/>flag SANITIZACAO_ATIVA"]
         BRP["brapi.py<br/>ticker_existe(), buscar_perfil()"]
@@ -261,7 +261,8 @@ flowchart LR
 
     subgraph externos["Serviços externos"]
         GEM["Gemini 3.5 Flash-Lite<br/>LLM de todos os agentes"]
-        GS["Google Search<br/>(via Gemini, exige faturamento)"]
+        GS["Google Search<br/>(via Gemini, exige faturamento)<br/>busca padrão"]
+        TAV["Tavily<br/>(API de busca, por créditos)<br/>BUSCA_PROVEDOR=tavily"]
         BRAPI["Brapi (plano gratuito)<br/>conferência do ticker, cotação,<br/>perfil, maiores do setor"]
         YF["yfinance<br/>P/L, ROE, DY, histórico,<br/>demonstrativos, IBOV"]
         BCB["API do Banco Central<br/>SELIC, CDI, IPCA 12 meses"]
@@ -276,12 +277,22 @@ flowchart LR
 
     APP --> GEM
     APP --> GS
+    APP -.->|"com a flag"| TAV
     APP --> BRAPI
     APP --> YF
     APP --> BCB
     APP --> NAPI
     APP -.->|"traces"| LS
 ```
+
+As três buscas na web (notícias do Analyzer, `buscar_fatos_relevantes` e as perguntas do subgrafo de pesquisa) passam por `buscar_na_web` (`tools/web_search.py`), e `BUSCA_PROVEDOR` no `.env` escolhe o provedor:
+
+| Provedor | Como busca | O que volta |
+|---|---|---|
+| `google` (padrão) | O Gemini busca no Google Search e resume; a consulta vai num prompt, escapada em `<consulta>` | O resumo e `Fontes:` com até 5 sites |
+| `tavily` | API de busca (`langchain-tavily`), consulta crua, último ano, redes sociais excluídas, limite de 30 s | A resposta curta da Tavily, os trechos das páginas (400 caracteres cada) e `Fontes:` com os domínios |
+
+Com `tavily` e sem `TAVILY_API_KEY`, ou com um valor que não é nenhum dos dois, uma linha de aviso por processo e a busca vai ao Google. Zero resultado da Tavily vira busca vazia. O texto dos dois passa por `tratar_conteudo_externo()`, com `origem="google_search"` ou `origem="tavily"` na tag.
 
 ---
 
@@ -332,7 +343,7 @@ flowchart TD
 | Chamadas que o **código** faz (`com_retentativas`): Banco Central, Brapi, leitura do yfinance no detector de anomalias, buscas do subgrafo de pesquisa | A própria chamada, até 2 vezes | Levanta para quem chamou, que já tratava a falha (linha do BCB omitida, yfinance como reserva da Brapi, detector sem sinais, pergunta sem achado) |
 | Tools que o **LLM** chama | Nada | Devolvem `"Erro ao ..."` como texto, e o agente decide |
 
-**Temporário ou permanente** (`classificar_erro`, em `shared/retry.py`): timeout, conexão caída, resposta que não é JSON (o Banco Central já devolveu isso numa execução real) e os códigos 429, 500, 503 e 504 repetem. O resto sobe na primeira falha: chave errada, modelo ou ticker que não existe, e o 429 de cota zerada, que tem o mesmo código de uma sobrecarga e se distingue pelo texto (`limit: 0`, `billing is not enabled`, `credits`, `prepay`). O 429 de limite por minuto (`limit: 15`) é temporário.
+**Temporário ou permanente** (`classificar_erro`, em `shared/retry.py`): timeout, conexão caída, resposta que não é JSON (o Banco Central já devolveu isso numa execução real) e os códigos 429, 500, 502, 503 e 504 repetem. O resto sobe na primeira falha: chave errada, modelo ou ticker que não existe, e o 429 de cota zerada, que tem o mesmo código de uma sobrecarga e se distingue pelo texto (`limit: 0`, `billing is not enabled`, `credits`, `prepay`). O 429 de limite por minuto (`limit: 15`) é temporário.
 
 **Por que o reenvio não conta volta:** a análise com Investigator usa 5 passagens pelo Supervisor e o hard stop é 6. O reenvio devolve `loop_count: 0`, e quem garante que ele termina é o limite por agente. No pior caso, o agente roda 4 vezes (2 locais em cada uma das 2 rodadas).
 
@@ -381,5 +392,4 @@ Próximos passos:
 - **Persistência**: um banco de dados para registrar as chamadas (entrada e saída de cada análise, com data e hora).
 - **Checkpointer e cache de dados frescos**: o checkpointer guarda o estado de uma análise para ela poder ser retomada, e o cache evita buscar de novo no yfinance um dado que acabou de chegar.
 - **Provedor genérico**: um LiteLLM na frente do modelo.
-- **Busca desacoplada do modelo (Fase 7c)**: chave de configuração para alternar entre Google Search e Tavily.
 - **A2A**: no fim, expor o fluxo como um agente A2A, que um futuro fluxo de análise de carteira consiga descobrir e chamar, com o `relatorio` em JSON como resposta.

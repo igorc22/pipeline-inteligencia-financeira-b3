@@ -2,8 +2,8 @@
 
 Três camadas, de baixo para cima:
 1. A biblioteca do Gemini já repete sozinha cada chamada ao LLM (não configurada por nós).
-2. Local: as chamadas externas que o código faz sozinho (Banco Central, Brapi, detector de anomalias)
-   passam por `com_retentativas`, que repete só o erro temporário, com espera crescente. Os nós dos
+2. Local: as chamadas externas que o código faz sozinho (Banco Central, Brapi, detector de anomalias,
+   buscas do subgrafo de pesquisa no Google ou na Tavily) passam por `com_retentativas`, que repete só o erro temporário, com espera crescente. Os nós dos
    workers (graph/graph.py) repetem o agente inteiro do mesmo jeito e, se não conseguem, devolvem um
    erro estruturado no state em vez de levantar. As tools que o LLM chama continuam devolvendo
    "Erro ao ..." para o agente decidir.
@@ -11,7 +11,7 @@ Três camadas, de baixo para cima:
    (`desistiu`, com o limite `MAX_TENTATIVAS`; o Consolidador lê a mesma regra para as limitações).
 
 `classificar_erro` separa o erro temporário (repetir pode dar certo) do permanente (repetir só gasta):
-timeout, conexão caída, resposta que não é JSON e 429/500/503/504 são temporários. A cota zerada
+timeout, conexão caída, resposta que não é JSON e 429/500/502/503/504 são temporários. A cota zerada
 por falta de faturamento volta do Gemini como 429, igual a uma instabilidade, mas é permanente:
 por isso o 429 com texto de cota ou faturamento conta como permanente.
 
@@ -54,7 +54,7 @@ ERROS_BRAPI_TEMPORARIOS = (
     brapi.RateLimitError,
     brapi.InternalServerError,
 )
-CODIGOS_TEMPORARIOS = {429, 500, 503, 504}
+CODIGOS_TEMPORARIOS = {429, 500, 502, 503, 504}
 # Textos do 429 que repetir não resolve: cota zero, faturamento desligado, crédito pré-pago no fim.
 # "quota" sozinho não serve: o limite por minuto ("You exceeded your current quota ... limit: 15")
 # também traz a palavra, e esse passa sozinho em segundos.
@@ -63,6 +63,20 @@ MARCAS_DE_COTA = ("limit: 0", "billing is not enabled", "credits", "prepay")
 
 class RespostaVazia(Exception):
     """O agente terminou sem resposta final (nem a saída das tools serviu). Temporária: repetir pode dar certo."""
+
+
+class ErroTavily(Exception):
+    """Erro HTTP da busca da Tavily, com o código (None quando a resposta não trouxe um).
+
+    O langchain-tavily não levanta no erro HTTP: devolve {"error": ValueError("Error 429: ...")} e o
+    código só existe no texto. tools/web_search.py lê o código e levanta esta exceção, que fica aqui
+    para `classificar_erro` reconhecer sem importar de tools/. 429 e 5xx são temporários; 401, 403 e
+    os de limite do plano (432, 433) são permanentes.
+    """
+
+    def __init__(self, codigo: Optional[int], mensagem: str):
+        super().__init__(mensagem)
+        self.codigo = codigo
 
 
 def _cadeia(e: BaseException) -> list[BaseException]:
@@ -76,10 +90,12 @@ def _cadeia(e: BaseException) -> list[BaseException]:
 
 
 def _codigo_http(cadeia: list[BaseException]) -> Optional[int]:
-    """O código HTTP do erro do Gemini na cadeia (o wrapper do LangChain guarda no __cause__)."""
+    """O código HTTP do erro do Gemini (o wrapper do LangChain guarda no __cause__) ou da Tavily na cadeia."""
     for erro in cadeia:
         if isinstance(erro, genai_errors.APIError) and isinstance(erro.code, int):
             return erro.code
+        if isinstance(erro, ErroTavily) and isinstance(erro.codigo, int):
+            return erro.codigo
     if any(isinstance(erro, ModelRateLimitError) for erro in cadeia):
         return 429
     return None

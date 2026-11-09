@@ -740,6 +740,7 @@ dependencies = [
     { name = "jupyter" },
     { name = "langchain" },
     { name = "langchain-google-genai" },
+    { name = "langchain-tavily" },
     { name = "langgraph" },
     { name = "newsapi-python" },
     { name = "python-dotenv" },
@@ -761,6 +762,7 @@ requires-dist = [
     { name = "jupyter", specifier = ">=1.1.1" },
     { name = "langchain", specifier = ">=1.2.18" },
     { name = "langchain-google-genai", specifier = ">=4.4.2" },
+    { name = "langchain-tavily", specifier = ">=0.2.18" },
     { name = "langgraph", specifier = ">=1.1.10" },
     { name = "newsapi-python", specifier = ">=0.2.7" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
@@ -1648,6 +1650,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/cb/8b/d908d082c3cf5368ddd1816ed114de79c873f979ba7f98b95fab0e841643/langchain_protocol-0.0.20.tar.gz", hash = "sha256:0f5bd002474265648e91161771a9e0438fe9480bd55a416e51af0f60070637ec", size = 6280, upload-time = "2026-10-20T11:13:50.84Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/02/4b/f1c99a0b27c5ff8b4b131c0d6e62012c17cc424089efe213767db927afd2/langchain_protocol-0.0.20-py3-none-any.whl", hash = "sha256:3c935e5e46b0f6f9cb52f45ba7cfa53d1b9fa80c82c4a277d47f03e07f7385b1", size = 7347, upload-time = "2026-10-20T11:13:49.566Z" },
+]
+
+[[package]]
+name = "langchain-tavily"
+version = "0.2.18"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "langchain" },
+    { name = "langchain-core" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d6/6c/b309ef3062b189a82463dc93553804566e71aa393f9ba8954750793c1a6f/langchain_tavily-0.2.18.tar.gz", hash = "sha256:cd7859ae1a6ce79236580ef67072ff5fc43c7ded94e7eac38ff04209ca85a320", size = 25378, upload-time = "2026-04-16T15:23:24.526Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/71/9c/0c043e4434b1823f0ac194f66036cbb0569275a99dcb890e0891ecd34fb2/langchain_tavily-0.2.18-py3-none-any.whl", hash = "sha256:dccf3ad1c50e2cb2a89bec11727555805c9df8abd42c1f3ad42ccad86e28aa44", size = 30814, upload-time = "2026-04-16T15:23:23.424Z" },
 ]
 
 [[package]]

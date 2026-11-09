@@ -5,7 +5,7 @@ TICKER ?= VALE3
 FIXTURE ?= vale3
 
 .DEFAULT_GOAL := help
-.PHONY: help install test test-tools test-agents test-graph check run streamlit e2e e2e-anomalia e2e-estavel e2e-sanitizacao eval-fixtures eval eval-vale3 eval-wege3 eval-todos notebook clean
+.PHONY: help install test test-tools test-agents test-graph check run streamlit e2e e2e-anomalia e2e-estavel e2e-sanitizacao eval-fixtures eval-fixtures-tavily eval eval-vale3 eval-wege3 eval-todos notebook clean
 
 help:
 	@echo Alvos disponiveis:
@@ -22,6 +22,7 @@ help:
 	@echo   make e2e-estavel     - e2e com WEGE3, espera o Investigator NAO ativado
 	@echo   make e2e-sanitizacao - e2e com VALE3 e a sanitizacao por IA ligada, uma chamada a mais por busca
 	@echo   make eval-fixtures   - gera as fixtures dos evals com analises reais de VALE3 e WEGE3, GASTA CREDITOS
+	@echo   make eval-fixtures-tavily - as mesmas fixtures com a busca na Tavily, arquivos _tavily, GASTA CREDITOS
 	@echo   make eval FIXTURE=X  - roda os evals com LLM-juiz numa fixture, padrao vale3, GASTA CREDITOS
 	@echo   make eval-vale3      - evals na fixture da VALE3, com Investigator, GASTA CREDITOS
 	@echo   make eval-wege3      - evals na fixture da WEGE3, sem Investigator, GASTA CREDITOS
@@ -68,6 +69,12 @@ e2e-sanitizacao:
 	uv run python scripts/e2e.py VALE3 --espera-investigator
 
 eval-fixtures:
+	uv run python scripts/gerar_fixture_eval.py VALE3
+	uv run python scripts/gerar_fixture_eval.py WEGE3
+
+# Mesmas analises com a busca na Tavily: grava vale3_tavily.json e wege3_tavily.json, sem tocar nas do Google
+eval-fixtures-tavily: export BUSCA_PROVEDOR = tavily
+eval-fixtures-tavily:
 	uv run python scripts/gerar_fixture_eval.py VALE3
 	uv run python scripts/gerar_fixture_eval.py WEGE3
 

@@ -3,12 +3,15 @@
 Uso:
     uv run python scripts/gerar_fixture_eval.py VALE3
     uv run python scripts/gerar_fixture_eval.py WEGE3
+    BUSCA_PROVEDOR=tavily uv run python scripts/gerar_fixture_eval.py VALE3   # grava vale3_tavily.json
 
 Roda o grafo com subgraphs=True para ver, além do state final, as saídas das tools de cada
 passagem de cada agente (elas ficam dentro do create_agent e não chegam ao state). O Investigator
 roda o subgrafo de pesquisa, sem ToolMessage: a passagem dele fica sem tools, e o que ele leu
 (histórico trimestral e achados das buscas) vai na chave "pesquisa", tirada do state. Grava tudo em
 tests/evals/fixtures/<ticker>.json, em UTF-8: texto da busca na web traz caractere fora do cp1252.
+Com a busca na Tavily, o arquivo é <ticker>_tavily.json: as fixtures do Google não são sobrescritas,
+e os evals comparam os dois provedores (make eval FIXTURE=vale3_tavily).
 """
 import argparse
 import json
@@ -20,7 +23,7 @@ from typing import Iterable
 from langchain_core.messages import HumanMessage, ToolMessage, messages_to_dict
 
 from fluxo_financeiro import app
-from fluxo_financeiro.shared.config import MODEL
+from fluxo_financeiro.shared.config import BUSCA_PROVEDOR, MODEL
 from fluxo_financeiro.shared.utils import TICKER_INVALIDO, validar_ticker
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -81,7 +84,13 @@ def rodar(ticker: str) -> tuple[dict, list[dict]]:
     return coletar(eventos)
 
 
-def montar_fixture(ticker: str, estado_final: dict, passagens: list[dict], modelo: str, gerado_em: str) -> dict:
+def nome_da_fixture(ticker: str, busca: str) -> str:
+    """vale3 com o Google (o padrão, nome de sempre), vale3_tavily com a Tavily."""
+    return ticker.lower() if busca == "google" else f"{ticker.lower()}_{busca}"
+
+
+def montar_fixture(ticker: str, estado_final: dict, passagens: list[dict], modelo: str, gerado_em: str,
+                   busca: str = "google") -> dict:
     """Fixture em formato JSON. Recusa a análise cujo Consolidador caiu no fallback (relatorio None)."""
     relatorio = estado_final.get("relatorio")
     if relatorio is None:
@@ -92,6 +101,7 @@ def montar_fixture(ticker: str, estado_final: dict, passagens: list[dict], model
         "ticker": ticker,
         "gerado_em": gerado_em,
         "modelo": modelo,
+        "busca": busca,  # provedor da busca na web que a análise usou de fato
         "messages": messages_to_dict(estado_final.get("messages") or []),
         "passagens": passagens,
         "sinais_anomalia": [s.model_dump() for s in estado_final.get("sinais_anomalia") or []],
@@ -109,11 +119,20 @@ def main(argv: list[str] | None = None, pasta: Path = PASTA_FIXTURES) -> int:
 
     # Importado aqui para o patch no módulo de origem valer nos testes.
     from fluxo_financeiro.tools.brapi import mensagem_ticker_inexistente, ticker_existe
+    from fluxo_financeiro.tools.web_search import provedor_da_busca
 
     ticker = validar_ticker(args.ticker)
     if ticker is None:
         print(TICKER_INVALIDO)
         return 2
+
+    # Tavily pedida e a busca caindo no Google (sem chave): a fixture sairia com o nome da do Google
+    # e por cima dela. Recusa antes de gastar.
+    busca = provedor_da_busca()
+    if busca != BUSCA_PROVEDOR:
+        print(f"Fixture não gerada: BUSCA_PROVEDOR={BUSCA_PROVEDOR!r}, mas a busca usaria o {busca} (falta a chave da tavily?).")
+        return 1
+
     if ticker_existe(ticker) is False:  # None (Brapi sem resposta) segue
         print(mensagem_ticker_inexistente(ticker))
         return 2
@@ -121,13 +140,13 @@ def main(argv: list[str] | None = None, pasta: Path = PASTA_FIXTURES) -> int:
     estado_final, passagens = rodar(ticker)
     gerado_em = datetime.now().isoformat(timespec="seconds")
     try:
-        fixture = montar_fixture(ticker, estado_final, passagens, MODEL, gerado_em)
+        fixture = montar_fixture(ticker, estado_final, passagens, MODEL, gerado_em, busca=busca)
     except ValueError as e:
         print(f"Fixture não gravada: {e}")
         return 1
 
     pasta.mkdir(parents=True, exist_ok=True)
-    caminho = pasta / f"{ticker.lower()}.json"
+    caminho = pasta / f"{nome_da_fixture(ticker, busca)}.json"
     texto = json.dumps(fixture, ensure_ascii=False, indent=2)
     with open(caminho, "w", encoding="utf-8") as arquivo:
         arquivo.write(texto)
