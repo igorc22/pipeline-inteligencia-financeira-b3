@@ -11,7 +11,8 @@ fixo e os limites ficam no código:
 - `buscar` nunca derruba o subgrafo: busca que falha ou volta vazia vira achado vazio, e a
   síntese roda com o que veio. Sem nenhum achado, o diagnóstico sai em código (`indeterminado`).
 - Os nós com LLM não tratam exceção: o LLM fora do ar sobe para o nó do Investigator, que repete
-  o subgrafo inteiro pelo retry de sempre.
+  o subgrafo inteiro pelo retry de sempre. A saída estruturada vazia ou com JSON quebrado sobe como
+  RespostaVazia (temporária), para esse retry valer também nela.
 
 Molde: o subgrafo de pesquisa setorial do Fluxo Pesquisa. Os prompts foram reescritos para a
 investigação causal.
@@ -20,6 +21,7 @@ import operator
 import re
 from typing import Annotated, Optional
 
+from langchain_core.exceptions import OutputParserException
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -27,7 +29,8 @@ from langgraph.types import Send
 from typing_extensions import TypedDict
 
 from fluxo_financeiro.shared.llm import criar_llm
-from fluxo_financeiro.shared.prompts import REGRA_CONTEUDO_EXTERNO, escapar_tags
+from fluxo_financeiro.shared.prompts import REGRA_CONTEUDO_EXTERNO, TAG_CONTEUDO_EXTERNO, escapar_tags
+from fluxo_financeiro.shared.retry import RespostaVazia
 from fluxo_financeiro.shared.types import (
     CriticaPesquisa,
     DiagnosticoPesquisa,
@@ -41,7 +44,8 @@ from fluxo_financeiro.tools.investigation import buscar_historico_trimestral, pe
 # Perguntas da primeira rodada (uma busca cada).
 MAX_PERGUNTAS = 3
 # Rodadas de busca a mais que o crítico pode pedir, e perguntas novas por rodada.
-# Pior caso: 3 + 2 + 2 = 7 buscas e 3 sínteses e críticas.
+# Pior caso: 3 + 2 + 2 = 7 buscas, 3 sínteses e 2 críticas (a crítica depois da última volta não
+# rodaria nada: o subgrafo termina sem chamar o LLM).
 MAX_VOLTAS = 2
 MAX_LACUNAS = 2
 
@@ -229,11 +233,29 @@ def rotear_critica(estado: EstadoPesquisa):
     return _sends(estado["lacunas"], estado["voltas"] + 1, estado["ticker"])
 
 
+def chamar_estruturado(llm, schema, mensagens):
+    """`llm.with_structured_output(schema).invoke(mensagens)`, com a resposta vazia ou o JSON quebrado
+    virando RespostaVazia (temporária).
+
+    No Gemini, o parser da saída estruturada levanta OutputParserException nesses casos, e o
+    classificador do retry a trata como permanente: sem esta troca, um JSON ruim em qualquer das
+    chamadas acabaria com o diagnóstico sem retry. A mensagem cita só o schema: a exceção do parser
+    traz a resposta crua do modelo, que iria sem tag para o erro no state.
+    """
+    try:
+        resposta = llm.with_structured_output(schema).invoke(mensagens)
+    except OutputParserException as e:
+        raise RespostaVazia(f"o LLM do subgrafo de pesquisa devolveu {schema.__name__} vazio ou inválido") from e
+    if resposta is None:
+        raise RespostaVazia(f"o LLM do subgrafo de pesquisa devolveu {schema.__name__} vazio")
+    return resposta
+
+
 def criar_grafo_pesquisa(llm) -> CompiledStateGraph:
     """Monta o subgrafo com um LLM qualquer (o real em produção, um falso nos testes)."""
 
     def gerar_perguntas(estado: EstadoPesquisa) -> dict:
-        resposta = llm.with_structured_output(PerguntasPesquisa).invoke([
+        resposta = chamar_estruturado(llm, PerguntasPesquisa, [
             SystemMessage(content=PERGUNTAS_PROMPT),
             HumanMessage(content=montar_entrada(estado)),
         ])
@@ -248,23 +270,26 @@ def criar_grafo_pesquisa(llm) -> CompiledStateGraph:
         if not any(a["texto"].strip() for a in estado.get("achados", [])):
             logger.warning(f"[pesquisa] {estado['ticker']}: nenhuma busca trouxe achado, diagnóstico indeterminado")
             return {"diagnostico": DIAGNOSTICO_SEM_ACHADOS}
-        diagnostico = llm.with_structured_output(DiagnosticoPesquisa).invoke([
+        diagnostico = chamar_estruturado(llm, DiagnosticoPesquisa, [
             SystemMessage(content=SINTESE_PROMPT),
             HumanMessage(content=montar_entrada(estado, achados=True)),
         ])
         return {"diagnostico": diagnostico}
 
     def criticar(estado: EstadoPesquisa) -> dict:
-        critica = llm.with_structured_output(CriticaPesquisa).invoke([
+        voltas = estado.get("voltas", 0)
+        # O limite é conferido antes do LLM: depois de MAX_VOLTAS rodadas de busca a mais, qualquer
+        # resposta do crítico só levaria ao fim, e a chamada seria paga sem efeito.
+        if voltas >= MAX_VOLTAS:
+            logger.info(f"[pesquisa] limite de voltas atingido ({voltas}), encerra sem chamar o crítico")
+            return {"lacunas": [], "voltas": voltas}
+        critica = chamar_estruturado(llm, CriticaPesquisa, [
             SystemMessage(content=CRITICO_PROMPT),
             HumanMessage(content=montar_entrada(estado, achados=True, rascunho=True)),
         ])
-        voltas = estado.get("voltas", 0)
         lacunas = [l.strip() for l in critica.lacunas if l.strip()][:MAX_LACUNAS]
-        # O limite é conferido antes de contar a volta: o crítico pode reprovar quantas vezes quiser,
-        # mas só MAX_VOLTAS rodadas de busca a mais saem daqui.
-        if critica.aprovado or not lacunas or voltas >= MAX_VOLTAS:
-            motivo = "aprovado" if critica.aprovado else "sem lacunas" if not lacunas else "limite de voltas"
+        if critica.aprovado or not lacunas:
+            motivo = "aprovado" if critica.aprovado else "sem lacunas"
             logger.info(f"[pesquisa] crítico encerra ({motivo}, {voltas} voltas)")
             return {"lacunas": [], "voltas": voltas}
         logger.info(f"[pesquisa] crítico pede a volta {voltas + 1}: {len(lacunas)} perguntas")
@@ -297,15 +322,32 @@ grafo_pesquisa = criar_grafo_pesquisa(criar_llm())
 # Entrada do Investigator
 # ---------------------------------------------------------------------------
 
-_LINHA_FONTES = re.compile(r"^Fontes:\s*(.+)$", re.MULTILINE)
+_LINHA_FONTES = re.compile(r"^Fontes:\s*(.+)$")
+_FECHA_CONTEUDO_EXTERNO = f"</{TAG_CONTEUDO_EXTERNO}>"
+
+
+def _linha_final(texto: str) -> str:
+    """A última linha não vazia do achado, sem o fechamento da tag <conteudo_externo>.
+
+    Um fechamento falso no corpo chega escapado (&lt;/...), então não se passa pelo verdadeiro.
+    """
+    linhas = [linha.strip() for linha in texto.splitlines() if linha.strip()]
+    if linhas and linhas[-1] == _FECHA_CONTEUDO_EXTERNO:
+        linhas.pop()
+    return linhas[-1] if linhas else ""
 
 
 def _fontes_dos_achados(achados: list[dict]) -> list[str]:
-    """Os sites das linhas "Fontes:" que a busca põe no fim de cada achado, sem repetir, na ordem."""
+    """Os sites da linha "Fontes:" que a busca põe no fim de cada achado, sem repetir, na ordem.
+
+    Só a última linha conta: uma linha "Fontes:" no meio do texto da web é conteúdo externo e não
+    pode sair da tag para o diagnóstico, que o Consolidador copia literalmente.
+    """
     fontes: list[str] = []
     for a in achados:
-        for linha in _LINHA_FONTES.findall(a["texto"]):
-            fontes.extend(f.strip() for f in linha.split(",") if f.strip())
+        linha = _LINHA_FONTES.match(_linha_final(a["texto"]))
+        if linha:
+            fontes.extend(f.strip() for f in linha.group(1).split(",") if f.strip())
     return list(dict.fromkeys(fontes))
 
 

@@ -6,6 +6,7 @@ END, e conferimos o caminho percorrido: é o mesmo que o scripts/e2e.py valida c
 from unittest.mock import MagicMock, patch
 
 import pytest
+from langchain_core.exceptions import OutputParserException
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from fluxo_financeiro.agents.analysts import SECAO_NOTICIAS, SECAO_SETOR
@@ -206,6 +207,23 @@ def test_excecao_no_subgrafo_vira_erro_do_investigator(subgrafo_real):
     assert resultado["pesquisa"].perguntas == ["Por que o lucro caiu?"]
     assert resultado["loop_count"] == 3  # o reenvio não conta loop, como em test_falha_num_ramo_reenvia_so_ele
     assert subgrafo_real["Analyzer"].invoke.call_count == 1
+
+
+def test_json_quebrado_no_subgrafo_repete_no_retry_local(subgrafo_real):
+    """Confere que um JSON quebrado na saída estruturada do subgrafo é temporário: o retry local do nó
+    do Investigator roda o subgrafo de novo e acerta, sem erro no histórico e com o diagnóstico."""
+    subgrafo_real["sinais"].return_value = [QUEDA]
+    subgrafo_real["decisoes"].side_effect = [_decisao("YFinance", "Colete os dados da VALE3")]
+    fila = [OutputParserException('{"perguntas": ['), PerguntasPesquisa(perguntas=["Por que o lucro caiu?"])]
+
+    with patch("fluxo_financeiro.agents.pesquisa.grafo_pesquisa", _subgrafo_falso(fila)):
+        resultado = _rodar()
+
+    # 2 rodadas do subgrafo, as duas no retry local: a do JSON quebrado e a que acertou.
+    assert subgrafo_real["historico"].invoke.call_count == 2
+    assert not any(m.name == "Investigator" and m.content.startswith("Erro:") for m in resultado["messages"])
+    assert resultado["erros"]["Investigator"] is None
+    assert resultado["diagnostico"].startswith("- Causa identificada: impairment")
 
 
 def test_cada_ramo_recebe_so_a_propria_tarefa(grafo_mockado):
