@@ -4,7 +4,12 @@ Funções puras, sem Streamlit: o app.py só desenha o que sai daqui. O dashboar
 que está no state; nunca calcula nem reformata números.
 """
 from dataclasses import dataclass
+import re
 from typing import Collection, Optional
+
+from fluxo_financeiro.shared.prompts import TAG_CONTEUDO_EXTERNO
+from fluxo_financeiro.shared.retry import MAX_TENTATIVAS
+from fluxo_financeiro.shared.types import ErroAgente, PesquisaFeita
 
 WORKERS = ("YFinance", "Analyzer", "Investigator")
 PARALELO = "Analyzer+Investigator"
@@ -15,11 +20,9 @@ COR_DECISAO = {"guard": "#2e7d32", "llm": "#1565c0", "hard_stop": "#c62828"}
 COR_AGENTE = {"YFinance": "#e0a030", "Analyzer": "#3fb37f", "Investigator": "#e05555", "Consolidador": "#9b7bff"}
 FUNDO_ATIVO = {"YFinance": "#fff8e1", "Analyzer": "#e8f5e9", "Investigator": "#ffebee", "Consolidador": "#f3e5f5"}
 FUNDO_CONCLUIDO = {"YFinance": "#fffdf7", "Analyzer": "#f6fbf8", "Investigator": "#fff8f8", "Consolidador": "#faf7ff"}
-ROTULO_ANALYZER = {1: "Analyzer (empresa)", 2: "Analyzer (setor)"}
 DESCRICAO_CONCLUIDA = {
     "YFinance": "coletou os dados de mercado",
-    "Analyzer (empresa)": "buscou as notícias da empresa",
-    "Analyzer (setor)": "buscou o contexto do setor",
+    "Analyzer": "buscou as notícias da empresa e o contexto do setor",
     "Investigator": "investigou a anomalia",
     "Consolidador": "montou o relatório",
 }
@@ -38,6 +41,11 @@ class Passo:
     raciocinio: Optional[str]
     entrada: Optional[str]
     saida: str
+    pesquisa: Optional[PesquisaFeita] = None
+    erro: Optional[ErroAgente] = None
+    tentativa: int = 1
+    reenvio: bool = False
+    desistiu: bool = False
 
 
 def separar_indicador(texto: str) -> tuple[str, Optional[str]]:
@@ -90,6 +98,50 @@ def _dict(valor) -> dict:
     return valor if isinstance(valor, dict) else {}
 
 
+def _extrair_erro(agente: str, dados: dict, saida: str, tentativa_num: int) -> Optional[ErroAgente]:
+    """Extrai o ErroAgente do update do nó (ou reconstrói a partir do prefixo 'Erro: <agente> falhou')."""
+    erros_dict = _dict(dados.get("erros"))
+    bruto = erros_dict.get(agente)
+    if isinstance(bruto, ErroAgente):
+        return bruto
+    if isinstance(bruto, dict):
+        try:
+            return ErroAgente(**bruto)
+        except Exception:
+            pass
+    prefixo = f"Erro: {agente} falhou depois de "
+    if isinstance(saida, str) and saida.startswith(prefixo):
+        tipo = "permanente" if "(permanente)" in saida else "transitorio"
+        return ErroAgente(tipo=tipo, mensagem=saida, tentativas=tentativa_num)
+    return None
+
+
+def _extrair_pesquisa(dados: dict) -> Optional[PesquisaFeita]:
+    """Extrai o PesquisaFeita gravado pelo subgrafo do Investigator."""
+    bruto = dados.get("pesquisa")
+    if isinstance(bruto, PesquisaFeita):
+        return bruto
+    if isinstance(bruto, dict):
+        try:
+            return PesquisaFeita(**bruto)
+        except Exception:
+            return None
+    return None
+
+
+def _extrair_tarefas_paralelo(tarefas: list) -> tuple[str, str]:
+    """Separa a tarefa do Analyzer e a do Investigator na lista de mensagens do paralelo."""
+    t_ana = next(
+        (m for m in tarefas if "## Notícias da empresa" in _conteudo(m) or "notícias" in _conteudo(m).lower()),
+        tarefas[0],
+    )
+    t_inv = next(
+        (m for m in tarefas if "Investigue" in _conteudo(m) or "investig" in _conteudo(m).lower()),
+        tarefas[1],
+    )
+    return _conteudo(t_ana), _conteudo(t_inv)
+
+
 def montar_passos(eventos: list[tuple[str, dict]]) -> list[Passo]:
     """Um Passo por evento de worker, com a decisão e a tarefa do Supervisor que veio logo antes."""
     passos: list[Passo] = []
@@ -97,18 +149,35 @@ def montar_passos(eventos: list[tuple[str, dict]]) -> list[Passo]:
     passagens_analyzer = 0
     passo_numero = 0
     ramos_pendentes: set[str] = set()
+    ultima_tarefa: dict[str, str] = {}
+    falhas_seguidas: dict[str, int] = {}
+    indice_evento_passo: list[int] = []
 
-    for no, update in eventos:
+    for idx_ev, (no, update) in enumerate(eventos):
         dados = _dict(update)
         if no == "Supervisor":
             supervisor = dados
             proximo = supervisor.get("next_agent")
+            tarefas = supervisor.get("messages") or []
             if proximo == PARALELO:
                 passo_numero += 1
                 ramos_pendentes = set(WORKERS) & set(RAMOS_PARALELO)
-            elif proximo != "FINISH":
+                if isinstance(tarefas, list) and len(tarefas) >= 2:
+                    t_ana, t_inv = _extrair_tarefas_paralelo(tarefas)
+                    if t_ana:
+                        ultima_tarefa["Analyzer"] = t_ana
+                    if t_inv:
+                        ultima_tarefa["Investigator"] = t_inv
+            elif proximo in WORKERS:
                 passo_numero += 1
-                ramos_pendentes = {proximo} if proximo in WORKERS else set()
+                ramos_pendentes = {proximo}
+                t_txt = (
+                    _conteudo(tarefas[-1])
+                    if isinstance(tarefas, list) and tarefas
+                    else (_conteudo(tarefas) if tarefas else None)
+                )
+                if t_txt:
+                    ultima_tarefa[proximo] = t_txt
             else:
                 ramos_pendentes = set()
             continue
@@ -117,18 +186,20 @@ def montar_passos(eventos: list[tuple[str, dict]]) -> list[Passo]:
         rotulo = no
         if no == "Analyzer":
             passagens_analyzer += 1
-            rotulo = ROTULO_ANALYZER.get(passagens_analyzer, f"Analyzer ({passagens_analyzer})")
+            rotulo = "Analyzer" if passagens_analyzer == 1 else f"Analyzer ({passagens_analyzer})"
         sup = supervisor or {}
         tarefas = sup.get("messages") or []
 
         if sup.get("next_agent") == PARALELO and isinstance(tarefas, list) and len(tarefas) >= 2:
-            if no == "Analyzer":
-                tarefa_msg = next((m for m in tarefas if "## Notícias da empresa" in _conteudo(m) or "notícias" in _conteudo(m).lower()), tarefas[0])
-            else:
-                tarefa_msg = next((m for m in tarefas if "Investigue" in _conteudo(m) or "investig" in _conteudo(m).lower()), tarefas[1])
-            entrada = _conteudo(tarefa_msg)
+            t_ana, t_inv = _extrair_tarefas_paralelo(tarefas)
+            entrada = t_ana if no == "Analyzer" else t_inv
         else:
-            entrada = _conteudo(tarefas[-1]) if isinstance(tarefas, list) and tarefas else (_conteudo(tarefas) if tarefas else None)
+            entrada_direta = (
+                _conteudo(tarefas[-1])
+                if isinstance(tarefas, list) and tarefas
+                else (_conteudo(tarefas) if tarefas else None)
+            )
+            entrada = entrada_direta if entrada_direta is not None else ultima_tarefa.get(no)
 
         msgs_saida = dados.get("messages")
         if isinstance(msgs_saida, list) and msgs_saida:
@@ -140,6 +211,18 @@ def montar_passos(eventos: list[tuple[str, dict]]) -> list[Passo]:
         else:
             saida = ""
 
+        falhas_ant = falhas_seguidas.get(no, 0)
+        tentativas_dict = _dict(dados.get("tentativas"))
+        tentativa_num = tentativas_dict.get(no) or (falhas_ant + 1)
+        erro_obj = _extrair_erro(no, dados, saida, tentativa_num)
+        reenvio = (falhas_ant > 0) or (sup.get("loop_count") == 0 and bool(sup.get("decidido_por")))
+        if erro_obj is not None:
+            falhas_seguidas[no] = tentativa_num
+        else:
+            falhas_seguidas[no] = 0
+
+        pesquisa_obj = _extrair_pesquisa(dados) if no == "Investigator" else None
+
         numero_atual = passo_numero if passo_numero > 0 else (len(passos) + 1)
         passos.append(Passo(
             numero=numero_atual,
@@ -149,10 +232,33 @@ def montar_passos(eventos: list[tuple[str, dict]]) -> list[Passo]:
             raciocinio=sup.get("supervisor_reasoning"),
             entrada=entrada,
             saida=saida,
+            pesquisa=pesquisa_obj,
+            erro=erro_obj,
+            tentativa=tentativa_num,
+            reenvio=reenvio,
+            desistiu=False,
         ))
+        indice_evento_passo.append(idx_ev)
         ramos_pendentes.discard(no)
         if not ramos_pendentes:
             supervisor = None
+
+    for idx_p, p in enumerate(passos):
+        if p.erro is None:
+            continue
+        rodou_depois = any(p2.agente == p.agente for p2 in passos[idx_p + 1:])
+        if rodou_depois:
+            p.desistiu = False
+        elif p.erro.tipo == "permanente" or p.erro.tentativas >= MAX_TENTATIVAS:
+            p.desistiu = True
+        else:
+            ev_pos = eventos[indice_evento_passo[idx_p] + 1:]
+            avancou = any(
+                n == "Consolidador" or (n == "Supervisor" and _dict(u).get("next_agent") not in (None, p.agente))
+                for n, u in ev_pos
+            )
+            p.desistiu = avancou
+
     return passos
 
 
@@ -212,7 +318,7 @@ def rotulo_agente_em_execucao(proximo: Optional[str], passagens_analyzer: int = 
         return "Consolidador"
     if proximo == "Analyzer":
         passo_atual = passagens_analyzer + 1
-        return ROTULO_ANALYZER.get(passo_atual, f"Analyzer ({passo_atual})")
+        return "Analyzer" if passo_atual == 1 else f"Analyzer ({passo_atual})"
     if proximo == PARALELO:
         return "Analyzer e Investigator"
     return proximo
@@ -224,6 +330,66 @@ def status_execucao(ticker: str, rotulo: Optional[str] = None) -> str:
     return f"Analisando {ticker_str}: {rotulo}..." if rotulo else f"Analisando {ticker_str}..."
 
 
+def _estado_em_progresso(
+    eventos: list[tuple[str, dict]],
+    passos: Optional[list[Passo]] = None,
+) -> tuple[list[str], str, Optional[str], Optional[str], Optional[int], bool]:
+    """Calcula quem está rodando agora: (agentes_ativos, rotulo_ativo, decisao, raciocinio, numero, reenvio).
+
+    No passo paralelo (Send), quando um ramo termina antes do outro, mantém apenas o ramo pendente
+    como ativo até que ambos terminem.
+    """
+    if any(no == "Consolidador" for no, _ in eventos):
+        return [], "", None, None, None, False
+    if passos is None:
+        passos = montar_passos(eventos)
+
+    for i in range(len(eventos) - 1, -1, -1):
+        no, u = eventos[i]
+        if no == "Supervisor":
+            sup = _dict(u)
+            proximo = sup.get("next_agent")
+            decisao = sup.get("decidido_por")
+            raciocinio = sup.get("supervisor_reasoning")
+            reenvio = sup.get("loop_count") == 0 and bool(decisao)
+            if proximo == "FINISH":
+                num = max((p.numero for p in passos), default=0) + 1
+                return ["Consolidador"], "Consolidador", decisao, raciocinio, num, False
+            if proximo == PARALELO:
+                completados = {n for n, _ in eventos[i + 1:] if n in RAMOS_PARALELO}
+                pendentes = [r for r in RAMOS_PARALELO if r not in completados]
+                num = sum(
+                    1 for n, d in eventos[:i + 1]
+                    if n == "Supervisor" and (_dict(d).get("next_agent") == PARALELO or _dict(d).get("next_agent") in WORKERS)
+                )
+                if len(pendentes) == 2:
+                    rotulo = "Analyzer e Investigator"
+                elif len(pendentes) == 1:
+                    rotulo = pendentes[0]
+                else:
+                    rotulo = ""
+                return pendentes, rotulo, decisao, raciocinio, num, False
+            if proximo in WORKERS:
+                ja_concluiu = any(n == proximo for n, _ in eventos[i + 1:])
+                if ja_concluiu:
+                    return [], "", None, None, None, False
+                passagens_analyzer = sum(1 for p in passos if p.agente == "Analyzer")
+                rotulo = rotulo_agente_em_execucao(proximo, passagens_analyzer)
+                num = sum(
+                    1 for n, d in eventos[:i + 1]
+                    if n == "Supervisor" and (_dict(d).get("next_agent") == PARALELO or _dict(d).get("next_agent") in WORKERS)
+                )
+                return [proximo], rotulo, decisao, raciocinio, num, reenvio
+            break
+    return [], "", None, None, None, False
+
+
+def rotulo_em_execucao(eventos: list[tuple[str, dict]]) -> str:
+    """Rótulo do(s) agente(s) ainda em execução a partir do histórico de eventos."""
+    _, rotulo, _, _, _, _ = _estado_em_progresso(eventos)
+    return rotulo
+
+
 def resumo_em_progresso(eventos: list[tuple[str, dict]]) -> str:
     """Markdown com a linha do tempo ao vivo: passos concluídos e o agente rodando agora com o motivo."""
     passos = montar_passos(eventos)
@@ -233,27 +399,44 @@ def resumo_em_progresso(eventos: list[tuple[str, dict]]) -> str:
     for p in passos:
         decisao = ROTULO_DECISAO.get(p.decidido_por or "")
         via = f" *(via {decisao})*" if decisao else ""
-        acao = DESCRICAO_CONCLUIDA.get(p.rotulo, "concluiu a etapa")
-        linhas.append(f"- :material/check_circle: **{p.numero} · {p.rotulo}**{via} — {acao}")
+        nota_reenvio = " *(reenvio do coordenador)*" if p.reenvio else ""
+        if p.erro is not None:
+            tipo_erro = "erro permanente" if p.erro.tipo == "permanente" else "erro temporário"
+            if p.desistiu:
+                linhas.append(
+                    f"- :material/error: **{p.numero} · {p.rotulo}**{via}{nota_reenvio} — "
+                    f"falhou ({tipo_erro}); etapa ficou de fora"
+                )
+            else:
+                linhas.append(
+                    f"- :material/warning: **{p.numero} · {p.rotulo}**{via}{nota_reenvio} — "
+                    f"falhou na {p.tentativa}ª rodada ({tipo_erro})"
+                )
+        else:
+            acao = DESCRICAO_CONCLUIDA.get(p.agente, DESCRICAO_CONCLUIDA.get(p.rotulo, "concluiu a etapa"))
+            linhas.append(f"- :material/check_circle: **{p.numero} · {p.rotulo}**{via}{nota_reenvio} — {acao}")
 
     proximo_num = max((p.numero for p in passos), default=0) + 1
     if consolidou:
         decisao = ROTULO_DECISAO.get(decisao_do_fim(eventos) or "")
         via = f" *(via {decisao})*" if decisao else ""
         linhas.append(f"- :material/check_circle: **{proximo_num} · Consolidador**{via} — montou o relatório")
-    elif eventos and eventos[-1][0] == "Supervisor":
-        sup = _dict(eventos[-1][1])
-        passagens_analyzer = sum(1 for p in passos if p.agente == "Analyzer")
-        rotulo_ativo = rotulo_agente_em_execucao(sup.get("next_agent"), passagens_analyzer)
+    else:
+        _, rotulo_ativo, decisao_ativa, raciocinio_ativo, numero_ativo, reenvio_ativo = _estado_em_progresso(eventos, passos)
         if rotulo_ativo:
-            decisao = ROTULO_DECISAO.get(sup.get("decidido_por") or "")
-            via = f" *(decidido por {decisao})*" if decisao else ""
-            linhas.append(f"- :material/pending: **{proximo_num} · {rotulo_ativo}** — rodando agora{via}")
-            raciocinio = sup.get("supervisor_reasoning")
-            if raciocinio:
-                linhas.append(f"  > _{escapar_markdown(str(raciocinio))}_")
-    elif not passos:
-        linhas.append("_Iniciando o Supervisor..._")
+            num_exibido = numero_ativo if numero_ativo is not None else proximo_num
+            decisao = ROTULO_DECISAO.get(decisao_ativa or "")
+            detalhes = []
+            if reenvio_ativo:
+                detalhes.append("reenvio do coordenador")
+            if decisao:
+                detalhes.append(f"decidido por {decisao}")
+            via = f" *({', '.join(detalhes)})*" if detalhes else ""
+            linhas.append(f"- :material/pending: **{num_exibido} · {rotulo_ativo}** — rodando agora{via}")
+            if raciocinio_ativo is not None and str(raciocinio_ativo).strip():
+                linhas.append(f"  > _{escapar_markdown(str(raciocinio_ativo))}_")
+        elif not passos:
+            linhas.append("_Iniciando o Supervisor..._")
 
     return "\n".join(linhas)
 
@@ -273,15 +456,20 @@ def _texto_dot(texto: str) -> str:
 
 
 def _ida(destino: str, numero: int, decidido_por: Optional[str], raciocinio: Optional[str],
-         ativo: bool = False) -> str:
+         ativo: bool = False, reenvio: bool = False, falhou: bool = False) -> str:
     """Seta cheia do Supervisor para o agente: número da ordem, quem decidiu e o raciocínio no tooltip."""
     atributos = []
+    sufixo = " (reenvio)" if reenvio else ""
+    if falhou:
+        sufixo += " · falhou"
     if decidido_por in ROTULO_DECISAO:
-        cor = COR_DECISAO[decidido_por]
-        atributos += [f'label="{numero} · {ROTULO_DECISAO[decidido_por]}"', f'color="{cor}"', f'fontcolor="{cor}"']
+        cor = COR_INTERROMPIDO if falhou else COR_DECISAO[decidido_por]
+        atributos += [f'label="{numero} · {ROTULO_DECISAO[decidido_por]}{sufixo}"', f'color="{cor}"', f'fontcolor="{cor}"']
     else:
-        atributos.append(f'label="{numero}"')
-    if raciocinio:
+        atributos.append(f'label="{numero}{sufixo}"')
+        if falhou:
+            atributos += [f'color="{COR_INTERROMPIDO}"', f'fontcolor="{COR_INTERROMPIDO}"']
+    if raciocinio is not None and str(raciocinio) != "":
         atributos.append(f'tooltip="{_texto_dot(raciocinio)}"')
     if ativo:
         atributos.append('penwidth=2.5')
@@ -289,11 +477,14 @@ def _ida(destino: str, numero: int, decidido_por: Optional[str], raciocinio: Opt
     return f"  supervisor -> {destino} [{', '.join(atributos)}];"
 
 
-def _no(nome: str, rotulo: str, cor: str, rodou: bool, ativo: bool = False) -> str:
+def _no(nome: str, rotulo: str, cor: str, rodou: bool, ativo: bool = False, desistiu: bool = False) -> str:
     if ativo:
         fundo = FUNDO_ATIVO.get(rotulo, "#fffde7")
         return (f'  {nome} [label="{rotulo}\\n(rodando agora)", color="{cor}", fontcolor="{cor}", '
                 f'fillcolor="{fundo}", penwidth=3, style="rounded,filled,bold"];')
+    if desistiu:
+        return (f'  {nome} [label="{rotulo}\\n(desistiu)", color="{COR_INTERROMPIDO}", '
+                f'fontcolor="{COR_INTERROMPIDO}", fillcolor="#ffebee", style="rounded,filled,dashed"];')
     if rodou:
         fundo = FUNDO_CONCLUIDO.get(rotulo, "#fafafa")
         return f'  {nome} [label="{rotulo}", color="{cor}", fontcolor="{cor}", fillcolor="{fundo}", style="rounded,filled"];'
@@ -311,6 +502,7 @@ def dot_do_caminho(
     em_progresso: bool = False,
     raciocinio_fim: Optional[str] = None,
     numero_ativo: Optional[int] = None,
+    reenvio_ativo: bool = False,
 ) -> str:
     """DOT do grafo com o Supervisor no centro e o caminho desta análise aceso.
 
@@ -332,6 +524,11 @@ def dot_do_caminho(
         ativos = set()
 
     rodaram = list(dict.fromkeys(p.agente for p in passos))  # na ordem da primeira execução
+    desistiram = {
+        ag for ag in rodaram
+        if any(p.desistiu for p in passos if p.agente == ag)
+        and not any(p.erro is None for p in passos if p.agente == ag)
+    }
     linhas = [
         "digraph caminho {",
         "  rankdir=TB;",
@@ -349,6 +546,7 @@ def dot_do_caminho(
             COR_AGENTE[agente],
             rodou=agente in rodaram,
             ativo=(em_progresso and agente in ativos),
+            desistiu=(agente in desistiram and not (em_progresso and agente in ativos)),
         ))
     linhas.append("  { rank=same; yfinance; analyzer; investigator; }")
     for agente in WORKERS:
@@ -367,12 +565,20 @@ def dot_do_caminho(
     for passo in passos:
         destino = NO_DO_AGENTE.get(passo.agente)
         if destino:
-            linhas.append(_ida(destino, passo.numero, passo.decidido_por, passo.raciocinio))
+            linhas.append(_ida(
+                destino,
+                passo.numero,
+                passo.decidido_por,
+                passo.raciocinio,
+                reenvio=passo.reenvio,
+                falhou=(passo.erro is not None),
+            ))
     for agente in rodaram:
         destino = NO_DO_AGENTE.get(agente)
         if destino:
+            cor_volta = COR_INTERROMPIDO if agente in desistiram else COR_VOLTA
             # dir=back: a seta aponta para o Supervisor, mas o desenho mantém a hierarquia (volta reta, sem laço)
-            linhas.append(f'  supervisor -> {destino} [dir=back, style=dashed, color="{COR_VOLTA}", '
+            linhas.append(f'  supervisor -> {destino} [dir=back, style=dashed, color="{cor_volta}", '
                           'arrowsize=0.7];')
 
     proximo_numero = numero_ativo if numero_ativo is not None else (max((p.numero for p in passos), default=0) + 1)
@@ -381,7 +587,14 @@ def dot_do_caminho(
             if ag in ativos:
                 destino = NO_DO_AGENTE.get(ag)
                 if destino:
-                    linhas.append(_ida(destino, proximo_numero, decisao_ativa, raciocinio_ativo, ativo=True))
+                    linhas.append(_ida(
+                        destino,
+                        proximo_numero,
+                        decisao_ativa,
+                        raciocinio_ativo,
+                        ativo=True,
+                        reenvio=reenvio_ativo,
+                    ))
         if "Consolidador" in ativos:
             linhas.append(_ida("consolidador", proximo_numero, decisao_ativa, raciocinio_ativo, ativo=True))
     elif consolidou:
@@ -409,29 +622,7 @@ def dot_do_caminho_em_progresso(eventos: list[tuple[str, dict]]) -> str:
         )
 
     passos = montar_passos(eventos)
-    agentes_ativos: set[str] = set()
-    decisao_ativa: Optional[str] = None
-    raciocinio_ativo: Optional[str] = None
-    numero_ativo: Optional[int] = None
-
-    for i in range(len(eventos) - 1, -1, -1):
-        no, u = eventos[i]
-        if no == "Supervisor":
-            sup = _dict(u)
-            proximo = sup.get("next_agent")
-            decisao_ativa = sup.get("decidido_por")
-            raciocinio_ativo = sup.get("supervisor_reasoning")
-            if proximo == "FINISH":
-                agentes_ativos = {"Consolidador"}
-                numero_ativo = max((p.numero for p in passos), default=0) + 1
-            elif proximo == PARALELO:
-                completados = {n for n, _ in eventos[i + 1:] if n in RAMOS_PARALELO}
-                agentes_ativos = set(RAMOS_PARALELO) - completados
-                numero_ativo = sum(1 for n, d in eventos[:i + 1] if n == "Supervisor" and _dict(d).get("next_agent") != "FINISH")
-            elif proximo in WORKERS:
-                agentes_ativos = {proximo}
-                numero_ativo = sum(1 for n, d in eventos[:i + 1] if n == "Supervisor" and _dict(d).get("next_agent") != "FINISH")
-            break
+    agentes_ativos, _, decisao_ativa, raciocinio_ativo, numero_ativo, reenvio_ativo = _estado_em_progresso(eventos, passos)
 
     return dot_do_caminho(
         passos=passos,
@@ -442,10 +633,102 @@ def dot_do_caminho_em_progresso(eventos: list[tuple[str, dict]]) -> str:
         raciocinio_ativo=raciocinio_ativo,
         em_progresso=True,
         numero_ativo=numero_ativo,
+        reenvio_ativo=reenvio_ativo,
     )
 
 
 dot_em_progresso = dot_do_caminho_em_progresso
+
+
+# ---------------------------------------------------------------------------
+# Subgrafo de pesquisa do Investigator (agents/pesquisa.py)
+# ---------------------------------------------------------------------------
+
+def limpar_tags_externas(texto: str) -> str:
+    """Remove o envelope <conteudo_externo ...>...</conteudo_externo> para exibição limpa no dashboard."""
+    if not isinstance(texto, str):
+        return ""
+    return re.sub(rf"</?{TAG_CONTEUDO_EXTERNO}[^>]*>\n?", "", texto).strip()
+
+
+def agrupar_achados_por_rodada(pesquisa: PesquisaFeita) -> list[tuple[int, list[dict]]]:
+    """Agrupa os achados do subgrafo por rodada (1 = perguntas iniciais; 2+ = voltas pedidas pelo crítico)."""
+    por_rodada: dict[int, list[dict]] = {}
+    for item in pesquisa.achados or []:
+        if not isinstance(item, dict):
+            continue
+        rodada = int(item.get("rodada") or 1)
+        por_rodada.setdefault(rodada, []).append(item)
+    return sorted(por_rodada.items(), key=lambda par: par[0])
+
+
+def resumo_pesquisa(pesquisa: PesquisaFeita) -> str:
+    """Resumo em uma linha do que o subgrafo de pesquisa do Investigator executou."""
+    n_perguntas = len(pesquisa.perguntas or [])
+    achados = pesquisa.achados or []
+    total_buscas = len(achados)
+    com_texto = sum(1 for a in achados if isinstance(a, dict) and str(a.get("texto", "")).strip())
+    voltas = int(pesquisa.voltas or 0)
+
+    partes = [
+        f"{n_perguntas} {'pergunta gerada' if n_perguntas == 1 else 'perguntas geradas'}",
+        f"{com_texto}/{total_buscas} {'busca com resultado' if total_buscas == 1 else 'buscas com resultado'}",
+    ]
+    if total_buscas > 0 and com_texto == 0:
+        partes.append("diagnóstico indeterminado em código (sem chamar o crítico)")
+    elif voltas == 0:
+        partes.append("aprovado de primeira pelo crítico (0 voltas extras)")
+    else:
+        partes.append(f"{voltas} {'volta extra pedida' if voltas == 1 else 'voltas extras pedidas'} pelo crítico")
+    return " · ".join(partes)
+
+
+def dot_do_subgrafo_pesquisa(pesquisa: PesquisaFeita) -> str:
+    """DOT do subgrafo de pesquisa causal do Investigator (preparar → gerar_perguntas → buscar → sintetizar → criticar)."""
+    achados = pesquisa.achados or []
+    n_iniciais = sum(1 for a in achados if isinstance(a, dict) and int(a.get("rodada") or 1) == 1)
+    if n_iniciais == 0:
+        n_iniciais = len(pesquisa.perguntas or [])
+    total_buscas = len(achados)
+    com_achado = sum(1 for a in achados if isinstance(a, dict) and str(a.get("texto", "")).strip())
+    voltas = int(pesquisa.voltas or 0)
+    sem_achados = total_buscas > 0 and com_achado == 0
+
+    rotulo_perguntas = f"gerar_perguntas\\n({n_iniciais} {'pergunta' if n_iniciais == 1 else 'perguntas'})"
+    rotulo_buscar = f"buscar (Send)\\n({com_achado}/{total_buscas} com achados)"
+    rotulo_sintetizar = "sintetizar\\n(indeterminado em código)" if sem_achados else "sintetizar\\n(DiagnosticoPesquisa)"
+    if sem_achados:
+        rotulo_criticar = "criticar\\n(não precisou)"
+    elif voltas == 0:
+        rotulo_criticar = "criticar\\n(aprovado de 1ª)"
+    else:
+        rotulo_criticar = f"criticar\\n({voltas} {'volta' if voltas == 1 else 'voltas'})"
+
+    linhas = [
+        "digraph subgrafo_pesquisa {",
+        "  rankdir=LR;",
+        '  bgcolor="transparent";',
+        "  nodesep=0.4; ranksep=0.5;",
+        '  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, penwidth=1.8, margin="0.16,0.08"];',
+        '  edge [fontname="Helvetica", fontsize=9, penwidth=1.4];',
+        '  preparar [label="preparar\\n(trimestrais em código)", color="#2e7d32", fontcolor="#2e7d32", fillcolor="#e8f5e9"];',
+        f'  gerar_perguntas [label="{rotulo_perguntas}", color="#1565c0", fontcolor="#1565c0", fillcolor="#e3f2fd"];',
+        f'  buscar [label="{rotulo_buscar}", color="#2e7d32", fontcolor="#2e7d32", fillcolor="#e8f5e9"];',
+        f'  sintetizar [label="{rotulo_sintetizar}", color="#1565c0", fontcolor="#1565c0", fillcolor="#e3f2fd"];',
+        f'  criticar [label="{rotulo_criticar}", color="#e05555", fontcolor="#e05555", fillcolor="#fff8f8"];',
+        f'  fim_pesquisa [label="Diagnóstico", shape=oval, style="filled", color="{COR_APAGADA}", fontcolor="#555555", fillcolor="#fafafa"];',
+        '  preparar -> gerar_perguntas;',
+        '  gerar_perguntas -> buscar [label="Send"];',
+        '  buscar -> sintetizar;',
+        '  sintetizar -> criticar;',
+    ]
+    if voltas > 0:
+        linhas.append(
+            f'  criticar -> buscar [label="{voltas}x lacunas (Send)", style=dashed, color="#e05555", fontcolor="#e05555"];'
+        )
+    linhas.append('  criticar -> fim_pesquisa [label="aprovado"];')
+    linhas.append("}")
+    return "\n".join(linhas)
 
 
 def _jsonavel(valor):

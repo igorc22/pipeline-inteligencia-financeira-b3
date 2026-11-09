@@ -15,37 +15,31 @@ from dashboard.visao import (
     ROTULO_DECISAO,
     Passo,
     _conteudo,
+    agrupar_achados_por_rodada,
     decisao_do_fim,
     dividir_indicadores,
     dot_do_caminho,
     dot_do_caminho_em_progresso,
+    dot_do_subgrafo_pesquisa,
     escapar_markdown,
+    limpar_tags_externas,
     montar_passos,
     parou_no_hard_stop,
     passo_do_consolidador,
     raciocinio_do_fim,
     resumo_em_progresso,
+    resumo_pesquisa,
     rotulo_agente_em_execucao,
+    rotulo_em_execucao,
     state_para_json,
     status_execucao,
 )
 from fluxo_financeiro import app as grafo
+from fluxo_financeiro.shared.types import PesquisaFeita
 from fluxo_financeiro.shared.utils import TICKER_INVALIDO, logger, validar_ticker
 
 COLUNAS_INDICADORES = 4
 TAMANHO_PREVIA = 90
-STATUS_ANALYZER = {1: "Analyzer buscou as notícias da empresa", 2: "Analyzer buscou o contexto do setor"}
-STATUS_FIXO = {
-    "YFinance": "YFinance coletou os dados de mercado",
-    "Investigator": "Investigator investigou a anomalia",
-    "Consolidador": "Consolidador montou o relatório",
-}
-
-
-def _linha_status(no: str, passagens_analyzer: int) -> Optional[str]:
-    if no == "Analyzer":
-        return STATUS_ANALYZER.get(passagens_analyzer, f"Analyzer: passagem {passagens_analyzer}")
-    return STATUS_FIXO.get(no)
 
 
 def _descrever_erro(exc: Exception) -> str:
@@ -84,6 +78,9 @@ def rodar_analise(ticker: str) -> dict:
                         status.update(label=status_execucao(ticker, rotulo), state="running", expanded=True)
                     else:
                         passagens_analyzer += no == "Analyzer"
+                        rotulo_pendente = rotulo_em_execucao(eventos)
+                        if rotulo_pendente:
+                            status.update(label=status_execucao(ticker, rotulo_pendente), state="running", expanded=True)
                     diagrama.graphviz_chart(dot_do_caminho_em_progresso(eventos))
                     painel_passos.markdown(resumo_em_progresso(eventos))
             if any(no == "Consolidador" for no, _ in eventos):
@@ -181,12 +178,25 @@ def _previa(texto: Optional[str]) -> str:
 
 def aba_como_foi_feito(resultado: dict) -> None:
     eventos = resultado.get("eventos") or []
+    state = resultado.get("state") or {}
     passos = montar_passos(eventos)
     if not passos:
         st.info("Nenhum agente chegou a rodar.")
         return
     if parou_no_hard_stop(eventos):
         st.warning("O fluxo parou pelo limite de 6 passagens do Supervisor (hard stop).")
+
+    pesquisa_state = state.get("pesquisa") if isinstance(state, dict) else None
+    if isinstance(pesquisa_state, dict):
+        try:
+            pesquisa_state = PesquisaFeita(**pesquisa_state)
+        except Exception:
+            pesquisa_state = None
+    if isinstance(pesquisa_state, PesquisaFeita):
+        for p in reversed(passos):
+            if p.agente == "Investigator" and p.erro is None and p.pesquisa is None:
+                p.pesquisa = pesquisa_state
+                break
 
     consolidou = any(no == "Consolidador" for no, _ in eventos) and not resultado.get("erro")
     proximo_num = max((p.numero for p in passos), default=0) + 1
@@ -207,13 +217,56 @@ def aba_como_foi_feito(resultado: dict) -> None:
         _card_do_passo(passo)
 
 
+def _bloco_subgrafo_pesquisa(pesquisa: PesquisaFeita) -> None:
+    """Mostra o subgrafo de pesquisa do Investigator: diagrama interno, histórico trimestral e buscas por rodada."""
+    st.markdown(f"**Subgrafo de pesquisa causal:** {escapar_markdown(resumo_pesquisa(pesquisa))}")
+    with st.container(horizontal_alignment="center"):
+        st.graphviz_chart(dot_do_subgrafo_pesquisa(pesquisa))
+
+    if pesquisa.historico and pesquisa.historico.strip():
+        with st.expander("Histórico trimestral lido em código (preparar)"):
+            st.code(pesquisa.historico, language=None, wrap_lines=True)
+
+    rodadas = agrupar_achados_por_rodada(pesquisa)
+    for num_rodada, itens in rodadas:
+        origem_rodada = (
+            "Perguntas iniciais (gerar_perguntas)"
+            if num_rodada == 1
+            else f"Lacunas pedidas pelo crítico ({num_rodada - 1}ª volta extra)"
+        )
+        n_itens = len(itens)
+        titulo = f"Rodada {num_rodada} · {origem_rodada} ({n_itens} {'busca' if n_itens == 1 else 'buscas'} via Send)"
+        with st.expander(titulo):
+            for idx, item in enumerate(itens, start=1):
+                pergunta = str(item.get("pergunta") or "").strip()
+                texto_limpo = limpar_tags_externas(str(item.get("texto") or ""))
+                st.markdown(f"**{idx}. {escapar_markdown(pergunta)}**")
+                if texto_limpo:
+                    _md(texto_limpo)
+                else:
+                    st.markdown("_Busca sem resultado._")
+
+
 def _card_do_passo(passo: Passo) -> None:
     with st.container(border=True):
-        st.markdown(f"**{passo.numero} · {passo.rotulo}**")
+        selo_reenvio = " *(reenvio do coordenador · loop_count +0)*" if passo.reenvio else ""
+        st.markdown(f"**{passo.numero} · {passo.rotulo}**{selo_reenvio}")
         decisao = ROTULO_DECISAO.get(passo.decidido_por or "")
         if passo.raciocinio or decisao:
             quem = f"Supervisor, decidido por *{decisao}*" if decisao else "Supervisor"
             st.markdown(f"> **{quem}:** {escapar_markdown(passo.raciocinio or '')}")
+        if passo.erro is not None:
+            tipo_erro = "erro permanente" if passo.erro.tipo == "permanente" else "erro temporário"
+            if passo.desistiu:
+                st.error(
+                    f"O {passo.agente} falhou na {passo.tentativa}ª rodada do nó ({tipo_erro}) e desistiu: "
+                    "a análise seguiu sem esta etapa."
+                )
+            else:
+                st.warning(
+                    f"O {passo.agente} falhou na {passo.tentativa}ª rodada do nó ({tipo_erro}): "
+                    "escalado ao coordenador para nova tentativa."
+                )
         entrada, saida = st.columns([1, 2])
         with entrada:
             st.markdown("**Entrada (tarefa recebida)**")
@@ -230,6 +283,8 @@ def _card_do_passo(passo: Passo) -> None:
                     st.code(passo.saida, language=None, wrap_lines=True)
                 else:
                     _md(passo.saida)
+        if passo.agente == "Investigator" and passo.pesquisa is not None:
+            _bloco_subgrafo_pesquisa(passo.pesquisa)
 
 
 def aba_state(resultado: dict) -> None:
