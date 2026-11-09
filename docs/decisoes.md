@@ -348,7 +348,7 @@ Com isso, fechei a versão 1.0.
 
 ## Dois agentes ao mesmo tempo
 
-O passo seguinte planejado no projeto era a revisão humana, pausando o fluxo antes do diagnóstico para pedir uma confirmação minha. Só que olhando para o tempo de resposta das análises, principalmente quando apareciam anomalias, o fluxo estava lento demais. Não fazia sentido parar para perguntar algo a um humano se a automação inteira demorava quase um minuto encadeando passos sequenciais. Decidi adiar a pausa humana e atacar primeiro a lentidão com paralelismo.
+O passo seguinte planejado no projeto era o human-in-the-loop, com a análise pausando em dois pontos para esperar uma resposta minha: quando o retry esgotasse as tentativas de um agente e antes de o relatório final sair. Pulei essa peça e fui direto para o paralelismo, e logo depois tirei ela do plano de vez, porque não quero mais o human-in-the-loop no projeto *(motivo a confirmar)*.
 
 Dividi essa etapa em três partes menores. A primeira, que é esta, cuida do paralelismo com o Send do LangGraph e da redução do Analista para uma passagem só. A segunda vai transformar o Investigator num subgrafo próprio de pesquisa. A terceira vai colocar uma chave de configuração para alternar entre o Google Search e a Tavily sem amarrar o fluxo a um único provedor. Fazer tudo junto misturaria mudanças de grafo com trocas de ferramentas e tornaria qualquer defeito impossível de rastrear.
 
@@ -374,7 +374,7 @@ Algumas escolhas antigas estão chegando no limite. Duas tensões já se resolve
 
 O estado já tem um campo por agente, e o supervisor não conta mais mensagens para decidir. Só que cada campo ainda guarda texto livre, e os agentes continuam lendo uns aos outros pelo histórico de mensagens. O agente que quebra já chega ao supervisor como um erro estruturado, mas o erro de uma tool chamada pelo LLM continua sendo string: o agente lê o "Erro ao ..." e segue, e o supervisor só fica sabendo de uma falha quando o agente inteiro falha. O Analista agora roda numa passagem só e divide o tempo com o Investigator quando há anomalias, mas as duas pesquisas ainda acontecem no mesmo nível e com focos diferentes.
 
-O retry ficou de pé, mas falta o último degrau. Quando o coordenador desiste de um agente, a análise segue sem ele e o relatório avisa, sem ninguém olhar o caso. A ideia é que esse ponto vire a revisão humana, o que depende do human-in-the-loop. E uma saída estruturada que volta inválida do LLM, no supervisor ou no Consolidador, ainda não ganha uma segunda chance antes de cair no plano B.
+Quando o coordenador desiste de um agente, a análise segue sem ele e o relatório avisa. Esse é o comportamento final, já que a revisão humana saiu do plano junto com o human-in-the-loop. Uma saída estruturada que volta inválida do LLM, no supervisor ou no Consolidador, ainda não ganha uma segunda chance antes de cair no plano B.
 
 O resto é o que eu quero implementar daqui para a frente:
 
@@ -382,7 +382,6 @@ O resto é o que eu quero implementar daqui para a frente:
 - Deploy na AWS, aproveitando o container do item anterior, para o projeto sair da minha máquina.
 - Um banco de dados para registrar as chamadas, guardando a entrada e a saída de cada análise com data e hora.
 - Checkpointer e cache de dados frescos. Parecem a mesma coisa, mas são problemas diferentes: o checkpointer guarda o estado de uma análise para ela poder ser retomada, e o cache evita buscar de novo no yfinance um dado que acabou de chegar.
-- Human-in-the-loop, com a análise pausando para esperar uma resposta minha. Ele depende do checkpointer, porque a análise precisa continuar de onde parou. É também onde entra a revisão humana quando o coordenador desiste de um agente depois do retry.
 - Uma segunda chance para a saída estruturada inválida do supervisor e do Consolidador, antes do plano B. Cada tentativa custa tokens, então o limite fica baixo.
 - Um LiteLLM na frente do modelo, para deixar o provedor genérico. Hoje trocar de provedor já é mexer num arquivo só, e com ele bastaria mudar a configuração.
 - Busca na web desacoplada do modelo. Ela está presa ao Gemini, como antes estava presa à Anthropic, e a troca de LLM quebrou a busca junto. Uma API de busca dedicada, como Tavily, Brave ou Serper, resolveria isso. Ainda não usei porque os planos gratuitos são bem limitados, mas quero testar algum provedor no futuro.

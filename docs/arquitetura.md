@@ -286,10 +286,6 @@ flowchart TD
     L3 -->|sim| RE["Supervisor manda o mesmo agente<br/>mais 1 vez, sem contar volta"]
     RE --> L2
     L3 -->|não: desistiu| SEG(["Segue sem o agente<br/>o Consolidador registra a limitação"])
-    SEG -.->|"futuro"| HUM(["Revisão humana<br/>(human-in-the-loop)"])
-
-    classDef futuro stroke-dasharray: 5 5
-    class HUM futuro
 ```
 
 | Onde | O que repete | O que faz quando não resolve |
@@ -339,7 +335,6 @@ Limites do desenho atual:
 
 - **Estado estruturado só pela metade**: cada agente já grava a saída num campo (`dados_mercado`, `noticias`, `contexto_setor`, `diagnostico`) e o Supervisor decide por eles, mas o conteúdo continua texto livre, e os agentes ainda leem uns aos outros pelo histórico de mensagens. O Analista agora roda em passagem única e divide o tempo com o Investigator quando há anomalias, mas as duas pesquisas ainda acontecem no mesmo nível e com focos diferentes.
 - **Erros de tool como texto**: o agente que quebra chega ao Supervisor como erro estruturado (seção 7), mas uma tool chamada pelo LLM que falha ainda devolve `"Erro ao ..."`, e o Supervisor não distingue falha de "sem dados" sem ler a mensagem.
-- **Desistência sem revisão**: quando o coordenador desiste de um agente, a análise segue sem ele e o relatório avisa. A revisão humana nesse ponto depende do human-in-the-loop.
 - **Sem segunda chance para a saída estruturada**: uma `RouteDecision` ou um `RelatorioFinal` inválido do LLM não é pedido de novo além do que a biblioteca do Gemini já repete. O Consolidador cai no relatório de emergência, e no Supervisor a exceção ainda derruba a análise.
 
 Próximos passos:
@@ -347,7 +342,6 @@ Próximos passos:
 - **Infraestrutura**: Docker e docker-compose, e deploy na AWS em cima do container.
 - **Persistência**: um banco de dados para registrar as chamadas (entrada e saída de cada análise, com data e hora).
 - **Checkpointer e cache de dados frescos**: o checkpointer guarda o estado de uma análise para ela poder ser retomada, e o cache evita buscar de novo no yfinance um dado que acabou de chegar.
-- **Human-in-the-loop**: a análise pausa (`interrupt()`) para esperar uma resposta e continua de onde parou, o que depende do checkpointer.
 - **Provedor genérico**: um LiteLLM na frente do modelo.
 - **Subgrafo de pesquisa do Investigator (Fase 7b)**: aprofundar a investigação causal com etapas internas de pesquisa.
 - **Busca desacoplada do modelo (Fase 7c)**: chave de configuração para alternar entre Google Search e Tavily.
