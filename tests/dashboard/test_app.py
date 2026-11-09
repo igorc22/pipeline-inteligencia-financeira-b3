@@ -7,7 +7,7 @@ import pytest_socket
 from langchain_core.messages import HumanMessage
 from streamlit.testing.v1 import AppTest
 
-from fluxo_financeiro.shared.types import RelatorioFinal
+from fluxo_financeiro.shared.types import ErroAgente, PesquisaFeita, RelatorioFinal
 
 
 APP = str(Path(__file__).resolve().parents[2] / "dashboard" / "app.py")
@@ -56,18 +56,16 @@ def _worker(nome, texto):
 
 
 def _analise(relatorio=RELATORIO, final=FINAL_MD):
-    """Eventos de uma análise completa da PETR4 no formato stream_mode=["updates", "values"]."""
+    """Eventos de uma análise completa da PETR4 no formato stream_mode=["updates", "values"] (Analyzer em passagem única)."""
     mensagens = [HumanMessage("Analise a ação PETR4"), HumanMessage(final, name="Consolidador")]
     return [
         _sup("llm", "YFinance", "Colete os dados da PETR4"),
         _worker("YFinance", "Dados para PETR4.SA:\nPreço Atual: R$ 52.71\nP/L:  5.0x"),
-        _sup("guard", "Analyzer", "Busque notícias"),
-        _worker("Analyzer", "Queda de 8% após o 2º turno."),
-        _sup("guard", "Analyzer", "Busque o setor"),
-        _worker("Analyzer", "Setor de óleo e gás."),
+        _sup("guard", "Analyzer", "Busque notícias e setor"),
+        _worker("Analyzer", "## Notícias da empresa\nQueda de 8% após o 2º turno.\n\n## Contexto do setor\nSetor de óleo e gás."),
         _sup("llm", "FINISH"),
         ("updates", {"Consolidador": {"messages": [mensagens[-1]], "relatorio": relatorio}}),
-        ("values", {"messages": mensagens, "loop_count": 4, "next_agent": "FINISH",
+        ("values", {"messages": mensagens, "loop_count": 3, "next_agent": "FINISH",
                     "relatorio": relatorio, "sinais_anomalia": []}),
     ]
 
@@ -214,7 +212,7 @@ def test_app_mostra_raciocinio_e_card_do_consolidador(grafo):
     textos = _textos(at)
     assert "vai para YFinance" in " ".join(str(m.value) for m in at.markdown)
     assert "vai para FINISH" in textos  # a decisão de encerrar também aparece
-    assert "4 · Consolidador" in textos
+    assert "3 · Consolidador" in textos
 
 
 def test_app_ticker_invalido_nao_roda(grafo):
@@ -283,12 +281,11 @@ def test_app_status_e_diagrama_atualizam_ao_vivo_no_stream(grafo):
     assert not at.exception
     assert status_labels == [
         "Analisando PETR4: YFinance...",
-        "Analisando PETR4: Analyzer (empresa)...",
-        "Analisando PETR4: Analyzer (setor)...",
+        "Analisando PETR4: Analyzer...",
         "Analisando PETR4: Consolidador...",
         "Análise de PETR4 concluída",
     ]
-    assert status_expanded == [True, True, True, True, False]
+    assert status_expanded == [True, True, True, False]
 
     dot_yf = next(d for n, d in diagramas_dot if n == 1)
     assert 'yfinance [label="YFinance\\n(rodando agora)"' in dot_yf
@@ -298,13 +295,9 @@ def test_app_status_e_diagrama_atualizam_ao_vivo_no_stream(grafo):
     assert 'analyzer [label="Analyzer\\n(rodando agora)"' in dot_a1
     assert 'label="2 · guard"' in dot_a1
 
-    dot_a2 = next(d for n, d in diagramas_dot if n == 5)
-    assert 'analyzer [label="Analyzer\\n(rodando agora)"' in dot_a2
-    assert 'label="3 · guard"' in dot_a2
-
-    dot_cons = next(d for n, d in diagramas_dot if n == 7)
+    dot_cons = next(d for n, d in diagramas_dot if n == 5)
     assert 'consolidador [label="Consolidador\\n(rodando agora)"' in dot_cons
-    assert 'label="4 · LLM"' in dot_cons
+    assert 'label="3 · LLM"' in dot_cons
 
 
 def test_app_status_e_diagrama_com_investigator(grafo):
@@ -337,12 +330,12 @@ def test_app_status_e_diagrama_com_investigator(grafo):
         diagramas_dot.append((len(eventos), dot))
         return dot
 
-    fluxo_investigator = _analise()[:6] + [
-        _sup("guard", "Investigator", "Investigue anomalia"),
+    fluxo_investigator = _analise()[:4] + [
+        _sup("llm", "Investigator", "Investigue anomalia"),
         _worker("Investigator", "Causa encontrada."),
         _sup("guard", "FINISH"),
         ("updates", {"Consolidador": {"messages": [HumanMessage("Relatório com anomalia", name="Consolidador")]}}),
-        ("values", {"messages": [], "loop_count": 5, "next_agent": "FINISH", "relatorio": None, "sinais_anomalia": []}),
+        ("values", {"messages": [], "loop_count": 4, "next_agent": "FINISH", "relatorio": None, "sinais_anomalia": []}),
     ]
     grafo.stream.side_effect = lambda *a, **k: iter(fluxo_investigator)
 
@@ -352,9 +345,9 @@ def test_app_status_e_diagrama_com_investigator(grafo):
 
     assert not at.exception
     assert "Analisando PETR4: Investigator..." in status_labels
-    dot_inv = next(d for n, d in diagramas_dot if n == 7)
+    dot_inv = next(d for n, d in diagramas_dot if n == 5)
     assert 'investigator [label="Investigator\\n(rodando agora)"' in dot_inv
-    assert 'label="4 · guard"' in dot_inv
+    assert 'label="3 · LLM"' in dot_inv
 
 
 def test_app_erro_no_stream_atualiza_diagrama_para_interrompido(grafo):
@@ -534,4 +527,169 @@ def test_app_fluxo_paralelo_stream(grafo):
     assert len(at.tabs) == 3
     assert "A Petrobras apresenta fundamentos sólidos." in _textos(at)
     assert at.text_input(key="ticker").value == "VALE3"
+
+
+def test_app_paralelo_atualiza_status_quando_um_ramo_termina(grafo):
+    """Confere que durante o passo paralelo o status ao vivo atualiza para mostrar apenas o ramo que ainda está rodando."""
+    import streamlit as st
+
+    status_labels = []
+    orig_status = st.status
+
+    def spy_status(*a, **k):
+        s = orig_status(*a, **k)
+        orig_up = s.update
+
+        def up(*ua, **uk):
+            lbl = uk.get("label") or (ua[0] if ua else None)
+            if lbl:
+                status_labels.append(lbl)
+            return orig_up(*ua, **uk)
+
+        s.update = up
+        return s
+
+    mensagens = [HumanMessage("Analise a ação VALE3"), HumanMessage(FINAL_MD, name="Consolidador")]
+    fluxo = [
+        _sup("llm", "YFinance", "Colete os dados da VALE3"),
+        _worker("YFinance", "Dados para VALE3.SA"),
+        ("updates", {
+            "Supervisor": {
+                "next_agent": "Analyzer+Investigator",
+                "loop_count": 1,
+                "decidido_por": "guard",
+                "supervisor_reasoning": "Sinais de anomalia encontrados.",
+                "messages": [
+                    HumanMessage("## Notícias da empresa", name="Supervisor"),
+                    HumanMessage("Investigue", name="Supervisor"),
+                ],
+            }
+        }),
+        _worker("Investigator", "Diagnóstico concluído primeiro"),
+        _worker("Analyzer", "Notícias e setor concluídos depois"),
+        _sup("guard", "FINISH"),
+        ("updates", {"Consolidador": {"messages": [mensagens[-1]], "relatorio": RELATORIO}}),
+        ("values", {"messages": mensagens, "loop_count": 3, "next_agent": "FINISH",
+                    "relatorio": RELATORIO, "sinais_anomalia": []}),
+    ]
+    grafo.stream.side_effect = lambda *a, **k: iter(fluxo)
+
+    with patch.object(st, "status", spy_status):
+        at = _rodar("VALE3")
+
+    assert not at.exception
+    assert "Analisando VALE3: Analyzer e Investigator..." in status_labels
+    assert "Analisando VALE3: Analyzer..." in status_labels
+
+
+def test_app_mostra_subgrafo_pesquisa_no_investigator(grafo):
+    """Confere que o card do Investigator na aba 'Como foi feito' exibe o subgrafo de pesquisa, histórico e rodadas de busca."""
+    pesquisa = PesquisaFeita(
+        perguntas=[
+            "Por que o lucro da VALE3 caiu no 3T26?",
+            "Qual o impacto da provisão da Samarco no 3T26?",
+        ],
+        achados=[
+            {
+                "pergunta": "Por que o lucro da VALE3 caiu no 3T26?",
+                "rodada": 1,
+                "texto": '<conteudo_externo origem="google_search">\nRetração de 10% no minério.\nFontes: vale.com\n</conteudo_externo>',
+            },
+            {
+                "pergunta": "Qual o impacto da provisão da Samarco no 3T26?",
+                "rodada": 2,
+                "texto": '<conteudo_externo origem="google_search">\nAjuste de US$ 322 milhões na Samarco.\nFontes: estadao.com.br\n</conteudo_externo>',
+            },
+        ],
+        voltas=1,
+        historico="Histórico Trimestral de VALE3.SA:\nNet Income 1.25B",
+    )
+    mensagens = [HumanMessage("Analise a ação VALE3"), HumanMessage(FINAL_MD, name="Consolidador")]
+    fluxo = [
+        _sup("llm", "YFinance", "Colete os dados da VALE3"),
+        _worker("YFinance", "Dados para VALE3.SA"),
+        ("updates", {
+            "Supervisor": {
+                "next_agent": "Analyzer+Investigator",
+                "loop_count": 1,
+                "decidido_por": "guard",
+                "supervisor_reasoning": "Sinais de anomalia.",
+                "messages": [
+                    HumanMessage("## Notícias da empresa", name="Supervisor"),
+                    HumanMessage("Investigue queda de lucro", name="Supervisor"),
+                ],
+            }
+        }),
+        _worker("Analyzer", "## Notícias da empresa\nAlta.\n\n## Contexto do setor\nMineração."),
+        ("updates", {
+            "Investigator": {
+                "messages": [HumanMessage("- Causa identificada: queda do minério", name="Investigator")],
+                "diagnostico": "- Causa identificada: queda do minério",
+                "pesquisa": pesquisa,
+            }
+        }),
+        _sup("guard", "FINISH"),
+        ("updates", {"Consolidador": {"messages": [mensagens[-1]], "relatorio": RELATORIO}}),
+        ("values", {"messages": mensagens, "loop_count": 3, "next_agent": "FINISH",
+                    "relatorio": RELATORIO, "sinais_anomalia": [], "pesquisa": pesquisa}),
+    ]
+    grafo.stream.side_effect = lambda *a, **k: iter(fluxo)
+
+    at = _rodar("VALE3")
+
+    assert not at.exception
+    textos = _textos(at)
+    assert "Subgrafo de pesquisa causal:" in textos
+    assert "2 perguntas geradas" in textos
+    assert "1 volta extra pedida pelo crítico" in textos
+    assert "Histórico Trimestral de VALE3.SA" in textos
+    assert "Por que o lucro da VALE3 caiu no 3T26?" in textos
+    assert "Ajuste de US\\$ 322 milhões na Samarco." in textos
+
+
+def test_app_mostra_retry_e_desistencia_nos_cards(grafo):
+    """Confere que falhas de nó, reenvio do coordenador e desistência aparecem nos cards da aba 'Como foi feito'."""
+    mensagens = [HumanMessage("Analise a ação PETR4"), HumanMessage(FINAL_MD, name="Consolidador")]
+    fluxo = [
+        _sup("llm", "YFinance", "Colete os dados da PETR4"),
+        _worker("YFinance", "Dados para PETR4.SA"),
+        _sup("guard", "Analyzer", "Tarefa original do Analyzer"),
+        ("updates", {
+            "Analyzer": {
+                "messages": [HumanMessage("Erro: Analyzer falhou depois de 2 tentativas (transitorio): Timeout", name="Analyzer")],
+                "erros": {"Analyzer": ErroAgente(tipo="transitorio", mensagem="Timeout", tentativas=1)},
+                "tentativas": {"Analyzer": 1},
+            }
+        }),
+        ("updates", {
+            "Supervisor": {
+                "next_agent": "Analyzer",
+                "loop_count": 0,
+                "decidido_por": "guard",
+                "supervisor_reasoning": "Analyzer falhou com erro temporário: nova tentativa (2 de 2).",
+            }
+        }),
+        ("updates", {
+            "Analyzer": {
+                "messages": [HumanMessage("Erro: Analyzer falhou depois de 2 tentativas (transitorio): Timeout", name="Analyzer")],
+                "erros": {"Analyzer": ErroAgente(tipo="transitorio", mensagem="Timeout", tentativas=2)},
+                "tentativas": {"Analyzer": 2},
+            }
+        }),
+        _sup("llm", "FINISH"),
+        ("updates", {"Consolidador": {"messages": [mensagens[-1]], "relatorio": RELATORIO}}),
+        ("values", {"messages": mensagens, "loop_count": 3, "next_agent": "FINISH",
+                    "relatorio": RELATORIO, "sinais_anomalia": []}),
+    ]
+    grafo.stream.side_effect = lambda *a, **k: iter(fluxo)
+
+    at = _rodar("PETR4")
+
+    assert not at.exception
+    textos = _textos(at)
+    assert "reenvio do coordenador" in textos
+    assert "Tarefa original do Analyzer" in textos
+    assert any("escalado ao coordenador" in w.value for w in at.warning)
+    assert any("desistiu: a análise seguiu sem esta etapa" in e.value for e in at.error)
+
 

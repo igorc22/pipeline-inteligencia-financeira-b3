@@ -5,27 +5,32 @@ from langchain_core.messages import HumanMessage
 from dashboard.visao import (
     _conteudo,
     _texto_dot,
+    agrupar_achados_por_rodada,
     decisao_do_fim,
     dividir_indicadores,
     dot_do_caminho,
     dot_do_caminho_em_progresso,
+    dot_do_subgrafo_pesquisa,
     escapar_markdown,
+    limpar_tags_externas,
     montar_passos,
     parou_no_hard_stop,
     passo_do_consolidador,
     raciocinio_do_fim,
     resumo_em_progresso,
+    resumo_pesquisa,
     rotulo_agente_em_execucao,
+    rotulo_em_execucao,
     separar_indicador,
     state_para_json,
     status_execucao,
 )
-from fluxo_financeiro.shared.types import ErroAgente, RelatorioFinal, SinalAnomalia
+from fluxo_financeiro.shared.types import ErroAgente, PesquisaFeita, RelatorioFinal, SinalAnomalia
 
 
-def _sup(decidido_por, proximo, tarefa=None, raciocinio=None):
+def _sup(decidido_por, proximo, tarefa=None, raciocinio=None, loop_count=1):
     """Evento do Supervisor no formato do stream_mode="updates"."""
-    update = {"next_agent": proximo, "loop_count": 1, "decidido_por": decidido_por}
+    update = {"next_agent": proximo, "loop_count": loop_count, "decidido_por": decidido_por}
     if raciocinio:
         update["supervisor_reasoning"] = raciocinio
     if tarefa:
@@ -40,10 +45,8 @@ def _worker(nome, texto):
 FLUXO_NORMAL = [
     _sup("llm", "YFinance", "Colete", "Histórico vazio."),
     _worker("YFinance", "Preço Atual: R$ 52.71"),
-    _sup("guard", "Analyzer", "Busque notícias", "YFinance coletou."),
-    _worker("Analyzer", "Notícias da empresa"),
-    _sup("guard", "Analyzer", "Busque o setor", "Falta o setor."),
-    _worker("Analyzer", "Contexto do setor"),
+    _sup("guard", "Analyzer", "Busque notícias e setor", "YFinance coletou."),
+    _worker("Analyzer", "## Notícias da empresa\nNotícias.\n\n## Contexto do setor\nSetor."),
     _sup("llm", "FINISH", None, "Sem anomalia."),
     ("Consolidador", {"messages": [HumanMessage("# Relatório", name="Consolidador")]}),
 ]
@@ -57,15 +60,15 @@ def test_separar_indicador():
 
 
 def test_montar_passos_fluxo_normal():
-    """Confere que cada worker vira um passo com a tarefa e a decisão do Supervisor anterior."""
+    """Confere que cada worker vira um passo com a tarefa e a decisão do Supervisor anterior (Analyzer em passagem única)."""
     passos = montar_passos(FLUXO_NORMAL)
 
-    assert [p.rotulo for p in passos] == ["YFinance", "Analyzer (empresa)", "Analyzer (setor)"]
-    assert [p.decidido_por for p in passos] == ["llm", "guard", "guard"]
-    assert passos[1].entrada == "Busque notícias"
+    assert [p.rotulo for p in passos] == ["YFinance", "Analyzer"]
+    assert [p.decidido_por for p in passos] == ["llm", "guard"]
+    assert passos[1].entrada == "Busque notícias e setor"
     assert passos[1].raciocinio == "YFinance coletou."
-    assert passos[2].saida == "Contexto do setor"
-    assert [p.numero for p in passos] == [1, 2, 3]
+    assert "## Contexto do setor" in passos[1].saida
+    assert [p.numero for p in passos] == [1, 2]
     assert decisao_do_fim(FLUXO_NORMAL) == "llm"
     assert parou_no_hard_stop(FLUXO_NORMAL) is False
 
@@ -86,7 +89,7 @@ def test_montar_passos_hard_stop():
 
     passos = montar_passos(eventos)
 
-    assert passos[3].rotulo == "Analyzer (3)"
+    assert [p.rotulo for p in passos] == ["YFinance", "Analyzer", "Analyzer (2)", "Analyzer (3)"]
     assert decisao_do_fim(eventos) == "hard_stop"
     assert parou_no_hard_stop(eventos) is True
 
@@ -115,11 +118,11 @@ def test_dot_do_caminho_supervisor_no_centro():
     assert len(_arestas(dot, "inicio", "supervisor")) == 1
     assert 'label="1 · LLM"' in _arestas(dot, "supervisor", "yfinance")[0]
     idas_analyzer = _arestas(dot, "supervisor", "analyzer")
-    assert len(idas_analyzer) == 2  # empresa e setor
-    assert 'label="2 · guard"' in idas_analyzer[0] and 'label="3 · guard"' in idas_analyzer[1]
-    assert 'label="4 · LLM"' in _arestas(dot, "supervisor", "consolidador")[0]
+    assert len(idas_analyzer) == 1
+    assert 'label="2 · guard"' in idas_analyzer[0]
+    assert 'label="3 · LLM"' in _arestas(dot, "supervisor", "consolidador")[0]
     assert "dashed" in _arestas(dot, "yfinance", "supervisor")[0]
-    assert len(_arestas(dot, "analyzer", "supervisor")) == 1  # uma volta por agente, não por passagem
+    assert len(_arestas(dot, "analyzer", "supervisor")) == 1
     assert len(_arestas(dot, "consolidador", "fim")) == 1
 
 
@@ -129,22 +132,22 @@ def test_dot_do_caminho_investigator_apagado_so_quando_nao_rodou():
     assert "não rodou" in sem
     assert not _arestas(sem, "supervisor", "investigator")
 
-    com_investigator = FLUXO_NORMAL[:6] + [
-        _sup("guard", "Investigator", "Investigue"),
+    com_investigator = FLUXO_NORMAL[:4] + [
+        _sup("llm", "Investigator", "Investigue"),
         _worker("Investigator", "Causa: impairment"),
         _sup("guard", "FINISH"),
     ]
     com = dot_do_caminho(montar_passos(com_investigator), "guard")
     assert "não rodou" not in com
-    assert 'label="4 · guard"' in _arestas(com, "supervisor", "investigator")[0]
-    assert 'label="5 · guard"' in _arestas(com, "supervisor", "consolidador")[0]
+    assert 'label="3 · LLM"' in _arestas(com, "supervisor", "investigator")[0]
+    assert 'label="4 · guard"' in _arestas(com, "supervisor", "consolidador")[0]
 
 
 def test_dot_do_caminho_hard_stop_na_seta_final():
     """Confere que o FINISH do hard stop aparece na seta para o Consolidador."""
     dot = dot_do_caminho(montar_passos(FLUXO_NORMAL), "hard_stop")
 
-    assert 'label="4 · hard stop"' in _arestas(dot, "supervisor", "consolidador")[0]
+    assert 'label="3 · hard stop"' in _arestas(dot, "supervisor", "consolidador")[0]
 
 
 def test_state_para_json():
@@ -221,10 +224,10 @@ def test_dot_do_caminho_raciocinio_vira_tooltip_da_seta():
 
 def test_passo_do_consolidador():
     """Confere que o Consolidador vira o último passo, com a decisão de encerrar e o relatório como saída."""
-    passo = passo_do_consolidador(FLUXO_NORMAL, numero=4)
+    passo = passo_do_consolidador(FLUXO_NORMAL, numero=3)
 
     assert passo.agente == "Consolidador"
-    assert passo.numero == 4
+    assert passo.numero == 3
     assert passo.decidido_por == "llm"
     assert passo.raciocinio == "Sem anomalia."
     assert passo.saida == "# Relatório"
@@ -232,10 +235,10 @@ def test_passo_do_consolidador():
 
 
 def test_rotulo_agente_em_execucao():
-    """Confere que o rótulo do agente em execução identifica YFinance, Investigator, Consolidador e as passagens do Analyzer."""
+    """Confere que o rótulo do agente em execução identifica YFinance, Analyzer (passagem única e extras), Investigator e Consolidador."""
     assert rotulo_agente_em_execucao("YFinance", 0) == "YFinance"
-    assert rotulo_agente_em_execucao("Analyzer", 0) == "Analyzer (empresa)"
-    assert rotulo_agente_em_execucao("Analyzer", 1) == "Analyzer (setor)"
+    assert rotulo_agente_em_execucao("Analyzer", 0) == "Analyzer"
+    assert rotulo_agente_em_execucao("Analyzer", 1) == "Analyzer (2)"
     assert rotulo_agente_em_execucao("Analyzer", 2) == "Analyzer (3)"
     assert rotulo_agente_em_execucao("Investigator", 0) == "Investigator"
     assert rotulo_agente_em_execucao("FINISH", 0) == "Consolidador"
@@ -244,7 +247,7 @@ def test_rotulo_agente_em_execucao():
 def test_status_execucao():
     """Confere que o texto de status em execução formata ticker e rótulo do agente."""
     assert status_execucao("PETR4", "YFinance") == "Analisando PETR4: YFinance..."
-    assert status_execucao("VALE3", "Analyzer (empresa)") == "Analisando VALE3: Analyzer (empresa)..."
+    assert status_execucao("VALE3", "Analyzer") == "Analisando VALE3: Analyzer..."
     assert status_execucao("WEGE3", "Consolidador") == "Analisando WEGE3: Consolidador..."
 
 
@@ -313,7 +316,7 @@ def test_dot_do_caminho_em_progresso_segunda_passagem_analyzer():
 
 def test_dot_do_caminho_em_progresso_finish_ativa_consolidador():
     """Confere que o evento de FINISH ativa o Consolidador como nó em execução e realça a seta para ele."""
-    eventos = FLUXO_NORMAL[:6] + [_sup("llm", "FINISH", None, "Sem anomalia.")]
+    eventos = FLUXO_NORMAL[:4] + [_sup("llm", "FINISH", None, "Sem anomalia.")]
     dot = dot_do_caminho_em_progresso(eventos)
 
     assert 'consolidador [label="Consolidador\\n(rodando agora)"' in dot
@@ -321,7 +324,7 @@ def test_dot_do_caminho_em_progresso_finish_ativa_consolidador():
 
     setas_consolidador = _arestas(dot, "supervisor", "consolidador")
     assert len(setas_consolidador) == 1
-    assert 'label="4 · LLM"' in setas_consolidador[0]
+    assert 'label="3 · LLM"' in setas_consolidador[0]
     assert 'penwidth=2.5' in setas_consolidador[0]
     assert 'style="bold"' in setas_consolidador[0]
     assert 'tooltip="Sem anomalia."' in setas_consolidador[0]
@@ -330,13 +333,13 @@ def test_dot_do_caminho_em_progresso_finish_ativa_consolidador():
 
 def test_dot_do_caminho_em_progresso_investigator():
     """Confere que o encaminhamento ao Investigator destaca seu nó e a respectiva seta ativa."""
-    eventos = FLUXO_NORMAL[:6] + [_sup("guard", "Investigator", "Investigue", "P/L anômalo.")]
+    eventos = FLUXO_NORMAL[:4] + [_sup("llm", "Investigator", "Investigue", "P/L anômalo.")]
     dot = dot_do_caminho_em_progresso(eventos)
 
     assert 'investigator [label="Investigator\\n(rodando agora)"' in dot
     setas_inv = _arestas(dot, "supervisor", "investigator")
     assert len(setas_inv) == 1
-    assert 'label="4 · guard"' in setas_inv[0]
+    assert 'label="3 · LLM"' in setas_inv[0]
     assert 'penwidth=2.5' in setas_inv[0]
     assert 'style="bold"' in setas_inv[0]
     assert 'tooltip="P/L anômalo."' in setas_inv[0]
@@ -627,4 +630,169 @@ def test_resumo_em_progresso_paralelo():
     resumo = resumo_em_progresso(eventos)
     assert "**2 · Analyzer e Investigator** — rodando agora" in resumo
     assert "Anomalias na receita." in resumo
+
+
+def test_resumo_e_rotulo_em_progresso_paralelo_um_ramo_concluido():
+    """Confere que quando um ramo do paralelo termina antes do outro, o ramo restante continua como 'rodando agora'."""
+    eventos = [
+        _sup("llm", "YFinance", "Colete"),
+        _worker("YFinance", "dados"),
+        ("Supervisor", {
+            "next_agent": "Analyzer+Investigator",
+            "loop_count": 1,
+            "decidido_por": "guard",
+            "supervisor_reasoning": "Queda de lucro detectada.",
+            "messages": [
+                HumanMessage("## Notícias da empresa", name="Supervisor"),
+                HumanMessage("Investigue", name="Supervisor"),
+            ],
+        }),
+        _worker("Investigator", "Diagnóstico pronto primeiro"),
+    ]
+
+    assert rotulo_em_execucao(eventos) == "Analyzer"
+    resumo = resumo_em_progresso(eventos)
+    assert "**2 · Investigator** *(via guard)* — investigou a anomalia" in resumo
+    assert "**2 · Analyzer** — rodando agora *(decidido por guard)*" in resumo
+    assert "Queda de lucro detectada." in resumo
+
+
+def test_montar_passos_preserva_tarefa_no_reenvio_do_coordenador():
+    """Confere que o reenvio do coordenador (sem nova mensagem de tarefa e com loop_count=0) preserva a tarefa original e marca reenvio."""
+    erro_temp = ErroAgente(tipo="transitorio", mensagem="TimeoutError: lento", tentativas=1)
+    eventos = [
+        _sup("llm", "YFinance", "Colete dados"),
+        _worker("YFinance", "dados"),
+        ("Supervisor", {
+            "next_agent": "Analyzer+Investigator",
+            "loop_count": 1,
+            "decidido_por": "guard",
+            "supervisor_reasoning": "Anomalia encontrada.",
+            "messages": [
+                HumanMessage("## Notícias da empresa: VALE3", name="Supervisor"),
+                HumanMessage("Investigue queda de 53% no lucro da VALE3", name="Supervisor"),
+            ],
+        }),
+        _worker("Analyzer", "## Notícias da empresa\nOk\n\n## Contexto do setor\nOk"),
+        ("Investigator", {
+            "messages": [HumanMessage("Erro: Investigator falhou depois de 2 tentativas (transitorio): Timeout", name="Investigator")],
+            "erros": {"Investigator": erro_temp},
+            "tentativas": {"Investigator": 1},
+        }),
+        _sup("guard", "Investigator", None, "Investigator falhou com erro temporário: nova tentativa (2 de 2).", loop_count=0),
+        ("Investigator", {
+            "messages": [HumanMessage("- Causa identificada: queda do minério", name="Investigator")],
+            "erros": {"Investigator": None},
+            "tentativas": {"Investigator": 0},
+        }),
+        _sup("guard", "FINISH", None, "Concluído"),
+        ("Consolidador", {"messages": [HumanMessage("# Relatório", name="Consolidador")]}),
+    ]
+
+    passos = montar_passos(eventos)
+
+    assert len(passos) == 4
+    passo_falha = passos[2]
+    assert passo_falha.agente == "Investigator"
+    assert passo_falha.erro is not None
+    assert passo_falha.desistiu is False
+    assert passo_falha.reenvio is False
+    assert passo_falha.entrada == "Investigue queda de 53% no lucro da VALE3"
+
+    passo_reenvio = passos[3]
+    assert passo_reenvio.agente == "Investigator"
+    assert passo_reenvio.erro is None
+    assert passo_reenvio.reenvio is True
+    assert passo_reenvio.entrada == "Investigue queda de 53% no lucro da VALE3"
+
+    dot = dot_do_caminho(passos, decisao_fim="guard", consolidou=True)
+    setas_inv = _arestas(dot, "supervisor", "investigator")
+    assert len(setas_inv) == 2
+    assert 'label="2 · guard · falhou"' in setas_inv[0]
+    assert 'label="3 · guard (reenvio)"' in setas_inv[1]
+    assert "(desistiu)" not in dot
+
+
+def test_dot_e_resumo_quando_agente_desiste():
+    """Confere que um agente que esgota as tentativas ou tem erro permanente aparece como 'desistiu' no grafo e no resumo."""
+    erro_final = ErroAgente(tipo="transitorio", mensagem="TimeoutError: lento", tentativas=2)
+    eventos = [
+        _sup("llm", "YFinance", "Colete dados"),
+        _worker("YFinance", "dados"),
+        _sup("guard", "Analyzer", "Busque notícias e setor", "Passando para o Analyzer."),
+        ("Analyzer", {
+            "messages": [HumanMessage("Erro: Analyzer falhou depois de 2 tentativas (transitorio): lento", name="Analyzer")],
+            "erros": {"Analyzer": ErroAgente(tipo="transitorio", mensagem="lento", tentativas=1)},
+            "tentativas": {"Analyzer": 1},
+        }),
+        _sup("guard", "Analyzer", None, "Nova tentativa (2 de 2).", loop_count=0),
+        ("Analyzer", {
+            "messages": [HumanMessage("Erro: Analyzer falhou depois de 2 tentativas (transitorio): lento", name="Analyzer")],
+            "erros": {"Analyzer": erro_final},
+            "tentativas": {"Analyzer": 2},
+        }),
+        _sup("llm", "FINISH", None, "Seguir sem Analyzer."),
+        ("Consolidador", {"messages": [HumanMessage("# Relatório com limitação", name="Consolidador")]}),
+    ]
+
+    passos = montar_passos(eventos)
+    assert passos[1].desistiu is False
+    assert passos[2].desistiu is True
+    assert passos[2].reenvio is True
+    assert passos[2].entrada == "Busque notícias e setor"
+
+    dot = dot_do_caminho(passos, decisao_fim="llm", consolidou=True)
+    assert 'analyzer [label="Analyzer\\n(desistiu)"' in dot
+
+    resumo = resumo_em_progresso(eventos)
+    assert "falhou na 1ª rodada (erro temporário)" in resumo
+    assert "falhou (erro temporário); etapa ficou de fora" in resumo
+
+
+def test_subgrafo_pesquisa_funcoes_puras():
+    """Confere o resumo, limpeza de tags, agrupamento por rodada e DOT do subgrafo de pesquisa do Investigator."""
+    pesquisa = PesquisaFeita(
+        perguntas=[
+            "Por que o lucro da VALE3 caiu no 3T26?",
+            "Houve impairment na VALE3 no 3T26?",
+            "Qual o efeito da provisão da Samarco?",
+        ],
+        achados=[
+            {
+                "pergunta": "Por que o lucro da VALE3 caiu no 3T26?",
+                "rodada": 1,
+                "texto": '<conteudo_externo origem="google_search">\nLucro caiu 53% com recuo do minério.\nFontes: vale.com\n</conteudo_externo>',
+            },
+            {
+                "pergunta": "Houve impairment na VALE3 no 3T26?",
+                "rodada": 1,
+                "texto": "",
+            },
+            {
+                "pergunta": "Qual o efeito da provisão da Samarco?",
+                "rodada": 2,
+                "texto": '<conteudo_externo origem="tavily">\nProvisão de US$ 322 milhões.\nFontes: infomoney.com.br\n</conteudo_externo>',
+            },
+        ],
+        voltas=1,
+        historico="Métrica  2026-09-30\nNet Income 1.25B",
+    )
+
+    assert limpar_tags_externas(pesquisa.achados[0]["texto"]) == "Lucro caiu 53% com recuo do minério.\nFontes: vale.com"
+    rodadas = agrupar_achados_por_rodada(pesquisa)
+    assert [r for r, _ in rodadas] == [1, 2]
+    assert len(rodadas[0][1]) == 2
+    assert len(rodadas[1][1]) == 1
+
+    resumo = resumo_pesquisa(pesquisa)
+    assert "3 perguntas geradas" in resumo
+    assert "2/3 buscas com resultado" in resumo
+    assert "1 volta extra pedida pelo crítico" in resumo
+
+    dot = dot_do_subgrafo_pesquisa(pesquisa)
+    assert "digraph subgrafo_pesquisa" in dot
+    assert 'gerar_perguntas [label="gerar_perguntas\\n(2 perguntas)"' in dot
+    assert 'buscar [label="buscar (Send)\\n(2/3 com achados)"' in dot
+    assert 'criticar -> buscar [label="1x lacunas (Send)"' in dot
+
 
