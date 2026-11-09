@@ -36,7 +36,7 @@ flowchart TD
     end
 
     subgraph I["Investigator (condicional)"]
-        I1["investigator_agent<br/>fatos relevantes, histórico trimestral, web<br/>máx. 4 buscas"]
+        I1["subgrafo de pesquisa<br/>histórico trimestral, até 3 perguntas,<br/>buscas em paralelo, síntese e crítico"]
     end
 
     subgraph C["Consolidador (sempre no fim)"]
@@ -62,6 +62,42 @@ flowchart TD
 | fim | Investigator resolvido (`diagnostico` gravado ou desistiu) **e** Analyzer resolvido | FINISH | Guard |
 | fim | `loop_count >= 6` | FINISH | Hard stop |
 | fim | Qualquer FINISH | Consolidador → fim | Router: FINISH sempre vai ao Consolidador |
+
+### Dentro do Investigator: o subgrafo de pesquisa
+
+O Investigator não é um agente com tools: é um subgrafo (`agents/pesquisa.py`) com o caminho fixo em código. O nó `Investigator` do grafo principal chama `investigar(tarefa, ticker)` dentro do `_rodar_com_retry` e devolve o diagnóstico (`diagnostico`) e o registro da pesquisa (`pesquisa`).
+
+```mermaid
+flowchart TD
+    IN(["tarefa do Supervisor + ticker"]) --> P["preparar<br/>histórico trimestral do yfinance<br/>(código, sem LLM)"]
+    P --> Q["gerar_perguntas<br/>LLM com PerguntasPesquisa<br/>até 3 perguntas (MAX_PERGUNTAS)"]
+    Q -->|"um Send por pergunta"| B1["buscar<br/>pesquisar_pergunta()"]
+    Q -->|"um Send por pergunta"| B2["buscar"]
+    Q -->|"um Send por pergunta"| B3["buscar"]
+    B1 --> SI
+    B2 --> SI
+    B3 --> SI
+    SI["sintetizar<br/>LLM com DiagnosticoPesquisa<br/>(sem achado nenhum: indeterminado em código)"] --> CR{"criticar<br/>LLM com CriticaPesquisa"}
+    CR -->|"reprovou, com lacunas e voltas < 2<br/>até 2 perguntas novas (Send)"| B1
+    CR -->|"aprovou, sem lacunas ou limite de voltas"| FIM(["formatar_diagnostico<br/>Causa, Natureza, Evidências, Impacto + Fontes"])
+
+    classDef llm fill:#e3f2fd,stroke:#1565c0
+    classDef codigo fill:#e8f5e9,stroke:#2e7d32
+    class Q,SI,CR llm
+    class P,B1,B2,B3 codigo
+```
+
+| Peça | O que faz | Limite ou falha |
+|---|---|---|
+| `preparar` | `buscar_historico_trimestral` em código | Erro vira o texto de erro da tool, e a pesquisa segue |
+| `gerar_perguntas` | Perguntas causais sobre a anomalia | Corta em `MAX_PERGUNTAS` (3) |
+| `buscar` | Uma busca na web por pergunta (`pesquisar_pergunta`, com `com_retentativas`), texto em `<conteudo_externo>` | Falha ou vazio vira achado vazio; as outras perguntas seguem |
+| `sintetizar` | Diagnóstico com saída estruturada: natureza é `pontual`, `estrutural`, `cíclico` ou `indeterminado` | Sem nenhum achado, não chama o LLM e devolve `indeterminado` |
+| `criticar` | Aprova ou devolve lacunas (perguntas novas) | Até `MAX_LACUNAS` (2) por volta e `MAX_VOLTAS` (2) voltas: no pior caso, 7 buscas. Depois do limite encerra sem chamar o LLM |
+
+Os três prompts (`PERGUNTAS_PROMPT`, `SINTESE_PROMPT`, `CRITICO_PROMPT`) seguem o padrão XML dos outros e terminam com `REGRA_CONTEUDO_EXTERNO`. Os dados vão na mensagem humana em tags, escapados: `<tarefa_supervisor>`, `<historico_trimestral>`, `<achados>` (um `<achado pergunta="..." rodada="...">` por busca) e, para o crítico, `<diagnostico_rascunho>`.
+
+Uma exceção do LLM dentro do subgrafo sobe para o nó, e o retry dele roda o subgrafo inteiro de novo. A saída estruturada vazia ou com JSON quebrado vira `RespostaVazia` (temporária) em `chamar_estruturado`, para cair no mesmo retry. As fontes do diagnóstico vêm só da última linha `Fontes:` de cada achado, para nenhuma linha do texto da web sair da tag.
 
 ---
 
@@ -112,7 +148,7 @@ Dado faltando no yfinance → a regra é pulada, nunca acusa.
 
 ## 3. Uma análise com anomalia, passo a passo
 
-Exemplo real (VALE3, 02/11/2026): ~25 s, ~30 mil tokens, ~US\$ 0,016 antes do Consolidador, que acrescenta uma chamada ao LLM.
+Exemplo real (VALE3, 02/11/2026): ~25 s, ~30 mil tokens, ~US\$ 0,016 antes do Consolidador, que acrescenta uma chamada ao LLM. Com o paralelo e o subgrafo de pesquisa, o e2e de 09/11/2026 fechou em 3 loops e 24,1 s, com 3 perguntas e o crítico aprovando sem volta.
 
 ```mermaid
 sequenceDiagram
@@ -146,8 +182,9 @@ sequenceDiagram
         A-->>S: notícias + contexto setorial
     and Investigator (diagnóstico causal)
         S->>I: (Send) investigue as causas da anomalia
-        I->>W: fatos relevantes e web
-        I->>I: histórico trimestral
+        I->>I: histórico trimestral (código) e até 3 perguntas (LLM)
+        I->>W: uma busca por pergunta, em paralelo
+        I->>I: síntese e crítico (até 2 voltas de busca a mais)
         I-->>S: Causa, Natureza, Evidências, Impacto
     end
     Note over S: Superstep concluído: Supervisor recebe ambos<br/>Guard: Analyzer e Investigator resolvidos -> FINISH
@@ -185,7 +222,7 @@ flowchart BT
     subgraph C_AGENTS["agents/"]
         COL["collectors.py"]
         ANL["analysts.py"]
-        INVA["investigators.py"]
+        INVA["pesquisa.py<br/>subgrafo do Investigator"]
         CONS["consolidator.py"]
     end
 
@@ -262,7 +299,8 @@ flowchart LR
 | `dados_mercado` | Sobrescreve | Texto final do YFinance, o mesmo da mensagem (com o aviso da reserva, os sinais e o bloco do Banco Central) |
 | `noticias` | Sobrescreve | Saída da seção `## Notícias da empresa` do Analyzer (passagem única). Gravado uma vez só |
 | `contexto_setor` | Sobrescreve | Saída da seção `## Contexto do setor` do Analyzer (passagem única). `None` se a seção faltar |
-| `diagnostico` | Sobrescreve | Resposta do Investigator, que o Consolidador copia literalmente |
+| `diagnostico` | Sobrescreve | Resposta do Investigator (as 4 linhas montadas em código por `formatar_diagnostico`), que o Consolidador copia literalmente |
+| `pesquisa` | Sobrescreve | `PesquisaFeita` do subgrafo: perguntas, achados (pergunta, rodada, texto), voltas do crítico e o histórico trimestral lido. Os evals usam como contexto do Investigator |
 | `erros` | `operator.or_` (junta dicionários) | Por agente, o último erro que o nó não resolveu localmente: `ErroAgente` com `tipo` (`transitorio`/`permanente`), `mensagem` (até 300 caracteres) e `tentativas`. `None` = a última rodada deu certo |
 | `tentativas` | `operator.or_` (junta dicionários) | Por agente, quantas rodadas do nó falharam seguidas. Volta a 0 quando o agente acerta, para a etapa seguinte do mesmo agente (o setor, no Analyzer) ter o limite inteiro |
 
@@ -291,7 +329,7 @@ flowchart TD
 | Onde | O que repete | O que faz quando não resolve |
 |---|---|---|
 | Nós dos workers (`graph/graph.py`, `_rodar_com_retry`) | O agente inteiro, até 2 vezes com 2 s de espera | Devolve `erros`/`tentativas` e uma mensagem `Erro: <agente> falhou depois de ...`, sem levantar |
-| Chamadas que o **código** faz (`com_retentativas`): Banco Central, Brapi, leitura do yfinance no detector de anomalias | A própria chamada, até 2 vezes | Levanta para quem chamou, que já tratava a falha (linha do BCB omitida, yfinance como reserva da Brapi, detector sem sinais) |
+| Chamadas que o **código** faz (`com_retentativas`): Banco Central, Brapi, leitura do yfinance no detector de anomalias, buscas do subgrafo de pesquisa | A própria chamada, até 2 vezes | Levanta para quem chamou, que já tratava a falha (linha do BCB omitida, yfinance como reserva da Brapi, detector sem sinais, pergunta sem achado) |
 | Tools que o **LLM** chama | Nada | Devolvem `"Erro ao ..."` como texto, e o agente decide |
 
 **Temporário ou permanente** (`classificar_erro`, em `shared/retry.py`): timeout, conexão caída, resposta que não é JSON (o Banco Central já devolveu isso numa execução real) e os códigos 429, 500, 503 e 504 repetem. O resto sobe na primeira falha: chave errada, modelo ou ticker que não existe, e o 429 de cota zerada, que tem o mesmo código de uma sobrecarga e se distingue pelo texto (`limit: 0`, `billing is not enabled`, `credits`, `prepay`). O 429 de limite por minuto (`limit: 15`) é temporário.
@@ -321,7 +359,7 @@ flowchart LR
 | Agente | O que o juiz mede | Contexto que ele recebe |
 |---|---|---|
 | Analyzer (passagem única) | Fidelidade | Saídas das tools da passagem, pedido, resposta do YFinance, tarefas do Supervisor |
-| Investigator | Fidelidade e diagnóstico (GEval) | O mesmo, com as tools dele |
+| Investigator | Fidelidade e diagnóstico (GEval) | O que o subgrafo leu (`pesquisa` na fixture): a tarefa do Supervisor, o histórico trimestral e os achados das buscas |
 | Consolidador | Fidelidade, cobertura (não reprova) e relevância | `montar_insumos(messages)`, a mesma entrada que o nó usa; na cobertura, sem o sumário do negócio (`sem_sumario`) |
 | Relatório final | Neutralidade (GEval: sem recomendação de compra ou venda) | Só o pedido |
 
@@ -343,6 +381,5 @@ Próximos passos:
 - **Persistência**: um banco de dados para registrar as chamadas (entrada e saída de cada análise, com data e hora).
 - **Checkpointer e cache de dados frescos**: o checkpointer guarda o estado de uma análise para ela poder ser retomada, e o cache evita buscar de novo no yfinance um dado que acabou de chegar.
 - **Provedor genérico**: um LiteLLM na frente do modelo.
-- **Subgrafo de pesquisa do Investigator (Fase 7b)**: aprofundar a investigação causal com etapas internas de pesquisa.
 - **Busca desacoplada do modelo (Fase 7c)**: chave de configuração para alternar entre Google Search e Tavily.
 - **A2A**: no fim, expor o fluxo como um agente A2A, que um futuro fluxo de análise de carteira consiga descobrir e chamar, com o `relatorio` em JSON como resposta.

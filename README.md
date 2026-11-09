@@ -19,7 +19,7 @@ Um **Supervisor** central orquestra três agentes, e um **Consolidador** fecha t
 
 - **YFinance Agent**: coleta dados de mercado (cotação, setor, valor de mercado e os maiores do setor pela Brapi; P/L, ROE, DY e histórico pelo yfinance) e tem tools para métricas de risco (Sharpe, Sortino, Max Drawdown, VaR, Beta, Alpha) e Piotroski F-Score. Em código, sem depender do LLM, a resposta dele ganha a SELIC, o CDI e o IPCA de 12 meses do Banco Central
 - **Analyzer Agent**: busca notícias (Google Search via Gemini, com a NewsAPI de reserva) em duas passagens, uma sobre a empresa e outra sobre o setor
-- **Investigator Agent** *(condicional)*: acionado só quando o Supervisor detecta uma anomalia; busca fatos relevantes e histórico trimestral para explicar a causa
+- **Investigator Agent** *(condicional)*: acionado só quando o Supervisor detecta uma anomalia; é um subgrafo de pesquisa que lê o histórico trimestral, gera até 3 perguntas sobre a causa, faz uma busca por pergunta em paralelo e passa o diagnóstico por um crítico, que pode pedir até 2 voltas de busca a mais
 - **Consolidador** *(sempre no fim)*: junta dados, notícias, setor e diagnóstico num relatório (resumo, indicadores da empresa e da economia, riscos e limitações), sem recomendação de compra ou venda
 
 ```
@@ -82,7 +82,6 @@ Onde tirar cada chave: veja [Chaves de API](#chaves-de-api), no topo.
 - Banco de dados para registrar cada análise (entrada, saída, data e hora)
 - Checkpointer e cache de dados frescos
 - LiteLLM na frente do modelo e busca na web desacoplada do provedor do LLM (Google ou Tavily por flag)
-- Subgrafo de pesquisa no lugar do Investigator
 - No fim, expor o pipeline como um agente A2A, para um futuro fluxo de análise de carteira descobrir e chamar
 
 ## Como Usar
@@ -162,7 +161,7 @@ uv run python -c "from fluxo_financeiro.tools.investigation import buscar_histor
 fluxo_financeiro/
 ├── shared/    # config (flags), llm (fábrica do Gemini), types, prompts (tag de conteúdo externo), utils (logger, ticker)
 ├── tools/     # financial_data, news, investigation, web_search, anomalias, sanitizacao, moeda, brapi
-├── agents/    # collectors (YFinance), analysts (Analyzer), investigators (Investigator), consolidator
+├── agents/    # collectors (YFinance), analysts (Analyzer), pesquisa (subgrafo do Investigator), consolidator
 └── graph/     # supervisor (guards + LLM) e StateGraph
 scripts/       # e2e.py (teste end-to-end com chamadas reais) e gerar_fixture_eval.py (fixtures dos evals)
 dashboard/     # app.py (Streamlit) e visao.py (state → o que a tela mostra)
