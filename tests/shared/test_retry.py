@@ -22,6 +22,7 @@ from langchain_google_genai.chat_models import (
 from fluxo_financeiro.shared.retry import (
     PERMANENTE,
     TRANSITORIO,
+    ErroTavily,
     RespostaVazia,
     classificar_erro,
     com_retentativas,
@@ -129,6 +130,26 @@ def test_429_de_cota_e_permanente_e_de_instabilidade_e_transitorio():
     assert classificar_erro(por_minuto) == TRANSITORIO
     assert classificar_erro(instabilidade) == TRANSITORIO
     assert classificar_erro(_embrulhado(GoogleRateLimitError, instabilidade)) == TRANSITORIO
+
+
+@pytest.mark.parametrize(
+    ("codigo", "esperado"),
+    [
+        (429, TRANSITORIO),
+        (500, TRANSITORIO),
+        (503, TRANSITORIO),
+        (504, TRANSITORIO),
+        (400, PERMANENTE),
+        (401, PERMANENTE),
+        (403, PERMANENTE),
+        (432, PERMANENTE),
+        (433, PERMANENTE),
+        (None, PERMANENTE),
+    ],
+)
+def test_classifica_erro_http_da_tavily(codigo, esperado):
+    """Confere que o 429 e o 5xx da Tavily são temporários e o resto (chave, plano, sem código) é permanente."""
+    assert classificar_erro(ErroTavily(codigo, f"Error {codigo}: algo")) == esperado
 
 
 def test_com_retentativas_repete_transitorio_e_acerta(caplog):

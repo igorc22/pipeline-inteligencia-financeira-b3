@@ -2,12 +2,11 @@ import pandas as pd
 import yfinance as yf
 from langchain_core.tools import tool
 
-from fluxo_financeiro.shared.prompts import escapar_tags
 from fluxo_financeiro.shared.retry import com_retentativas
 from fluxo_financeiro.shared.utils import logger
 from fluxo_financeiro.tools.moeda import ler_simbolo_moeda
 from fluxo_financeiro.tools.sanitizacao import tratar_conteudo_externo
-from fluxo_financeiro.tools.web_search import pesquisar_na_web, registrar_falha_busca
+from fluxo_financeiro.tools.web_search import buscar_na_web, origem_da_busca, registrar_falha_busca
 
 
 @tool
@@ -73,7 +72,7 @@ def buscar_fatos_relevantes(ticker: str) -> str:
     Inclui: impairments, reestruturações, provisões, eventos extraordinários.
     Use quando um número financeiro parece atípico e você precisa identificar
     se houve evento corporativo específico que justifique o resultado fora do padrão.
-    Usa Google Search (Gemini) para resultados em tempo real; a resposta termina com as fontes.
+    Busca na web para resultados em tempo real; a resposta termina com as fontes.
     Ticker sem sufixo é aceito (ex: VALE3) — o .SA é adicionado automaticamente.
     """
     if not ticker.endswith('.SA'):
@@ -83,14 +82,11 @@ def buscar_fatos_relevantes(ticker: str) -> str:
     logger.info(f"[tool] buscar_fatos_relevantes: ticker={ticker_base}")
 
     try:
-        resultado = pesquisar_na_web(
-            "<tarefa>\n"
+        resultado = buscar_na_web(
+            ticker_base,
             "Busque fatos relevantes, impairments, reestruturações e eventos corporativos extraordinários\n"
             "da empresa da B3 indicada na consulta, nos últimos 6 meses. Foque em eventos que expliquem\n"
-            "variações atípicas nos resultados financeiros.\n"
-            "</tarefa>\n"
-            f"<consulta>{escapar_tags(ticker_base)}</consulta>\n"
-            "<formato_resposta>Seja conciso: no máximo 3 parágrafos.</formato_resposta>"
+            "variações atípicas nos resultados financeiros.",
         )
         if not resultado:
             logger.warning(f"[tool] buscar_fatos_relevantes: nenhum resultado para {ticker_base}")
@@ -98,7 +94,7 @@ def buscar_fatos_relevantes(ticker: str) -> str:
         logger.info(f"[tool] buscar_fatos_relevantes: ok ({len(resultado)} chars)")
         return (
             f'Fatos relevantes e eventos corporativos de {ticker_base}:\n\n'
-            + tratar_conteudo_externo(resultado, "google_search")
+            + tratar_conteudo_externo(resultado, origem_da_busca())
         )
 
     except Exception as e:
@@ -115,22 +111,21 @@ def pesquisar_pergunta(pergunta: str, ticker: str) -> str:
     fica sem achado e as outras seguem.
     """
     ticker_base = ticker.removesuffix('.SA')
-    # A pergunta vem do LLM, que leu dados de fora: vai escapada, como qualquer consulta.
-    prompt = (
-        "<tarefa>\n"
+    # A pergunta vem do LLM, que leu dados de fora: no prompt do Google, buscar_na_web a põe escapada
+    # em <consulta>, como qualquer consulta (e a empresa em <empresa>). A Tavily recebe "empresa pergunta".
+    instrucao = (
         "Responda à pergunta da consulta sobre a empresa da B3 indicada, buscando a causa de uma\n"
         "variação atípica nos resultados. Procure fatos relevantes, resultados trimestrais, impairments,\n"
         "preços de commodities e câmbio que expliquem o número, nos últimos 12 meses. Traga datas e\n"
-        "números quando houver.\n"
-        "</tarefa>\n"
-        f"<empresa>{escapar_tags(ticker_base)}</empresa>\n"
-        f"<consulta>{escapar_tags(pergunta)}</consulta>\n"
-        "<formato_resposta>Seja conciso: no máximo 2 parágrafos.</formato_resposta>"
+        "números quando houver."
     )
     logger.info(f"[pesquisa] {ticker_base}: {pergunta[:80]}")
     try:
         resultado = com_retentativas(
-            lambda: pesquisar_na_web(prompt), contexto=f"[pesquisa] {ticker_base}"
+            lambda: buscar_na_web(
+                pergunta, instrucao, empresa=ticker_base, formato="Seja conciso: no máximo 2 parágrafos."
+            ),
+            contexto=f"[pesquisa] {ticker_base}",
         )
     except Exception as e:
         registrar_falha_busca(f"[pesquisa] busca falhou para {ticker_base}", e)
@@ -138,4 +133,4 @@ def pesquisar_pergunta(pergunta: str, ticker: str) -> str:
     if not resultado:
         logger.warning(f"[pesquisa] {ticker_base}: busca sem resultado")
         return ""
-    return tratar_conteudo_externo(resultado, "google_search")
+    return tratar_conteudo_externo(resultado, origem_da_busca())
