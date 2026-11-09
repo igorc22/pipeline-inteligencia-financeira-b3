@@ -3,6 +3,7 @@ import yfinance as yf
 from langchain_core.tools import tool
 
 from fluxo_financeiro.shared.prompts import escapar_tags
+from fluxo_financeiro.shared.retry import com_retentativas
 from fluxo_financeiro.shared.utils import logger
 from fluxo_financeiro.tools.moeda import ler_simbolo_moeda
 from fluxo_financeiro.tools.sanitizacao import tratar_conteudo_externo
@@ -103,3 +104,38 @@ def buscar_fatos_relevantes(ticker: str) -> str:
     except Exception as e:
         registrar_falha_busca(f"[tool] buscar_fatos_relevantes falhou para {ticker_base}", e)
         return f"Erro ao buscar fatos relevantes para {ticker_base}: {e}"
+
+
+def pesquisar_pergunta(pergunta: str, ticker: str) -> str:
+    """Uma busca na web para uma pergunta do subgrafo de pesquisa (agents/pesquisa.py), sem @tool.
+
+    Quem chama é o código do subgrafo, não o LLM: por isso o erro temporário é repetido aqui
+    (`com_retentativas`). Devolve o achado em <conteudo_externo> (com o classificador, se a flag
+    estiver ligada). Busca sem texto ou erro que sobrou: "" e, no erro, uma linha de log. A pergunta
+    fica sem achado e as outras seguem.
+    """
+    ticker_base = ticker.removesuffix('.SA')
+    # A pergunta vem do LLM, que leu dados de fora: vai escapada, como qualquer consulta.
+    prompt = (
+        "<tarefa>\n"
+        "Responda à pergunta da consulta sobre a empresa da B3 indicada, buscando a causa de uma\n"
+        "variação atípica nos resultados. Procure fatos relevantes, resultados trimestrais, impairments,\n"
+        "preços de commodities e câmbio que expliquem o número, nos últimos 12 meses. Traga datas e\n"
+        "números quando houver.\n"
+        "</tarefa>\n"
+        f"<empresa>{escapar_tags(ticker_base)}</empresa>\n"
+        f"<consulta>{escapar_tags(pergunta)}</consulta>\n"
+        "<formato_resposta>Seja conciso: no máximo 2 parágrafos.</formato_resposta>"
+    )
+    logger.info(f"[pesquisa] {ticker_base}: {pergunta[:80]}")
+    try:
+        resultado = com_retentativas(
+            lambda: pesquisar_na_web(prompt), contexto=f"[pesquisa] {ticker_base}"
+        )
+    except Exception as e:
+        registrar_falha_busca(f"[pesquisa] busca falhou para {ticker_base}", e)
+        return ""
+    if not resultado:
+        logger.warning(f"[pesquisa] {ticker_base}: busca sem resultado")
+        return ""
+    return tratar_conteudo_externo(resultado, "google_search")

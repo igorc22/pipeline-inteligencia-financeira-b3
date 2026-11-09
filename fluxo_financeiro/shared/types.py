@@ -23,6 +23,60 @@ class RelatorioFinal(BaseModel):
     diagnostico: Optional[str] = Field(default=None, description="Preenchido pelo sistema com o texto do Investigator. Deixe nulo.")
 
 
+# Subgrafo de pesquisa do Investigator (agents/pesquisa.py). Os limites de perguntas e de lacunas
+# ficam só na descrição: o subgrafo corta em código, e um max_length aqui faria a saída estruturada
+# falhar quando o LLM passasse do número.
+
+class PerguntasPesquisa(BaseModel):
+    """Perguntas que o subgrafo de pesquisa manda para a busca, uma busca por pergunta."""
+    perguntas: list[str] = Field(
+        description="Perguntas causais curtas sobre a anomalia (por que o número aconteceu), no máximo 3, cada uma pronta para virar uma busca na web."
+    )
+
+
+class DiagnosticoPesquisa(BaseModel):
+    """Diagnóstico da anomalia, formatado em código nas 4 linhas que o e2e e o Consolidador esperam."""
+    causa: str = Field(description="A causa identificada, em 1 a 2 frases, só com fatos e números dos achados e do histórico. Sem causa clara, diga que não foi identificada.")
+    natureza: Literal["pontual", "estrutural", "cíclico", "indeterminado"] = Field(
+        description="pontual: evento isolado. estrutural: piora contínua. cíclico: sazonal ou ligado a ciclo de preços. indeterminado: sem causa clara nos achados."
+    )
+    evidencias: list[str] = Field(description="Fatos e números que sustentam a causa, um por item, tirados dos achados ou do histórico. Vazia se não houver.")
+    impacto: str = Field(description="O que isso muda na análise do investimento, sem recomendação de compra ou venda.")
+
+
+class CriticaPesquisa(BaseModel):
+    """Avaliação do diagnóstico rascunho: aprova ou pede mais buscas."""
+    aprovado: bool = Field(description="true se o diagnóstico explica a anomalia com evidências dos achados.")
+    lacunas: list[str] = Field(
+        default_factory=list,
+        description="Perguntas novas para buscar o que faltou, no máximo 2. Vazia quando aprovado.",
+    )
+
+
+class PesquisaFeita(BaseModel):
+    """Registro do que o subgrafo de pesquisa fez: as perguntas, o que cada busca trouxe e as voltas do crítico."""
+    perguntas: list[str]
+    # Um por busca: {"pergunta": str, "rodada": int, "texto": str} (texto vazio = a busca não trouxe nada).
+    achados: list[dict]
+    voltas: int
+
+
+SEM_EVIDENCIAS = "nenhuma evidência encontrada nas buscas"
+
+
+def formatar_diagnostico(d: DiagnosticoPesquisa, fontes: list[str]) -> str:
+    """As 4 linhas-contrato do diagnóstico (Causa, Natureza, Evidências, Impacto) e as fontes no fim, quando houver."""
+    linhas = [
+        f"- Causa identificada: {d.causa}",
+        f"- Natureza do evento: {d.natureza}",
+        f"- Evidências: {'; '.join(d.evidencias) if d.evidencias else SEM_EVIDENCIAS}",
+        f"- Impacto no investimento: {d.impacto}",
+    ]
+    if fontes:
+        linhas.append(f"Fontes: {', '.join(fontes)}")
+    return "\n".join(linhas)
+
+
 class ErroAgente(BaseModel):
     """Falha de um agente que o nó não resolveu localmente: o que o coordenador lê para decidir."""
     # Os mesmos valores de TRANSITORIO e PERMANENTE em shared/retry.py (escritos aqui para types.py
