@@ -5,8 +5,10 @@ Dois riscos, um teste para cada:
   - diagnóstico fraco: causa sem evidência, natureza incoerente com
     o histórico trimestral, ou causa inventada em vez de "não achei" -> GEval
 
-O contexto é o de contexto_do_agente: as buscas da passagem (sem o aviso de limite de buscas, que não é
-evidência) e as fontes primárias do histórico. As respostas do Analyzer ficam de fora.
+O contexto é o de contexto_do_agente: com o subgrafo de pesquisa, a tarefa do Supervisor, o histórico
+trimestral e os achados das buscas (o que o subgrafo leu). Em fixture antiga, as buscas da passagem (sem
+o aviso de limite de buscas, que não é evidência) e as fontes primárias do histórico. As respostas do
+Analyzer ficam de fora.
 
 Nada da deepeval no topo do módulo: a coleta importa este arquivo em todo pytest, fora do bloqueio de rede.
 """
@@ -31,7 +33,7 @@ def investigacao(estado):
 
 
 def test_faithfulness_investigator(juiz, investigacao, medir):
-    """Confere que cada afirmação do diagnóstico está nas buscas do Investigator ou nas fontes primárias do histórico."""
+    """Confere que cada afirmação do diagnóstico está nos achados das buscas, no histórico trimestral ou na tarefa."""
     from deepeval.metrics import FaithfulnessMetric
     from deepeval.test_case import LLMTestCase
 

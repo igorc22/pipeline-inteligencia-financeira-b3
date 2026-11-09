@@ -327,5 +327,10 @@ def investigar(tarefa: str, ticker: str) -> tuple[str, PesquisaFeita]:
     achados = estado.get("achados", [])
     diagnostico = estado.get("diagnostico") or DIAGNOSTICO_SEM_ACHADOS
     texto = formatar_diagnostico(diagnostico, _fontes_dos_achados(achados))
-    feita = PesquisaFeita(perguntas=estado.get("perguntas", []), achados=achados, voltas=estado.get("voltas", 0))
+    feita = PesquisaFeita(
+        perguntas=estado.get("perguntas", []),
+        achados=achados,
+        voltas=estado.get("voltas", 0),
+        historico=estado.get("historico", ""),
+    )
     return texto, feita

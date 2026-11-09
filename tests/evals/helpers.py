@@ -300,6 +300,20 @@ def tarefa_do_supervisor(estado: dict, agente: str, n: int = 1) -> str | None:
     return next((_texto(m) for m in reversed(anteriores) if m.name == "Supervisor"), None)
 
 
+def _contexto_da_pesquisa(estado: dict, pesquisa: dict) -> list[str]:
+    """O que o subgrafo de pesquisa do Investigator leu, e só isso: a tarefa do Supervisor, o histórico
+    trimestral e um item por achado com texto ("pesquisa (<pergunta>): <texto>"). O pedido e a resposta
+    do YFinance ficam de fora: o subgrafo não os recebe."""
+    contexto = []
+    tarefa = tarefa_do_supervisor(estado, "Investigator")
+    if tarefa:
+        contexto.append(f"Supervisor: {tarefa}")
+    if pesquisa.get("historico"):
+        contexto.append(f"buscar_historico_trimestral: {pesquisa['historico']}")
+    contexto += [f"pesquisa ({a['pergunta']}): {a['texto']}" for a in pesquisa["achados"] if a["texto"].strip()]
+    return contexto
+
+
 def contexto_do_agente(estado: dict, agente: str, n: int = 1) -> list[str]:
     """O que o agente tinha em mãos na n-ésima passagem, um texto por item.
 
@@ -307,7 +321,12 @@ def contexto_do_agente(estado: dict, agente: str, n: int = 1) -> list[str]:
     buscas. Depois as mensagens anteriores à resposta cujo name está em NOMES_NO_CONTEXTO
     ("<name ou Usuario>: <texto>"). Passagem sem tool (a busca falhou e o agente respondeu do
     histórico) devolve só o histórico permitido.
+
+    Investigator com a chave "pesquisa" na fixture (o subgrafo de pesquisa, sem ToolMessage): o
+    contexto é o de _contexto_da_pesquisa. Fixture antiga, sem a chave, segue pelas tools.
     """
+    if agente == "Investigator" and estado.get("pesquisa"):
+        return _contexto_da_pesquisa(estado, estado["pesquisa"])
     passagem = next((p for p in estado["passagens"] if p["agente"] == agente and p["n"] == n), None)
     tools = passagem["tools"] if passagem else []
     contexto = [f"{t['nome']}: {t['conteudo']}" for t in tools if AVISO_LIMITE not in t["conteudo"]]

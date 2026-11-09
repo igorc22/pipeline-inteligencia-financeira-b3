@@ -5,13 +5,13 @@ from langchain_core.messages import HumanMessage
 from fluxo_financeiro.agents.analysts import ANALYZER_PROMPT
 from fluxo_financeiro.agents.collectors import YFINANCE_PROMPT
 from fluxo_financeiro.agents.consolidator import CONSOLIDADOR_PROMPT, montar_insumos
-from fluxo_financeiro.agents.investigators import INVESTIGATOR_PROMPT
 from fluxo_financeiro.shared.prompts import REGRA_CONTEUDO_EXTERNO
 
+# O Investigator não tem mais prompt de agente: os prompts dele são os do subgrafo de pesquisa,
+# conferidos mais abaixo (seções, regra no fim e tags de dados).
 PROMPTS = {
     "YFinance": YFINANCE_PROMPT,
     "Analyzer": ANALYZER_PROMPT,
-    "Investigator": INVESTIGATOR_PROMPT,
     "Consolidador": CONSOLIDADOR_PROMPT,
 }
 
@@ -35,14 +35,6 @@ def test_yfinance_prompt_mantem_tools_e_faixas_do_piotroski():
     for trecho in ("buscar_dados_acao_b3", "calcular_metricas_risco", "calcular_piotroski_score",
                    "7-9", "4-6", "0-3"):
         assert trecho in YFINANCE_PROMPT
-
-
-def test_investigator_prompt_mantem_contratos():
-    """Confere que as quatro seções que o e2e confere, o aviso do limite e as tools sobreviveram."""
-    for trecho in ("Causa identificada", "Natureza do evento", "Evidências", "Impacto no investimento",
-                   "Tool call limit exceeded", "buscar_fatos_relevantes", "buscar_historico_trimestral",
-                   "buscar_noticias_web"):
-        assert trecho in INVESTIGATOR_PROMPT
 
 
 def test_analyzer_prompt_mantem_contratos():

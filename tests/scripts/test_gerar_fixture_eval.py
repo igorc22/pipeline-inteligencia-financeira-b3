@@ -11,7 +11,17 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, messag
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.tools import tool
 
-from fluxo_financeiro.shared.types import RelatorioFinal, RouteDecision, SinalAnomalia
+from fluxo_financeiro.agents.pesquisa import criar_grafo_pesquisa
+from fluxo_financeiro.shared.types import (
+    CriticaPesquisa,
+    DiagnosticoPesquisa,
+    PerguntasPesquisa,
+    PesquisaFeita,
+    RelatorioFinal,
+    RouteDecision,
+    SinalAnomalia,
+)
+from tests.agents.llm_falso import LlmFalso
 
 _CAMINHO = Path(__file__).resolve().parents[2] / "scripts" / "gerar_fixture_eval.py"
 _spec = importlib.util.spec_from_file_location("gerar_fixture_eval", _CAMINHO)
@@ -73,24 +83,32 @@ def noticias_falsas(consulta: str) -> str:
     return f"notícias de {consulta}"
 
 
-@tool
-def fatos_falsos(consulta: str) -> str:
-    """Fatos relevantes falsos."""
-    return f"impairment de {consulta}"
-
-
 def _agente_falso(ferramenta):
     return create_agent(model=ModeloQuePedeUmaTool(nome_tool=ferramenta.name), tools=[ferramenta])
 
 
+def _subgrafo_falso():
+    """Subgrafo de pesquisa de verdade com o LLM falso: 2 perguntas, síntese e crítico que aprova."""
+    return criar_grafo_pesquisa(LlmFalso({
+        PerguntasPesquisa: [PerguntasPesquisa(perguntas=["Por que o lucro caiu?", "Houve impairment?"])],
+        DiagnosticoPesquisa: [DiagnosticoPesquisa(causa="impairment", natureza="pontual",
+                                                  evidencias=["baixa de US$ 1 bi"], impacto="pontual")],
+        CriticaPesquisa: [CriticaPesquisa(aprovado=True, lacunas=[])],
+    }))
+
+
 @pytest.fixture
 def grafo_com_agentes_falsos():
-    """Troca os 3 agentes por create_agent com modelo falso, o detector (devolve [SINAL]), o bloco do
-    Banco Central (fixo, sem rede) e os LLMs do Supervisor (só decide a etapa 1) e do Consolidador
-    (devolve REL), no molde do grafo_mockado."""
+    """Troca o YFinance e o Analyzer por create_agent com modelo falso, o subgrafo do Investigator pelo
+    de verdade com LLM falso (busca e histórico trimestral mockados), o detector (devolve [SINAL]), o
+    bloco do Banco Central (fixo, sem rede) e os LLMs do Supervisor (só decide a etapa 1) e do
+    Consolidador (devolve REL), no molde do grafo_mockado."""
     with patch("fluxo_financeiro.graph.graph.yfinance_agent", _agente_falso(dados_falsos)), \
          patch("fluxo_financeiro.graph.graph.analyzer_agent", _agente_falso(noticias_falsas)), \
-         patch("fluxo_financeiro.graph.graph.investigator_agent", _agente_falso(fatos_falsos)), \
+         patch("fluxo_financeiro.agents.pesquisa.grafo_pesquisa", _subgrafo_falso()), \
+         patch("fluxo_financeiro.agents.pesquisa.pesquisar_pergunta",
+               side_effect=lambda p, t: f"achado: {p}\nFontes: vale.com"), \
+         patch("fluxo_financeiro.agents.pesquisa.buscar_historico_trimestral") as historico, \
          patch("fluxo_financeiro.graph.graph.detectar_sinais_anomalia", return_value=[SINAL]), \
          patch("fluxo_financeiro.graph.graph.indicadores_economicos_em_texto",
                return_value="INDICADORES ECONÔMICOS (Banco Central, buscados em código):\n- CDI: 13.65% a.a."), \
@@ -99,6 +117,7 @@ def grafo_com_agentes_falsos():
         llm.with_structured_output.return_value.invoke.side_effect = [
             RouteDecision(reasoning="sem dados", next_agent="YFinance", task_for_agent="Colete os dados da VALE3"),
         ]
+        historico.invoke.return_value = "Net Income 4T25: -3.8B"
         llm_consolidador.with_structured_output.return_value.invoke.return_value = REL
         yield
 
@@ -136,18 +155,26 @@ def test_coletar_ignora_update_vazio_e_guarda_passagem_sem_tools():
 
 
 def test_coletar_com_grafo_real_e_agentes_falsos(grafo_com_agentes_falsos):
-    """Confere que, no app de verdade com os 3 agentes trocados por create_agent com modelo falso,
-    as saídas das tools de cada passagem chegam ao script."""
+    """Confere que, no app de verdade com YFinance e Analyzer em create_agent com modelo falso e o
+    subgrafo de pesquisa no Investigator, as saídas das tools chegam ao script, o Investigator ainda
+    tem a sua passagem (sem tools: o subgrafo não usa ToolMessage) e a pesquisa chega ao state."""
     estado, passagens = gerar.rodar("VALE3")
     assert [(p["agente"], p["n"]) for p in passagens] == [
         ("YFinance", 1), ("Analyzer", 1), ("Investigator", 1)]
-    assert all(len(p["tools"]) == 1 for p in passagens)
-    assert all(p["tools"][0]["conteudo"] for p in passagens)
     tools_por_agente = {p["agente"]: [t["nome"] for t in p["tools"]] for p in passagens}
-    assert tools_por_agente["Analyzer"] == ["noticias_falsas"]
-    assert tools_por_agente["Investigator"] == ["fatos_falsos"]
+    assert tools_por_agente == {"YFinance": ["dados_falsos"], "Analyzer": ["noticias_falsas"], "Investigator": []}
+    assert all(t["conteudo"] for p in passagens for t in p["tools"])
     assert estado["messages"][-1].name == "Consolidador"
     assert estado["relatorio"] is not None
+    pesquisa = estado["pesquisa"]
+    assert pesquisa.perguntas == ["Por que o lucro caiu?", "Houve impairment?"]
+    assert pesquisa.historico == "Net Income 4T25: -3.8B"
+
+    fx = gerar.montar_fixture("VALE3", estado, passagens, "m", "t")
+    assert fx["pesquisa"] == pesquisa.model_dump()
+    assert [a["texto"] for a in fx["pesquisa"]["achados"]] == [
+        "achado: Por que o lucro caiu?\nFontes: vale.com", "achado: Houve impairment?\nFontes: vale.com"]
+    assert json.loads(json.dumps(fx, ensure_ascii=False)) == fx
 
 
 def test_coletar_ramos_paralelos_intercalados():
@@ -187,7 +214,18 @@ def test_montar_fixture_ida_e_volta_das_mensagens():
     assert fx["relatorio"] == REL.model_dump()
     assert fx["sinais_anomalia"] == [SINAL.model_dump()]
     assert fx["versao"] == gerar.VERSAO_FIXTURE
+    assert fx["pesquisa"] is None  # análise sem Investigator
     assert json.loads(json.dumps(fx, ensure_ascii=False)) == fx
+
+
+def test_montar_fixture_guarda_a_pesquisa():
+    """Confere que a pesquisa do subgrafo (perguntas, achados, voltas e histórico trimestral) vai para a fixture."""
+    pesquisa = PesquisaFeita(perguntas=["p1"], achados=[{"pergunta": "p1", "rodada": 1, "texto": "t1"}],
+                             voltas=1, historico="Net Income 1.25B")
+    estado = {"messages": [], "relatorio": REL, "sinais_anomalia": [], "pesquisa": pesquisa}
+    fx = gerar.montar_fixture("VALE3", estado, [], "m", "t")
+    assert fx["pesquisa"] == {"perguntas": ["p1"], "achados": [{"pergunta": "p1", "rodada": 1, "texto": "t1"}],
+                              "voltas": 1, "historico": "Net Income 1.25B"}
 
 
 # ---------------------------------------------------------------------------

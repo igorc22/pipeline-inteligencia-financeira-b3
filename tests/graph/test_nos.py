@@ -10,7 +10,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from fluxo_financeiro.agents.analysts import SECAO_NOTICIAS, SECAO_SETOR
 from fluxo_financeiro.graph.graph import analyzer_node, investigator_node, yfinance_node
-from fluxo_financeiro.shared.types import ErroAgente, SinalAnomalia
+from fluxo_financeiro.shared.types import ErroAgente, PesquisaFeita, SinalAnomalia
 
 PEDIDO = HumanMessage("Analise VALE3")
 
@@ -119,13 +119,47 @@ def test_analyzer_sem_secao_do_setor():
     assert resultado["contexto_setor"] is None
 
 
-def test_investigator_grava_diagnostico():
-    """Confere que o Investigator grava a resposta em diagnostico."""
-    with patch("fluxo_financeiro.graph.graph.investigator_agent", _agente("- Causa identificada: impairment")):
+PESQUISA = PesquisaFeita(perguntas=["Por que o lucro caiu?"], achados=[], voltas=0)
+
+
+def _investigar(*resultados):
+    """`investigar` falso: exceção levanta, texto vira o diagnóstico (com a PESQUISA), na ordem."""
+    return MagicMock(side_effect=[r if isinstance(r, Exception) else (r, PESQUISA) for r in resultados])
+
+
+def test_investigator_grava_diagnostico_e_pesquisa():
+    """Confere que o Investigator roda o subgrafo com a tarefa do Supervisor e o ticker do pedido e grava diagnostico e pesquisa."""
+    tarefa = HumanMessage("Investigue a queda do lucro", name="Supervisor")
+    investigar = _investigar("- Causa identificada: impairment")
+    with patch("fluxo_financeiro.graph.graph.investigar", investigar):
+        resultado = investigator_node({"messages": [PEDIDO, tarefa]})
+
+    investigar.assert_called_once_with("Investigue a queda do lucro", "VALE3")
+    assert resultado["diagnostico"] == "- Causa identificada: impairment"
+    assert resultado["pesquisa"] == PESQUISA
+    assert resultado["messages"][0].name == "Investigator"
+    assert resultado["messages"][0].content == "- Causa identificada: impairment"
+
+
+def test_investigator_sem_tarefa_usa_o_pedido():
+    """Confere que, sem tarefa do Supervisor no histórico, o subgrafo investiga o próprio pedido do usuário."""
+    investigar = _investigar("- Causa identificada: impairment")
+    with patch("fluxo_financeiro.graph.graph.investigar", investigar):
+        investigator_node({"messages": [PEDIDO]})
+
+    investigar.assert_called_once_with("Analise VALE3", "VALE3")
+
+
+def test_investigator_texto_vazio_e_resposta_vazia():
+    """Confere que um diagnóstico vazio continua levantando RespostaVazia: o nó repete o subgrafo e, sem texto, devolve o erro."""
+    investigar = _investigar("  ", "")
+    with patch("fluxo_financeiro.graph.graph.investigar", investigar):
         resultado = investigator_node({"messages": [PEDIDO]})
 
-    assert resultado["diagnostico"] == "- Causa identificada: impairment"
-    assert resultado["messages"][0].name == "Investigator"
+    assert investigar.call_count == 2
+    assert "diagnostico" not in resultado and "pesquisa" not in resultado
+    erro = resultado["erros"]["Investigator"]
+    assert erro.tipo == "transitorio" and "RespostaVazia" in erro.mensagem
 
 
 def test_no_grava_campo_mesmo_com_erro_em_texto():
@@ -161,13 +195,13 @@ def test_no_repete_localmente_e_acerta(espera_falsa):
 
 def test_no_esgota_e_devolve_erro_estruturado(caplog):
     """Confere que, esgotadas as 2 tentativas locais, o nó não levanta: devolve o erro estruturado e não grava o campo."""
-    agente = _agente_em_sequencia(TimeoutError("lento"), TimeoutError("lento\nde novo"))
+    investigar = _investigar(TimeoutError("lento"), TimeoutError("lento\nde novo"))
 
-    with patch("fluxo_financeiro.graph.graph.investigator_agent", agente), \
+    with patch("fluxo_financeiro.graph.graph.investigar", investigar), \
          caplog.at_level("ERROR", logger="fluxo_financeiro"):
         resultado = investigator_node({"messages": [PEDIDO]})
 
-    assert agente.invoke.call_count == 2
+    assert investigar.call_count == 2
     assert "diagnostico" not in resultado
     erro = resultado["erros"]["Investigator"]
     assert erro.tipo == "transitorio"
@@ -183,10 +217,10 @@ def test_no_esgota_e_devolve_erro_estruturado(caplog):
 
 def test_no_soma_as_tentativas_do_coordenador():
     """Confere que a contagem continua de onde estava: a rodada mandada pelo coordenador vira a tentativa 2."""
-    agente = _agente_em_sequencia(TimeoutError(), TimeoutError())
+    investigar = _investigar(TimeoutError(), TimeoutError())
     state = {"messages": [PEDIDO], "tentativas": {"Investigator": 1}}
 
-    with patch("fluxo_financeiro.graph.graph.investigator_agent", agente):
+    with patch("fluxo_financeiro.graph.graph.investigar", investigar):
         resultado = investigator_node(state)
 
     assert resultado["tentativas"] == {"Investigator": 2}
@@ -194,17 +228,16 @@ def test_no_soma_as_tentativas_do_coordenador():
 
 
 def test_reenvio_nao_entrega_o_erro_anterior_ao_agente():
-    """Confere que, na rodada mandada pelo coordenador, a última mensagem que o agente recebe é a tarefa, não o próprio erro."""
+    """Confere que, na rodada mandada pelo coordenador, o subgrafo recebe a tarefa do Supervisor, não o próprio erro."""
     tarefa = HumanMessage("Investigue a queda do lucro", name="Supervisor")
     erro = HumanMessage("Erro: Investigator falhou depois de 2 tentativas (transitorio): TimeoutError: lento",
                         name="Investigator")
-    agente = _agente("- Causa identificada: impairment")
+    investigar = _investigar("- Causa identificada: impairment")
 
-    with patch("fluxo_financeiro.graph.graph.investigator_agent", agente):
+    with patch("fluxo_financeiro.graph.graph.investigar", investigar):
         resultado = investigator_node({"messages": [PEDIDO, tarefa, erro], "tentativas": {"Investigator": 1}})
 
-    recebidas = agente.invoke.call_args.args[0]["messages"]
-    assert recebidas == [PEDIDO, tarefa]
+    investigar.assert_called_once_with("Investigue a queda do lucro", "VALE3")
     assert resultado["diagnostico"] == "- Causa identificada: impairment"
 
 

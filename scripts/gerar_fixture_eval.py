@@ -5,7 +5,9 @@ Uso:
     uv run python scripts/gerar_fixture_eval.py WEGE3
 
 Roda o grafo com subgraphs=True para ver, além do state final, as saídas das tools de cada
-passagem de cada agente (elas ficam dentro do create_agent e não chegam ao state). Grava tudo em
+passagem de cada agente (elas ficam dentro do create_agent e não chegam ao state). O Investigator
+roda o subgrafo de pesquisa, sem ToolMessage: a passagem dele fica sem tools, e o que ele leu
+(histórico trimestral e achados das buscas) vai na chave "pesquisa", tirada do state. Grava tudo em
 tests/evals/fixtures/<ticker>.json, em UTF-8: texto da busca na web traz caractere fora do cp1252.
 """
 import argparse
@@ -84,6 +86,7 @@ def montar_fixture(ticker: str, estado_final: dict, passagens: list[dict], model
     relatorio = estado_final.get("relatorio")
     if relatorio is None:
         raise ValueError(f"relatório ausente: o Consolidador de {ticker} caiu no fallback, a análise não vira fixture")
+    pesquisa = estado_final.get("pesquisa")
     return {
         "versao": VERSAO_FIXTURE,
         "ticker": ticker,
@@ -93,6 +96,9 @@ def montar_fixture(ticker: str, estado_final: dict, passagens: list[dict], model
         "passagens": passagens,
         "sinais_anomalia": [s.model_dump() for s in estado_final.get("sinais_anomalia") or []],
         "relatorio": relatorio.model_dump(),
+        # O que o subgrafo do Investigator leu (histórico trimestral e achados): é o contexto dos evals
+        # dele, já que o subgrafo não deixa ToolMessage nas passagens. None sem Investigator.
+        "pesquisa": None if pesquisa is None else pesquisa.model_dump(),
     }
 
 

@@ -16,7 +16,17 @@ from fluxo_financeiro.agents.consolidator import (
     LIMITACAO_SEM_SETOR,
 )
 from fluxo_financeiro.graph.graph import app
-from fluxo_financeiro.shared.types import RelatorioFinal, RouteDecision, SinalAnomalia
+from fluxo_financeiro.agents.pesquisa import criar_grafo_pesquisa
+from fluxo_financeiro.shared.types import (
+    CriticaPesquisa,
+    DiagnosticoPesquisa,
+    PerguntasPesquisa,
+    PesquisaFeita,
+    RelatorioFinal,
+    RouteDecision,
+    SinalAnomalia,
+)
+from tests.agents.llm_falso import LlmFalso
 from fluxo_financeiro.tools.financial_data import AVISO_PERFIL_RESERVA
 
 WORKERS = {"YFinance", "Analyzer", "Investigator"}
@@ -34,13 +44,30 @@ def _agente(texto):
     return agente
 
 
+DIAGNOSTICO = "- Causa identificada: prejuízo no 4T25"
+PESQUISA = PesquisaFeita(perguntas=["Por que o lucro caiu?"],
+                         achados=[{"pergunta": "Por que o lucro caiu?", "rodada": 1, "texto": "impairment"}],
+                         voltas=0, historico="Net Income 1.25B")
+
+
+def _investigar_falso():
+    """O subgrafo de pesquisa trocado por um falso: `invoke` é a função `investigar(tarefa, ticker)`.
+
+    O atributo se chama invoke para os testes tratarem os 3 workers igual (call_count, side_effect).
+    """
+    investigador = MagicMock()
+    investigador.invoke.return_value = (DIAGNOSTICO, PESQUISA)
+    return investigador
+
+
 def _decisao(proximo, tarefa=None):
     return RouteDecision(reasoning=f"vai para {proximo}", next_agent=proximo, task_for_agent=tarefa)
 
 
 @pytest.fixture
 def grafo_mockado():
-    """Troca os 3 agentes, o detector de anomalias e o LLM do Supervisor por mocks.
+    """Troca os agentes do YFinance e do Analyzer, o subgrafo do Investigator (`investigar`), o detector
+    de anomalias e o LLM do Supervisor por mocks.
 
     O detector por padrão não acha nada (o LLM decide a Etapa 4); cada teste pode trocar o
     return_value de mocks["sinais"]. Sem esse mock, o nó do YFinance iria ao yfinance de verdade.
@@ -51,11 +78,11 @@ def grafo_mockado():
     mocks = {
         "YFinance": _agente("Dados para VALE3.SA: P/L 74.7x, ROE 0.3%"),
         "Analyzer": _agente(RESPOSTA_ANALYZER),
-        "Investigator": _agente("- Causa identificada: prejuízo no 4T25"),
+        "Investigator": _investigar_falso(),
     }
     with patch("fluxo_financeiro.graph.graph.yfinance_agent", mocks["YFinance"]), \
          patch("fluxo_financeiro.graph.graph.analyzer_agent", mocks["Analyzer"]), \
-         patch("fluxo_financeiro.graph.graph.investigator_agent", mocks["Investigator"]), \
+         patch("fluxo_financeiro.graph.graph.investigar", mocks["Investigator"].invoke), \
          patch("fluxo_financeiro.graph.graph.detectar_sinais_anomalia", return_value=[]) as sinais, \
          patch("fluxo_financeiro.graph.graph.indicadores_economicos_em_texto", return_value=BLOCO_BCB) as indicadores, \
          patch("fluxo_financeiro.graph.supervisor.llm") as llm, \
@@ -94,12 +121,95 @@ def test_vale3_roda_analista_e_investigator_em_paralelo(grafo_mockado):
     assert resultado["noticias"] == "análise de notícias"
     assert resultado["contexto_setor"] == "análise do setor"
     assert resultado["diagnostico"] == "- Causa identificada: prejuízo no 4T25"
+    assert resultado["pesquisa"] == PESQUISA
     assert resultado["messages"][-1].name == "Consolidador"
     assert resultado["decidido_por"] == "guard"
 
 
+def _subgrafo_falso(perguntas_ou_erros):
+    """Subgrafo de pesquisa de verdade com o LLM falso: a fila de PerguntasPesquisa vem do teste
+    (exceções no começo imitam o LLM fora do ar), a síntese e o crítico respondem uma vez."""
+    return criar_grafo_pesquisa(LlmFalso({
+        PerguntasPesquisa: perguntas_ou_erros,
+        DiagnosticoPesquisa: [DiagnosticoPesquisa(causa="impairment de US$ 1 bi no 4T25", natureza="pontual",
+                                                  evidencias=["baixa contábil"], impacto="lucro recorrente intacto")],
+        CriticaPesquisa: [CriticaPesquisa(aprovado=True, lacunas=[])],
+    }))
+
+
+@pytest.fixture
+def subgrafo_real(grafo_mockado):
+    """Desfaz o falso do `investigar` do grafo_mockado: o nó do Investigator roda o subgrafo de verdade.
+
+    Só a busca e o histórico trimestral ficam mockados (sem rede); o LLM do subgrafo é o LlmFalso
+    que cada teste instala em fluxo_financeiro.agents.pesquisa.grafo_pesquisa.
+    """
+    from fluxo_financeiro.agents import pesquisa
+    with patch("fluxo_financeiro.graph.graph.investigar", pesquisa.investigar), \
+         patch("fluxo_financeiro.agents.pesquisa.pesquisar_pergunta",
+               side_effect=lambda p, t: f"achado sobre {p}\nFontes: vale.com") as busca, \
+         patch("fluxo_financeiro.agents.pesquisa.buscar_historico_trimestral") as historico:
+        historico.invoke.return_value = "Net Income 4T25: -3.8B"
+        grafo_mockado["busca"] = busca
+        grafo_mockado["historico"] = historico
+        yield grafo_mockado
+
+
+def test_vale3_paralelo_com_o_subgrafo(subgrafo_real):
+    """Confere que, com o subgrafo de pesquisa de verdade dentro do ramo do Investigator, o paralelo da 7a
+    continua (Analista e Investigator no mesmo passo, loop_count 3) e o state ganha a pesquisa e o diagnóstico."""
+    subgrafo_real["sinais"].return_value = [QUEDA]
+    subgrafo_real["decisoes"].side_effect = [_decisao("YFinance", "Colete os dados da VALE3")]
+    perguntas = ["Por que o lucro da Vale caiu no 4T25?", "Houve impairment na Vale?"]
+
+    with patch("fluxo_financeiro.agents.pesquisa.grafo_pesquisa", _subgrafo_falso([PerguntasPesquisa(perguntas=perguntas)])):
+        resultado = _rodar()
+
+    assert _quem_falou(resultado) == ["YFinance", "Analyzer", "Investigator"]
+    assert resultado["loop_count"] == 3
+    assert resultado["decidido_por"] == "guard"
+    assert subgrafo_real["Analyzer"].invoke.call_count == 1
+    pesquisa = resultado["pesquisa"]
+    assert pesquisa.perguntas == perguntas
+    assert [a["pergunta"] for a in pesquisa.achados] == perguntas
+    assert pesquisa.historico == "Net Income 4T25: -3.8B"
+    subgrafo_real["historico"].invoke.assert_called_once_with("VALE3")
+    # A tarefa do Supervisor (a dos sinais) é o que o subgrafo investiga, com o ticker do pedido.
+    assert {c.args[1] for c in subgrafo_real["busca"].call_args_list} == {"VALE3"}
+    diagnostico = resultado["diagnostico"]
+    for secao in ("- Causa identificada:", "- Natureza do evento: pontual", "- Evidências:", "- Impacto no investimento:"):
+        assert secao in diagnostico
+    assert diagnostico.endswith("Fontes: vale.com")
+    assert resultado["relatorio"].diagnostico == diagnostico
+    assert next(m for m in resultado["messages"] if m.name == "Investigator").content == diagnostico
+
+
+def test_excecao_no_subgrafo_vira_erro_do_investigator(subgrafo_real):
+    """Confere que o LLM do subgrafo fora do ar vira erro do Investigator pelo retry do nó (2 tentativas
+    locais) e que o reenvio do coordenador roda o subgrafo inteiro de novo, do histórico ao crítico."""
+    subgrafo_real["sinais"].return_value = [QUEDA]
+    subgrafo_real["decisoes"].side_effect = [_decisao("YFinance", "Colete os dados da VALE3")]
+    fila = [TimeoutError("LLM fora"), TimeoutError("LLM fora"), PerguntasPesquisa(perguntas=["Por que o lucro caiu?"])]
+
+    with patch("fluxo_financeiro.agents.pesquisa.grafo_pesquisa", _subgrafo_falso(fila)):
+        resultado = _rodar()
+
+    # 3 rodadas do subgrafo inteiro: as 2 locais que falharam e a do reenvio.
+    assert subgrafo_real["historico"].invoke.call_count == 3
+    assert subgrafo_real["busca"].call_count == 1
+    erros_no_historico = [m for m in resultado["messages"]
+                          if m.name == "Investigator" and m.content.startswith("Erro: Investigator falhou depois de 2 tentativas")]
+    assert len(erros_no_historico) == 1
+    assert resultado["erros"]["Investigator"] is None
+    assert resultado["tentativas"]["Investigator"] == 0
+    assert resultado["diagnostico"].startswith("- Causa identificada: impairment")
+    assert resultado["pesquisa"].perguntas == ["Por que o lucro caiu?"]
+    assert resultado["loop_count"] == 3  # o reenvio não conta loop, como em test_falha_num_ramo_reenvia_so_ele
+    assert subgrafo_real["Analyzer"].invoke.call_count == 1
+
+
 def test_cada_ramo_recebe_so_a_propria_tarefa(grafo_mockado):
-    """Confere que, na execução em paralelo, cada ramo recebe no histórico apenas a própria tarefa do Supervisor, sem ver a tarefa do outro ramo."""
+    """Confere que, na execução em paralelo, cada ramo recebe apenas a própria tarefa do Supervisor, sem ver a tarefa do outro ramo."""
     queda = SinalAnomalia(tipo="queda_lucro", descricao="O lucro líquido de VALE3.SA caiu 35% contra o ano anterior.")
     grafo_mockado["sinais"].return_value = [queda]
     grafo_mockado["decisoes"].side_effect = [
@@ -113,10 +223,10 @@ def test_cada_ramo_recebe_so_a_propria_tarefa(grafo_mockado):
     assert SECAO_NOTICIAS in historico_ana[-1].content and SECAO_SETOR in historico_ana[-1].content
     assert not any("Investigue as anomalias" in m.content for m in historico_ana)
 
-    historico_inv = grafo_mockado["Investigator"].invoke.call_args.args[0]["messages"]
-    assert historico_inv[-1].name == "Supervisor"
-    assert "Investigue as anomalias" in historico_inv[-1].content
-    assert not any(SECAO_NOTICIAS in m.content for m in historico_inv)
+    tarefa_inv, ticker = grafo_mockado["Investigator"].invoke.call_args.args
+    assert "Investigue as anomalias" in tarefa_inv
+    assert SECAO_NOTICIAS not in tarefa_inv
+    assert ticker == "VALE3"
 
 
 def test_llm_sem_sinal_ainda_pode_investigar(grafo_mockado):
@@ -136,9 +246,7 @@ def test_llm_sem_sinal_ainda_pode_investigar(grafo_mockado):
     assert grafo_mockado["decisoes"].call_count == 2
     assert resultado["diagnostico"] == "- Causa identificada: prejuízo no 4T25"
     assert resultado["relatorio"].diagnostico == "- Causa identificada: prejuízo no 4T25"
-    historico = grafo_mockado["Investigator"].invoke.call_args.args[0]["messages"]
-    assert historico[-1].name == "Supervisor"
-    assert historico[-1].content == "Investigue o ROE de 0,3% da VALE3"
+    assert grafo_mockado["Investigator"].invoke.call_args.args == ("Investigue o ROE de 0,3% da VALE3", "VALE3")
     msg_yfinance = next(m for m in resultado["messages"] if m.name == "YFinance")
     assert resultado["dados_mercado"] == msg_yfinance.content
     assert resultado["noticias"] == "análise de notícias"
@@ -282,7 +390,7 @@ def test_falha_num_ramo_reenvia_so_ele(grafo_mockado):
     """Confere que, quando um ramo do paralelo falha, o coordenador reenvia apenas o agente que falhou sem rodar o outro de novo, chegando a FINISH pelo guard com loop_count 3."""
     grafo_mockado["sinais"].return_value = [QUEDA]
     grafo_mockado["decisoes"].side_effect = [_decisao("YFinance", "Colete os dados da VALE3")]
-    resposta = {"messages": [AIMessage(content="- Causa identificada: prejuízo no 4T25")]}
+    resposta = (DIAGNOSTICO, PESQUISA)
     # As 2 tentativas locais da 1ª rodada falham; a 2ª rodada (mandada pelo coordenador) acerta.
     grafo_mockado["Investigator"].invoke.side_effect = [TimeoutError("lento"), TimeoutError("lento"), resposta]
 

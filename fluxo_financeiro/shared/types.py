@@ -59,6 +59,9 @@ class PesquisaFeita(BaseModel):
     # Um por busca: {"pergunta": str, "rodada": int, "texto": str} (texto vazio = a busca não trouxe nada).
     achados: list[dict]
     voltas: int
+    # O histórico trimestral que o subgrafo leu em código: entra no contexto dos evals do Investigator
+    # junto com os achados (não há ToolMessage dele para o gerador da fixture ver).
+    historico: str = ""
 
 
 SEM_EVIDENCIAS = "nenhuma evidência encontrada nas buscas"
@@ -112,6 +115,9 @@ class MessagesState(TypedDict):
     contexto_setor: Optional[str]
     # Resposta do Investigator (o diagnóstico que o Consolidador copia literalmente).
     diagnostico: Optional[str]
+    # O que o subgrafo de pesquisa do Investigator fez (perguntas, achados, voltas do crítico, histórico).
+    # Só o ramo do Investigator escreve aqui, então o paralelo não disputa a chave.
+    pesquisa: Optional[PesquisaFeita]
     # Retry: cada nó repete o agente localmente antes de escalar para o coordenador. O que sobra
     # chega aqui, por agente: o último erro (None = a última rodada deu certo) e quantas rodadas do
     # nó falharam seguidas. Os dois juntam dicionários (`|`): cada nó escreve só a própria chave, e
