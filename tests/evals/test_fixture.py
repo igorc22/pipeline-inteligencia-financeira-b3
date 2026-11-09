@@ -52,8 +52,11 @@ def test_fixture_tem_o_formato_que_os_evals_leem(caminho):
     for agente in ("YFinance", "Analyzer", "Investigator"):
         assert sum(m.name == agente for m in msgs) == sum(p["agente"] == agente for p in fx["passagens"]), agente
     assert next(p for p in fx["passagens"] if p["agente"] == "YFinance")["tools"]
-    if caminho.stem in INVESTIGATOR_ESPERADO:
-        assert any(m.name == "Investigator" for m in msgs) == INVESTIGATOR_ESPERADO[caminho.stem]
+    ticker = caminho.stem.split("_")[0]  # vale3_tavily: mesma expectativa da vale3
+    if ticker in INVESTIGATOR_ESPERADO:
+        assert any(m.name == "Investigator" for m in msgs) == INVESTIGATOR_ESPERADO[ticker]
+    if caminho.stem.endswith("_tavily"):
+        assert fx.get("busca") == "tavily"
 
 
 @pytest.mark.parametrize("caminho", _parametros(marcar_corte=True))

@@ -215,6 +215,7 @@ def test_montar_fixture_ida_e_volta_das_mensagens():
     assert fx["sinais_anomalia"] == [SINAL.model_dump()]
     assert fx["versao"] == gerar.VERSAO_FIXTURE
     assert fx["pesquisa"] is None  # análise sem Investigator
+    assert fx["busca"] == "google"  # padrão de montar_fixture
     assert json.loads(json.dumps(fx, ensure_ascii=False)) == fx
 
 
@@ -246,6 +247,43 @@ def test_main_grava_utf8_e_cria_a_pasta(tmp_path):
         assert gerar.main(["VALE3"], pasta=pasta) == 0
     fx = json.loads((pasta / "vale3.json").read_text(encoding="utf-8"))
     assert fx["passagens"][0]["tools"][0]["conteudo"] == "minério ≈ US$ 100 → queda − 3% 中 🙂"
+
+
+def test_main_com_tavily_grava_com_sufixo_e_nao_toca_a_do_google(tmp_path):
+    """Confere que, com a busca na Tavily, a fixture vai para <ticker>_tavily.json com o provedor anotado,
+    e a do Google (<ticker>.json) fica como estava."""
+    do_google = tmp_path / "vale3.json"
+    do_google.write_text('{"busca": "google"}', encoding="utf-8")
+    eventos = [((), "values", {"messages": [HumanMessage("Analise a ação VALE3"), HumanMessage("# Relatório", name="Consolidador")],
+                               "relatorio": REL, "sinais_anomalia": []})]
+    with patch.object(gerar, "app") as app_falso, patch.object(gerar, "BUSCA_PROVEDOR", "tavily"), \
+         patch("fluxo_financeiro.tools.web_search.provedor_da_busca", return_value="tavily"):
+        app_falso.stream.return_value = iter(eventos)
+        assert gerar.main(["VALE3"], pasta=tmp_path) == 0
+    assert json.loads((tmp_path / "vale3_tavily.json").read_text(encoding="utf-8"))["busca"] == "tavily"
+    assert do_google.read_text(encoding="utf-8") == '{"busca": "google"}'
+
+
+def test_main_com_google_grava_sem_sufixo_e_anota_o_provedor(tmp_path):
+    """Confere que, com a busca no Google (o padrão), o nome da fixture continua <ticker>.json e o provedor vai junto."""
+    eventos = [((), "values", {"messages": [HumanMessage("Analise a ação WEGE3"), HumanMessage("# Relatório", name="Consolidador")],
+                               "relatorio": REL, "sinais_anomalia": []})]
+    with patch.object(gerar, "app") as app_falso:
+        app_falso.stream.return_value = iter(eventos)
+        assert gerar.main(["WEGE3"], pasta=tmp_path) == 0
+    assert [c.name for c in tmp_path.glob("*.json")] == ["wege3.json"]
+    assert json.loads((tmp_path / "wege3.json").read_text(encoding="utf-8"))["busca"] == "google"
+
+
+def test_main_recusa_quando_a_tavily_caiu_no_google_sem_rodar(tmp_path, capsys):
+    """Confere que BUSCA_PROVEDOR=tavily com a busca caindo no Google (sem chave) sai com 1 antes de gastar,
+    em vez de gravar uma fixture do Google por cima da que já existe."""
+    with patch.object(gerar, "rodar") as rodar_falso, patch.object(gerar, "BUSCA_PROVEDOR", "tavily"), \
+         patch("fluxo_financeiro.tools.web_search.provedor_da_busca", return_value="google"):
+        assert gerar.main(["VALE3"], pasta=tmp_path) == 1
+        rodar_falso.assert_not_called()
+    assert "tavily" in capsys.readouterr().out
+    assert not list(tmp_path.glob("*.json"))
 
 
 def test_main_nao_grava_quando_relatorio_ausente(tmp_path):
