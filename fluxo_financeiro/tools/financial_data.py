@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import yfinance as yf
 import requests
 import numpy as np
@@ -163,12 +165,15 @@ def busca_indicador_bcb(input_data: ConsultaBCBInput) -> Dict[str, Any]:
     unidades = {432: "% a.a.", 433: "% a.m.", 4389: "% a.a.", 13522: "% em 12 meses"}
     unidade = unidades.get(codigo, "%")
 
-    url = f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo}/dados/ultimos/1?formato=json"
+    # ultimos/2 e não ultimos/1: em 09/11/2026 o ultimos/1 da série 4389 (CDI) respondia 304 com o corpo
+    # vazio, e o ultimos/2 respondia normal. A ordem dos dois valores muda de uma série para outra,
+    # então fica o de data mais nova.
+    url = f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo}/dados/ultimos/2?formato=json"
 
     def _pedir_ao_bcb():
         response = requests.get(url, timeout=TIMEOUT_BCB)
         response.raise_for_status()
-        return response.json()[0]
+        return max(response.json(), key=lambda item: datetime.strptime(item["data"], "%d/%m/%Y"))
 
     logger.info(f"[tool] busca_indicador_bcb: indicador={input_data.indicador.name}")
     try:

@@ -14,7 +14,7 @@ from fluxo_financeiro.shared.retry import (
 from fluxo_financeiro.shared.types import ErroAgente, MessagesState
 from fluxo_financeiro.agents.collectors import yfinance_agent
 from fluxo_financeiro.agents.analysts import analyzer_agent, separar_secoes
-from fluxo_financeiro.agents.investigators import investigator_agent
+from fluxo_financeiro.agents.pesquisa import investigar
 from fluxo_financeiro.agents.consolidator import consolidar, formatar_relatorio, relatorio_de_emergencia
 from fluxo_financeiro.graph.supervisor import DESTINOS_DO_ROUTER, supervisor_node, router
 from fluxo_financeiro.shared.prompts import TAG_CONTEUDO_EXTERNO
@@ -173,11 +173,35 @@ def analyzer_node(state: MessagesState):
     return _rodar_com_retry("Analyzer", lambda: _rodar_analyzer(state), state)
 
 
-def _rodar_investigator(state: MessagesState) -> dict:
+def _tarefa_do_investigator(state: MessagesState) -> str:
+    """A última tarefa do Supervisor no histórico do ramo (sem os erros do próprio Investigator).
+
+    No paralelo, o histórico do ramo só tem a tarefa do Investigator. Sem tarefa nenhuma, o
+    subgrafo investiga o próprio pedido do usuário.
+    """
     historico = _historico("Investigator", state)
-    logger.info(f"[node] Investigator: invocando agente ({len(historico)} msgs)")
-    texto = _texto_final("Investigator", investigator_agent.invoke({"messages": historico}))
-    return {"messages": [HumanMessage(content=texto, name="Investigator")], "diagnostico": texto}
+    tarefa = next((m for m in reversed(historico) if isinstance(m, HumanMessage) and m.name == "Supervisor"), None)
+    if tarefa is None:
+        tarefa = next((m for m in historico if isinstance(m, HumanMessage) and not m.name), None)
+    return tarefa.text if tarefa is not None else ""
+
+
+def _rodar_investigator(state: MessagesState) -> dict:
+    # O Investigator é o subgrafo de pesquisa (agents/pesquisa.py): perguntas, buscas em paralelo,
+    # síntese e crítico. Uma exceção lá dentro (o LLM fora) sobe até aqui, e o retry do nó roda o
+    # subgrafo inteiro de novo.
+    tarefa = _tarefa_do_investigator(state)
+    ticker = _ticker_da_conversa(state)
+    logger.info(f"[node] Investigator: rodando o subgrafo de pesquisa ({ticker})")
+    texto, pesquisa = investigar(tarefa, ticker)
+    logger.info(f"[node] Investigator: diagnóstico pronto ({len(texto)} chars, {len(pesquisa.achados)} buscas)")
+    if not texto.strip():
+        raise RespostaVazia("o subgrafo de pesquisa do Investigator terminou sem diagnóstico")
+    return {
+        "messages": [HumanMessage(content=texto, name="Investigator")],
+        "diagnostico": texto,
+        "pesquisa": pesquisa,
+    }
 
 
 def investigator_node(state: MessagesState):

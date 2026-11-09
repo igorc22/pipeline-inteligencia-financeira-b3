@@ -272,6 +272,51 @@ def test_contexto_tira_o_aviso_de_limite_de_buscas():
     assert not any(AVISO_LIMITE in c for c in ctx)
 
 
+PESQUISA = {
+    "perguntas": ["Por que o lucro caiu?", "Houve impairment?", "O minério caiu?"],
+    "achados": [
+        {"pergunta": "Por que o lucro caiu?", "rodada": 1, "texto": "impairment de US$ 1 bi\nFontes: vale.com"},
+        {"pergunta": "Houve impairment?", "rodada": 1, "texto": ""},
+        {"pergunta": "O minério caiu?", "rodada": 2, "texto": "minério a US$ 95"},
+    ],
+    "voltas": 1,
+    "historico": "Net Income 4T25: -3.8B",
+}
+
+
+def test_contexto_do_investigator_com_o_subgrafo_e_historico_e_achados():
+    """Confere que, na fixture com a pesquisa do subgrafo, o contexto do Investigator é o que o subgrafo leu:
+    a tarefa do Supervisor, o histórico trimestral e um item por achado com texto (com a pergunta), e nada
+    das tools da passagem, do pedido ou da resposta do YFinance."""
+    estado = {**_estado(), "pesquisa": PESQUISA}
+    assert contexto_do_agente(estado, "Investigator") == [
+        "Supervisor: Investigue a queda de 40%",
+        "buscar_historico_trimestral: Net Income 4T25: -3.8B",
+        "pesquisa (Por que o lucro caiu?): impairment de US$ 1 bi\nFontes: vale.com",
+        "pesquisa (O minério caiu?): minério a US$ 95",
+    ]
+
+
+def test_contexto_do_investigator_sem_historico_nem_tarefa():
+    """Confere que histórico trimestral vazio e falta de tarefa não viram itens vazios no contexto."""
+    msgs = [HumanMessage("Analise a ação VALE3"), HumanMessage("Causa identificada: x", name="Investigator")]
+    estado = {"messages": messages_to_dict(msgs), "passagens": [],
+              "pesquisa": {**PESQUISA, "historico": "", "achados": PESQUISA["achados"][:1]}}
+    assert contexto_do_agente(estado, "Investigator") == [
+        "pesquisa (Por que o lucro caiu?): impairment de US$ 1 bi\nFontes: vale.com"]
+
+
+def test_contexto_do_investigator_sem_pesquisa_usa_as_tools():
+    """Confere que fixture antiga (sem a chave pesquisa, ou com pesquisa None) segue pelo caminho das tools da passagem."""
+    assert contexto_do_agente({**_estado(), "pesquisa": None}, "Investigator") == contexto_do_agente(_estado(), "Investigator")
+    assert "buscar_fatos_relevantes: impairment de US$ 1 bi" in contexto_do_agente(_estado(), "Investigator")
+
+
+def test_contexto_do_analyzer_ignora_a_pesquisa():
+    """Confere que a pesquisa do subgrafo só muda o contexto do Investigator."""
+    assert contexto_do_agente({**_estado(), "pesquisa": PESQUISA}, "Analyzer", 2) == contexto_do_agente(_estado(), "Analyzer", 2)
+
+
 def test_resposta_do_agente_ausente_devolve_none():
     """Confere que fixture sem Investigator devolve None (os evals dele pulam)."""
     sem_investigator = _estado(HIST[:7], PASSAGENS[:3])

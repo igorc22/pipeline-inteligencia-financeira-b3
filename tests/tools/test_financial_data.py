@@ -378,6 +378,19 @@ def test_bcb_repete_json_invalido(mock_get, espera_falsa):
 
 
 @patch('fluxo_financeiro.tools.financial_data.requests.get')
+def test_bcb_pede_dois_valores_e_fica_com_o_mais_recente(mock_get):
+    """Confere que a consulta pede os 2 últimos valores (o ultimos/1 da série 4389 devolvia 304 vazio) e usa o de data mais nova, em qualquer ordem."""
+    for ordem in ([{'valor': '13.65', 'data': '05/11/2026'}, {'valor': '13.40', 'data': '04/11/2026'}],
+                  [{'valor': '13.40', 'data': '04/11/2026'}, {'valor': '13.65', 'data': '05/11/2026'}]):
+        mock_get.return_value.json.return_value = ordem
+
+        result = busca_indicador_bcb.invoke({'input_data': {'indicador': 4389}})
+
+        assert "/ultimos/2?" in mock_get.call_args.args[0]
+        assert result['valor'] == 13.65 and result['data'] == '05/11/2026'
+
+
+@patch('fluxo_financeiro.tools.financial_data.requests.get')
 def test_bcb_timeout_duas_vezes_devolve_erro(mock_get, espera_falsa):
     """Confere que o timeout repetido do BCB é pedido 2 vezes e depois vira o dict com 'error', sem levantar."""
     mock_get.side_effect = requests.Timeout('lento')
