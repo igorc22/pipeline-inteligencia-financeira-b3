@@ -42,7 +42,7 @@ def _parametros(marcar_corte=False):
 
 @pytest.mark.parametrize("caminho", _parametros())
 def test_fixture_tem_o_formato_que_os_evals_leem(caminho):
-    """Confere versão, chaves, relatório presente, Consolidador por último e uma passagem para cada resposta de agente."""
+    """Confere que a versão, as chaves, o relatório, o Consolidador e as passagens seguem o formato esperado."""
     fx = carregar_fixture(caminho)
     assert fx["versao"] == VERSAO_FIXTURE
     assert {"versao", "ticker", "gerado_em", "modelo", "messages", "passagens", "sinais_anomalia", "relatorio"} <= fx.keys()

@@ -80,9 +80,9 @@ Onde tirar cada chave: veja [Chaves de API](#chaves-de-api), no topo.
 
 - Docker e docker-compose, e deploy na AWS
 - Banco de dados para registrar cada análise (entrada, saída, data e hora)
-- Checkpointer, cache de dados frescos e human-in-the-loop
-- LiteLLM na frente do modelo e busca na web desacoplada do provedor do LLM
-- Grafo mais enxuto e paralelismo com `Send`
+- Checkpointer e cache de dados frescos
+- LiteLLM na frente do modelo e busca na web desacoplada do provedor do LLM (Google ou Tavily por flag)
+- Subgrafo de pesquisa no lugar do Investigator
 - No fim, expor o pipeline como um agente A2A, para um futuro fluxo de análise de carteira descobrir e chamar
 
 ## Como Usar

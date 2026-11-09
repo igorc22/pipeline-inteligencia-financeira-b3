@@ -287,6 +287,55 @@ def test_tarefa_do_supervisor_e_a_anterior_a_resposta():
     assert tarefa_do_supervisor(_estado(), "Analyzer", 2) == "Busque o setor"
 
 
+HIST_PARALELO = [
+    HumanMessage("Analise a ação VALE3"),
+    HumanMessage("Colete os dados da VALE3", name="Supervisor"),
+    HumanMessage("P/L 5,2", name="YFinance"),
+    HumanMessage("Busque notícias e setor da VALE3", name="Supervisor"),
+    HumanMessage("Investigue a anomalia na queda de lucro", name="Supervisor"),
+    HumanMessage("notícias e setor", name="Analyzer"),
+    HumanMessage("Causa identificada: impairment", name="Investigator"),
+]
+PASSAGENS_PARALELO = [
+    {"agente": "YFinance", "n": 1, "tools": [{"nome": "buscar_dados_acao_b3", "conteudo": "P/L 5,2"}]},
+    {"agente": "Analyzer", "n": 1, "tools": [{"nome": "buscar_noticias_web", "conteudo": "n1"}]},
+    {"agente": "Investigator", "n": 1, "tools": [{"nome": "buscar_fatos_relevantes", "conteudo": "impairment"}]},
+]
+
+
+def test_tarefa_do_supervisor_com_tarefas_paralelas_adjacentes():
+    """Confere que com as tarefas do Analyzer e Investigator adjacentes no histórico, cada um localiza a sua."""
+    estado = {"messages": messages_to_dict(HIST_PARALELO), "passagens": PASSAGENS_PARALELO}
+    assert tarefa_do_supervisor(estado, "Analyzer") == "Busque notícias e setor da VALE3"
+    assert tarefa_do_supervisor(estado, "Investigator") == "Investigue a anomalia na queda de lucro"
+
+
+def test_contexto_do_agente_com_tarefas_paralelas_adjacentes():
+    """Confere que no paralelo o contexto do Analyzer não traz a tarefa do Investigator e vice-versa."""
+    estado = {"messages": messages_to_dict(HIST_PARALELO), "passagens": PASSAGENS_PARALELO}
+    ctx_ana = contexto_do_agente(estado, "Analyzer")
+    assert "Supervisor: Busque notícias e setor da VALE3" in ctx_ana
+    assert not any("Investigue" in c for c in ctx_ana)
+
+    ctx_inv = contexto_do_agente(estado, "Investigator")
+    assert "Supervisor: Investigue a anomalia na queda de lucro" in ctx_inv
+    assert not any("Busque notícias e setor" in c for c in ctx_inv)
+
+
+def test_tarefa_e_contexto_paralelo_quando_investigator_responde_primeiro():
+    """Confere que a identificação da tarefa funciona mesmo se o Investigator responder antes do Analyzer."""
+    msgs_invertidas = [
+        *HIST_PARALELO[:5],
+        HIST_PARALELO[6],  # Investigator respondeu antes
+        HIST_PARALELO[5],  # Analyzer respondeu depois
+    ]
+    estado = {"messages": messages_to_dict(msgs_invertidas), "passagens": PASSAGENS_PARALELO}
+    assert tarefa_do_supervisor(estado, "Analyzer") == "Busque notícias e setor da VALE3"
+    assert tarefa_do_supervisor(estado, "Investigator") == "Investigue a anomalia na queda de lucro"
+    assert not any("Investigue" in c for c in contexto_do_agente(estado, "Analyzer"))
+    assert not any("Busque notícias e setor" in c for c in contexto_do_agente(estado, "Investigator"))
+
+
 def test_carregar_fixture_le_utf8(tmp_path):
     """Confere que a fixture é lida em UTF-8, independente da localidade do Windows."""
     caminho = tmp_path / "x.json"
@@ -414,8 +463,7 @@ def test_sem_sumario_tira_o_bloco_escapado():
 
 
 def test_sem_sumario_tira_o_texto_sem_tag():
-    """Confere o formato real das fixtures: o YFinance repassa o sumário sem a tag (o prompt manda tirar),
-    e o corte vai do cabeçalho até a linha do Histórico Recente."""
+    """Confere que o formato real das fixtures corta do cabeçalho até o Histórico Recente e tira o sumário."""
     texto = ANTES + SUMARIO + "\n" + DEPOIS + "\nPiotroski F-Score para WEGE3.SA: 5/9\n"
 
     saida = sem_sumario(texto)
@@ -440,7 +488,7 @@ def test_sem_sumario_texto_sem_bloco_fica_igual():
 
 
 def test_sem_sumario_na_fixture_da_wege3():
-    """Confere, nos insumos reais da fixture da WEGE3, que o sumário sai e os dados do YFinance ficam."""
+    """Confere que, nos insumos reais da fixture da WEGE3, o sumário sai e os dados do YFinance ficam."""
     estado = carregar_fixture(FIXTURES_DIR / "wege3.json")
     insumos = [sem_sumario(t) for t in montar_insumos(mensagens(estado))]
     yfinance = next(t for t in insumos if 'nome="YFinance"' in t)
@@ -472,7 +520,7 @@ def test_xfail_da_cobertura_nao_engole_erro_do_juiz(pytester):
 
 
 def test_modulos_de_eval_nao_importam_deepeval_no_topo():
-    """Confere, pela árvore sintática, que nenhum módulo de tests/evals importa deepeval no topo:
+    """Confere que, pela árvore sintática, nenhum módulo de tests/evals importa deepeval no topo:
     a coleta importa todos, mesmo os evals desselecionados, e fora do bloqueio de rede."""
     arquivos = sorted(Path(__file__).parent.glob("*.py"))
     assert {"conftest.py", "helpers.py"} <= {a.name for a in arquivos}

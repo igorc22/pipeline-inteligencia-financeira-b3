@@ -136,15 +136,35 @@ def test_coletar_ignora_update_vazio_e_guarda_passagem_sem_tools():
 
 
 def test_coletar_com_grafo_real_e_agentes_falsos(grafo_com_agentes_falsos):
-    """Confere, no app de verdade com os 3 agentes trocados por create_agent com modelo falso,
-    que as saídas das tools de cada passagem chegam ao script."""
+    """Confere que, no app de verdade com os 3 agentes trocados por create_agent com modelo falso,
+    as saídas das tools de cada passagem chegam ao script."""
     estado, passagens = gerar.rodar("VALE3")
     assert [(p["agente"], p["n"]) for p in passagens] == [
-        ("YFinance", 1), ("Analyzer", 1), ("Analyzer", 2), ("Investigator", 1)]
+        ("YFinance", 1), ("Analyzer", 1), ("Investigator", 1)]
     assert all(len(p["tools"]) == 1 for p in passagens)
     assert all(p["tools"][0]["conteudo"] for p in passagens)
+    tools_por_agente = {p["agente"]: [t["nome"] for t in p["tools"]] for p in passagens}
+    assert tools_por_agente["Analyzer"] == ["noticias_falsas"]
+    assert tools_por_agente["Investigator"] == ["fatos_falsos"]
     assert estado["messages"][-1].name == "Consolidador"
     assert estado["relatorio"] is not None
+
+
+def test_coletar_ramos_paralelos_intercalados():
+    """Confere que eventos intercalados de Analyzer e Investigator no paralelo separam as tools por agente."""
+    eventos = [
+        (("YFinance:yf-1",), "updates", {"tools": {"messages": [ToolMessage("dados", name="buscar_dados_acao_b3", tool_call_id="1")]}}),
+        (("Analyzer:ana-1",), "updates", {"tools": {"messages": [ToolMessage("noticias", name="buscar_noticias_web", tool_call_id="2")]}}),
+        (("Investigator:inv-1",), "updates", {"tools": {"messages": [ToolMessage("fatos", name="buscar_fatos_relevantes", tool_call_id="3")]}}),
+        (("Analyzer:ana-1",), "updates", {"tools": {"messages": [ToolMessage("setor", name="buscar_noticias_web", tool_call_id="4")]}}),
+        ((), "values", {"messages": [HumanMessage("fim", name="Consolidador")], "relatorio": REL}),
+    ]
+    estado, passagens = gerar.coletar(eventos)
+    assert len(passagens) == 3
+    por_agente = {p["agente"]: p for p in passagens}
+    assert [t["conteudo"] for t in por_agente["Analyzer"]["tools"]] == ["noticias", "setor"]
+    assert [t["conteudo"] for t in por_agente["Investigator"]["tools"]] == ["fatos"]
+    assert [t["conteudo"] for t in por_agente["YFinance"]["tools"]] == ["dados"]
 
 
 # ---------------------------------------------------------------------------

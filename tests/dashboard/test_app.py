@@ -500,3 +500,38 @@ def test_app_erro_apos_consolidador_marca_interrompido_na_aba_como_foi_feito(gra
     assert chamadas_falsas
     assert "Interrompido" in chamadas_falsas[-1]
 
+
+def test_app_fluxo_paralelo_stream(grafo):
+    """Confere que o app renderiza a análise com passo paralelo (Analyzer + Investigator) sem exceções."""
+    mensagens = [HumanMessage("Analise a ação VALE3"), HumanMessage(FINAL_MD, name="Consolidador")]
+    fluxo = [
+        _sup("llm", "YFinance", "Colete os dados da VALE3"),
+        _worker("YFinance", "Dados para VALE3.SA:\nPreço: R$ 60\nP/L: 5.2x"),
+        ("updates", {
+            "Supervisor": {
+                "next_agent": "Analyzer+Investigator",
+                "loop_count": 1,
+                "decidido_por": "guard",
+                "supervisor_reasoning": "Sinais de anomalia encontrados.",
+                "messages": [
+                    HumanMessage("## Notícias da empresa", name="Supervisor"),
+                    HumanMessage("Investigue", name="Supervisor"),
+                ],
+            }
+        }),
+        _worker("Analyzer", "Notícias e setor da VALE3"),
+        _worker("Investigator", "Diagnóstico: impairment"),
+        _sup("guard", "FINISH"),
+        ("updates", {"Consolidador": {"messages": [mensagens[-1]], "relatorio": RELATORIO}}),
+        ("values", {"messages": mensagens, "loop_count": 3, "next_agent": "FINISH",
+                    "relatorio": RELATORIO, "sinais_anomalia": []}),
+    ]
+    grafo.stream.side_effect = lambda *a, **k: iter(fluxo)
+
+    at = _rodar("VALE3")
+
+    assert not at.exception
+    assert len(at.tabs) == 3
+    assert "A Petrobras apresenta fundamentos sólidos." in _textos(at)
+    assert at.text_input(key="ticker").value == "VALE3"
+

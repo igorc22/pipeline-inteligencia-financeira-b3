@@ -17,8 +17,10 @@ flowchart TD
     S{"Supervisor<br/>guards em código + LLM"}
 
     S -->|"Etapa 1: sem dados"| Y
-    S -->|"Etapas 2 e 3: notícias da empresa, depois do setor"| A
-    S -->|"Etapa 4: anomalia"| I
+    S -->|"Etapa 2 com sinal: Send paralelo"| A
+    S -->|"Etapa 2 com sinal: Send paralelo"| I
+    S -->|"Etapa 2 sem sinal: notícias e setor"| A
+    S -->|"Etapa 4 sem sinal: anomalia via LLM"| I
     S -->|"FINISH"| C
 
     subgraph Y["YFinance (coletor)"]
@@ -29,8 +31,8 @@ flowchart TD
         Y1 --> Y2 --> Y3
     end
 
-    subgraph A["Analyzer (analista)"]
-        A1["analyzer_agent<br/>busca na web, NewsAPI como reserva"]
+    subgraph A["Analyzer (analista, 1 passagem)"]
+        A1["analyzer_agent<br/>notícias e setor em 2 seções<br/>web primeiro, NewsAPI reserva"]
     end
 
     subgraph I["Investigator (condicional)"]
@@ -44,20 +46,20 @@ flowchart TD
     C -->|"aresta fixa: relatório em markdown + relatorio no state"| F(["Fim"])
 
     Y -->|"dados + sinais_anomalia + indicadores do BCB"| S
-    A -->|"análise"| S
+    A -->|"notícias + setor"| S
     I -->|"diagnóstico: Causa, Natureza, Evidências, Impacto"| S
 ```
 
 | Etapa | Condição | Vai para | Quem decide |
 |---|---|---|---|
 | 1 | Ainda não há `dados_mercado` | YFinance | LLM |
-| 2 | `dados_mercado` gravado, `noticias` não, Analyzer não desistiu | Analyzer (notícias da empresa) | Guard |
-| 3 | `noticias` gravado, `contexto_setor` não, Analyzer não desistiu | Analyzer (contexto do setor) | Guard |
-| 4 | Analyzer resolvido (os dois campos gravados, ou desistiu) **e** sinais de anomalia | Investigator | Guard |
-| 4 | Analyzer resolvido, **sem** sinais | Investigator ou FINISH (agente que desistiu escolhido pelo LLM vira FINISH) | LLM |
+| 2 (com sinal) | `dados_mercado` gravado, `noticias` não, Analyzer não desistiu **e** há `sinais_anomalia` | Analyzer e Investigator em paralelo (`Send`) | Guard |
+| 2 (sem sinal) | `dados_mercado` gravado, `noticias` não, Analyzer não desistiu, **sem** sinais | Analyzer (notícias e setor numa passagem só) | Guard |
+| 3 | Não existe mais como etapa separada (setor vem na resposta única do Analyzer) | — | — |
+| 4 | Analyzer resolvido (notícias e setor gravados, ou desistiu), **sem** sinais prévios | Investigator ou FINISH (agente que desistiu escolhido pelo LLM vira FINISH) | LLM |
 | retry | Agente com erro temporário abaixo do limite (seção 7) | O mesmo agente, sem tarefa nova e sem contar volta | Guard |
 | fim | YFinance desistiu | FINISH | Guard |
-| fim | `diagnostico` gravado ou Investigator desistiu | FINISH | Guard |
+| fim | Investigator resolvido (`diagnostico` gravado ou desistiu) **e** Analyzer resolvido | FINISH | Guard |
 | fim | `loop_count >= 6` | FINISH | Hard stop |
 | fim | Qualquer FINISH | Consolidador → fim | Router: FINISH sempre vai ao Consolidador |
 
@@ -78,21 +80,19 @@ flowchart TD
     GE -->|não| GY{"YFinance desistiu?"}
     GY -->|sim| FIN3(["FINISH"])
     GY -->|não| G1{"dados_mercado gravado, noticias ausente<br/>e Analyzer não desistiu?"}
-    G1 -->|sim| AN(["Analyzer + tarefa: notícias da empresa"])
-    G1 -->|não| G2{"diagnostico gravado<br/>ou Investigator desistiu?"}
+    G1 -->|sim| GS{"há sinais_anomalia e<br/>Investigator não resolvido?"}
+    GS -->|sim| PAR(["PARALELO (Send duplo)<br/>tarefas de notícias+setor e investigação"])
+    GS -->|não| AN(["Analyzer (passagem única)<br/>tarefa: notícias da empresa e contexto do setor"])
+    G1 -->|não| G2{"Investigator resolvido (ou desistiu)<br/>e Analyzer resolvido (ou desistiu)?"}
     G2 -->|sim| FIN2(["FINISH"])
-    G2 -->|não| G4{"noticias gravado, contexto_setor ausente<br/>e Analyzer não desistiu?"}
-    G4 -->|sim| SET(["Analyzer + tarefa: contexto do setor"])
-    G4 -->|não| G3{"Analyzer resolvido (ou desistiu)<br/>e há sinais_anomalia?"}
-    G3 -->|sim| INV(["Investigator + tarefa montada com os números"])
-    G3 -->|não| LLM["LLM com saída estruturada<br/>RouteDecision: reasoning, next_agent, task_for_agent"]
+    G2 -->|não| LLM["LLM com saída estruturada<br/>RouteDecision: reasoning, next_agent, task_for_agent"]
     LLM --> GD{"o LLM escolheu um<br/>agente que desistiu?"}
     GD -->|sim| FIN4(["FINISH"])
     GD -->|não| D(["Decisão do LLM; task_for_agent vira<br/>mensagem name='Supervisor' no histórico"])
 
     classDef guard fill:#e8f5e9,stroke:#2e7d32
     classDef llm fill:#e3f2fd,stroke:#1565c0
-    class H,GE,GY,G1,G2,G4,G3,GD guard
+    class H,GE,GY,G1,GS,G2,GD guard
     class LLM llm
 ```
 
@@ -139,15 +139,18 @@ sequenceDiagram
     Y->>BC: (código) SELIC, CDI e IPCA de 12 meses
     BC-->>Y: cada série com a data do BCB (a que falha some)
     Y-->>S: dados + SINAIS DE ANOMALIA + INDICADORES ECONÔMICOS
-    S->>A: (guard) busque notícias da empresa
-    A->>W: busca na web (NewsAPI só se falhar)
-    A-->>S: notícias
-    S->>A: (guard) busque o contexto do setor
-    A-->>S: contexto setorial
-    S->>I: (guard) investigue a queda de 35%
-    I->>W: fatos relevantes
-    I->>I: histórico trimestral
-    I-->>S: Causa, Natureza, Evidências, Impacto
+    Note over S: Guard detecta sinais de anomalia:<br/>dispara Analyzer e Investigator em paralelo com Send
+    par Analyzer (notícias da empresa e setor)
+        S->>A: (Send) notícias e setor em 2 seções
+        A->>W: busca notícias recentes e setor
+        A-->>S: notícias + contexto setorial
+    and Investigator (diagnóstico causal)
+        S->>I: (Send) investigue as causas da anomalia
+        I->>W: fatos relevantes e web
+        I->>I: histórico trimestral
+        I-->>S: Causa, Natureza, Evidências, Impacto
+    end
+    Note over S: Superstep concluído: Supervisor recebe ambos<br/>Guard: Analyzer e Investigator resolvidos -> FINISH
     S->>C: (guard) FINISH
     C-->>U: relatório: resumo, indicadores, notícias, diagnóstico, riscos
 ```
@@ -250,20 +253,20 @@ flowchart LR
 | Campo | Como acumula | Para que serve |
 |---|---|---|
 | `messages` | `add_messages` (concatena) | Histórico inteiro. Mensagens de agentes são `HumanMessage` com `name` = quem falou (`YFinance`, `Analyzer`, `Investigator`, `Supervisor`) |
-| `next_agent` | Sobrescreve | Decisão do Supervisor: `YFinance`, `Analyzer`, `Investigator` ou `FINISH` (o router troca FINISH pelo Consolidador) |
+| `next_agent` | Sobrescreve | Decisão do Supervisor: `YFinance`, `Analyzer`, `Investigator`, `PARALELO` (`Analyzer+Investigator`) ou `FINISH` (o router troca FINISH pelo Consolidador) |
 | `loop_count` | `operator.add` (soma) | Cada passagem do Supervisor soma 1; hard stop em 6 |
 | `supervisor_reasoning` | Sobrescreve | Justificativa da última decisão (vai para o dashboard) |
 | `decidido_por` | Sobrescreve | Quem decidiu a última passagem do Supervisor: `guard`, `llm` ou `hard_stop` (o dashboard desenha nas setas) |
 | `sinais_anomalia` | Sobrescreve | Sinais calculados em código pelo nó do YFinance; alimentam o guard da Etapa 4 |
 | `relatorio` | Sobrescreve | `RelatorioFinal` do Consolidador (resumo, indicadores, contexto, riscos, limitações, diagnóstico copiado do Investigator); `None` se o LLM dele falhou |
 | `dados_mercado` | Sobrescreve | Texto final do YFinance, o mesmo da mensagem (com o aviso da reserva, os sinais e o bloco do Banco Central) |
-| `noticias` | Sobrescreve | Primeira passagem do Analyzer (notícias da empresa); gravado uma vez só |
-| `contexto_setor` | Sobrescreve | Passagens seguintes do Analyzer (setor); uma terceira passagem cai aqui e não apaga `noticias` |
+| `noticias` | Sobrescreve | Saída da seção `## Notícias da empresa` do Analyzer (passagem única). Gravado uma vez só |
+| `contexto_setor` | Sobrescreve | Saída da seção `## Contexto do setor` do Analyzer (passagem única). `None` se a seção faltar |
 | `diagnostico` | Sobrescreve | Resposta do Investigator, que o Consolidador copia literalmente |
 | `erros` | `operator.or_` (junta dicionários) | Por agente, o último erro que o nó não resolveu localmente: `ErroAgente` com `tipo` (`transitorio`/`permanente`), `mensagem` (até 300 caracteres) e `tentativas`. `None` = a última rodada deu certo |
 | `tentativas` | `operator.or_` (junta dicionários) | Por agente, quantas rodadas do nó falharam seguidas. Volta a 0 quando o agente acerta, para a etapa seguinte do mesmo agente (o setor, no Analyzer) ter o limite inteiro |
 
-Os quatro campos de texto (`dados_mercado` a `diagnostico`) são texto livre, um campo por saída de agente. Servem para decidir sem contar mensagens: os guards do Supervisor e as limitações do Consolidador (sem `noticias` → "sem notícias", sem `contexto_setor` → "sem setor") leem só se o campo existe, e um campo ausente é uma etapa que não rodou. Um agente que falhou de vez não grava o campo dele. As `messages` continuam com as mesmas mensagens: os agentes recebem o histórico, e o texto que vai ao LLM do Consolidador ainda sai de `montar_insumos(messages)`, a função que os evals medem.
+Os quatro campos de texto (`dados_mercado` a `diagnostico`) são texto livre, um campo por saída de agente. O Analista roda em passagem única e divide suas seções entre `noticias` e `contexto_setor`. Servem para decidir sem contar mensagens: os guards do Supervisor e as limitações do Consolidador (sem `noticias` → "sem notícias", sem `contexto_setor` → "sem setor") leem só se o campo existe, e um campo ausente é uma etapa que não rodou. Um agente que falhou de vez não grava o campo dele. As `messages` continuam com as mesmas mensagens: os agentes recebem o histórico (isolado por ramo no paralelismo via `historico_do_ramo`), e o texto que vai ao LLM do Consolidador ainda sai de `montar_insumos(messages)`, a função que os evals medem.
 
 `erros` e `tentativas` juntam dicionários: cada nó escreve só a própria chave, e limpar é escrever `{agente: None}` e `{agente: 0}` (um dicionário vazio não muda nada).
 
@@ -283,10 +286,6 @@ flowchart TD
     L3 -->|sim| RE["Supervisor manda o mesmo agente<br/>mais 1 vez, sem contar volta"]
     RE --> L2
     L3 -->|não: desistiu| SEG(["Segue sem o agente<br/>o Consolidador registra a limitação"])
-    SEG -.->|"futuro"| HUM(["Revisão humana<br/>(human-in-the-loop)"])
-
-    classDef futuro stroke-dasharray: 5 5
-    class HUM futuro
 ```
 
 | Onde | O que repete | O que faz quando não resolve |
@@ -321,7 +320,7 @@ flowchart LR
 
 | Agente | O que o juiz mede | Contexto que ele recebe |
 |---|---|---|
-| Analyzer (2 passagens) | Fidelidade | Saídas das tools da passagem, pedido, resposta do YFinance, tarefas do Supervisor |
+| Analyzer (passagem única) | Fidelidade | Saídas das tools da passagem, pedido, resposta do YFinance, tarefas do Supervisor |
 | Investigator | Fidelidade e diagnóstico (GEval) | O mesmo, com as tools dele |
 | Consolidador | Fidelidade, cobertura (não reprova) e relevância | `montar_insumos(messages)`, a mesma entrada que o nó usa; na cobertura, sem o sumário do negócio (`sem_sumario`) |
 | Relatório final | Neutralidade (GEval: sem recomendação de compra ou venda) | Só o pedido |
@@ -334,20 +333,16 @@ As respostas anteriores de outros agentes ficam fora do contexto: um número inv
 
 Limites do desenho atual:
 
-- **Estado estruturado só pela metade**: cada agente já grava a saída num campo (`dados_mercado`, `noticias`, `contexto_setor`, `diagnostico`) e o Supervisor decide por eles, mas o conteúdo continua texto livre, e os agentes ainda leem uns aos outros pelo histórico de mensagens. O Analyzer ainda roda duas vezes em sequência: a troca completa (analista e pesquisa em paralelo) fica para a fase do `Send`.
+- **Estado estruturado só pela metade**: cada agente já grava a saída num campo (`dados_mercado`, `noticias`, `contexto_setor`, `diagnostico`) e o Supervisor decide por eles, mas o conteúdo continua texto livre, e os agentes ainda leem uns aos outros pelo histórico de mensagens. O Analista agora roda em passagem única e divide o tempo com o Investigator quando há anomalias, mas as duas pesquisas ainda acontecem no mesmo nível e com focos diferentes.
 - **Erros de tool como texto**: o agente que quebra chega ao Supervisor como erro estruturado (seção 7), mas uma tool chamada pelo LLM que falha ainda devolve `"Erro ao ..."`, e o Supervisor não distingue falha de "sem dados" sem ler a mensagem.
-- **Desistência sem revisão**: quando o coordenador desiste de um agente, a análise segue sem ele e o relatório avisa. A revisão humana nesse ponto depende do human-in-the-loop.
 - **Sem segunda chance para a saída estruturada**: uma `RouteDecision` ou um `RelatorioFinal` inválido do LLM não é pedido de novo além do que a biblioteca do Gemini já repete. O Consolidador cai no relatório de emergência, e no Supervisor a exceção ainda derruba a análise.
-- **Pesquisas sobrepostas**: o Analyzer (duas passagens) e o Investigator pesquisam na web com focos diferentes.
 
 Próximos passos:
 
 - **Infraestrutura**: Docker e docker-compose, e deploy na AWS em cima do container.
 - **Persistência**: um banco de dados para registrar as chamadas (entrada e saída de cada análise, com data e hora).
 - **Checkpointer e cache de dados frescos**: o checkpointer guarda o estado de uma análise para ela poder ser retomada, e o cache evita buscar de novo no yfinance um dado que acabou de chegar.
-- **Human-in-the-loop**: a análise pausa (`interrupt()`) para esperar uma resposta e continua de onde parou, o que depende do checkpointer.
 - **Provedor genérico**: um LiteLLM na frente do modelo.
-- **Busca desacoplada do modelo**: uma API de busca dedicada (Tavily, Brave, Serper), para a troca de LLM não quebrar a busca.
-- **Grafo mais enxuto**: menos nós e etapas, talvez juntando as pesquisas que hoje se sobrepõem.
-- **Paralelismo com `Send`**: dados primeiro, depois analista e pesquisa ao mesmo tempo.
+- **Subgrafo de pesquisa do Investigator (Fase 7b)**: aprofundar a investigação causal com etapas internas de pesquisa.
+- **Busca desacoplada do modelo (Fase 7c)**: chave de configuração para alternar entre Google Search e Tavily.
 - **A2A**: no fim, expor o fluxo como um agente A2A, que um futuro fluxo de análise de carteira consiga descobrir e chamar, com o `relatorio` em JSON como resposta.

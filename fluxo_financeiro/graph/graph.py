@@ -13,10 +13,10 @@ from fluxo_financeiro.shared.retry import (
 )
 from fluxo_financeiro.shared.types import ErroAgente, MessagesState
 from fluxo_financeiro.agents.collectors import yfinance_agent
-from fluxo_financeiro.agents.analysts import analyzer_agent
+from fluxo_financeiro.agents.analysts import analyzer_agent, separar_secoes
 from fluxo_financeiro.agents.investigators import investigator_agent
 from fluxo_financeiro.agents.consolidator import consolidar, formatar_relatorio, relatorio_de_emergencia
-from fluxo_financeiro.graph.supervisor import supervisor_node, router
+from fluxo_financeiro.graph.supervisor import DESTINOS_DO_ROUTER, supervisor_node, router
 from fluxo_financeiro.shared.prompts import TAG_CONTEUDO_EXTERNO
 from fluxo_financeiro.shared.utils import extrair_ticker, logger
 # Exceção à regra de camadas (graph ← agents): o detector é cálculo em código, sem agente,
@@ -51,8 +51,8 @@ def _rodar_com_retry(nome: str, rodar: Callable[[], dict], state: MessagesState)
     """Roda o nó repetindo o agente localmente; o que não resolver vira erro estruturado, sem levantar.
 
     Princípio: cada agente/parte resolve o retry localmente antes de escalar pro coordenador.
-    Sucesso: o dict do nó, com o erro e as tentativas do agente zerados (uma etapa seguinte do mesmo
-    agente, como a do setor no Analyzer, tem o limite inteiro). Falha final: o erro no state, uma
+    Sucesso: o dict do nó, com o erro e as tentativas do agente zerados (uma nova falha do mesmo
+    agente começa com o limite inteiro). Falha final: o erro no state, uma
     mensagem "Erro: ..." com o nome do agente e o campo do agente sem gravar.
     """
     rodadas = 0
@@ -157,11 +157,16 @@ def _rodar_analyzer(state: MessagesState) -> dict:
     historico = _historico("Analyzer", state)
     logger.info(f"[node] Analyzer: invocando agente ({len(historico)} msgs)")
     texto = _texto_final("Analyzer", analyzer_agent.invoke({"messages": historico}))
-    # A primeira passagem é a das notícias da empresa; as seguintes, a do setor. `is None` e não
-    # falsidade: uma primeira resposta com erro em texto também conta como passagem feita. Uma
-    # passagem que falhou de vez não grava o campo, então a nova tentativa ainda cai em noticias.
-    campo = "noticias" if state.get("noticias") is None else "contexto_setor"
-    return {"messages": [HumanMessage(content=texto, name="Analyzer")], campo: texto}
+    # Uma passagem só: notícias da empresa e contexto do setor, em duas seções gravadas cada uma no
+    # seu campo. Sem a seção do setor (o LLM ignorou o formato), o texto inteiro vai para noticias e
+    # contexto_setor fica None: o Consolidador anota a limitação e o Supervisor não manda o Analyzer
+    # de novo. A mensagem do histórico continua sendo a resposta inteira.
+    noticias, contexto_setor = separar_secoes(texto)
+    return {
+        "messages": [HumanMessage(content=texto, name="Analyzer")],
+        "noticias": noticias,
+        "contexto_setor": contexto_setor,
+    }
 
 
 def analyzer_node(state: MessagesState):
@@ -203,7 +208,9 @@ workflow.add_node("Investigator", investigator_node)
 workflow.add_node("Consolidador", consolidador_node)
 
 workflow.add_edge(START, "Supervisor")
-workflow.add_conditional_edges("Supervisor", router)
+# O router devolve um nome ou uma lista de Send (o paralelo): a lista de destinos é explícita para o
+# LangGraph desenhar as arestas do Supervisor.
+workflow.add_conditional_edges("Supervisor", router, DESTINOS_DO_ROUTER)
 
 workflow.add_edge("YFinance", "Supervisor")
 workflow.add_edge("Analyzer", "Supervisor")

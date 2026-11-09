@@ -34,13 +34,17 @@ class ErroAgente(BaseModel):
 
 class MessagesState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
+    # Próximo agente a ser chamado ("YFinance", "Analyzer", "Investigator", "FINISH") ou
+    # PARALELO = "Analyzer+Investigator" quando disparado pelo guard da Etapa 2.
+    # O RouteDecision do LLM continua sem PARALELO (só o guard decide paralelismo).
     next_agent: str
     loop_count: Annotated[int, operator.add]
     supervisor_reasoning: str
     # Quem decidiu a última passagem do Supervisor: "guard", "llm" ou "hard_stop" (o dashboard desenha isso).
     decidido_por: str
-    # Preenchido pelo nó do YFinance; se não estiver vazio, o Supervisor manda para o Investigator
-    # na Etapa 4 sem consultar o LLM (guard). Ausente/vazio = o LLM decide.
+    # Preenchido pelo nó do YFinance; se não estiver vazio, o Supervisor dispara o Analyzer e o
+    # Investigator em paralelo na Etapa 2 (guard). Sem sinais, o Analyzer roda sozinho e na
+    # Etapa 4 o LLM decide se investiga.
     sinais_anomalia: list[SinalAnomalia]
     # Preenchido pelo Consolidador no fim do fluxo; None se o LLM dele falhou (fallback em texto).
     relatorio: Optional[RelatorioFinal]
@@ -48,9 +52,9 @@ class MessagesState(TypedDict):
     # os campos existem para decidir sem contar mensagens pelo `name`. Ausente = o agente ainda não rodou.
     # Texto final do YFinance, igual ao da mensagem: já com o aviso da reserva, os sinais e o bloco do BCB.
     dados_mercado: Optional[str]
-    # Primeira passagem do Analyzer (notícias da empresa). Gravado uma vez só.
+    # Saída da seção "## Notícias da empresa" do Analyzer (passagem única). Gravado uma vez só.
     noticias: Optional[str]
-    # Passagens seguintes do Analyzer (contexto do setor); uma terceira passagem sobrescreve esta.
+    # Saída da seção "## Contexto do setor" do Analyzer (passagem única). None se a seção faltar.
     contexto_setor: Optional[str]
     # Resposta do Investigator (o diagnóstico que o Consolidador copia literalmente).
     diagnostico: Optional[str]

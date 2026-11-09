@@ -45,6 +45,13 @@ def test_investigator_prompt_mantem_contratos():
         assert trecho in INVESTIGATOR_PROMPT
 
 
+def test_analyzer_prompt_mantem_contratos():
+    """Confere que o prompt do Analyzer cita as duas tools e os dois títulos que o nó usa para separar a resposta."""
+    from fluxo_financeiro.agents.analysts import SECAO_NOTICIAS, SECAO_SETOR
+    for trecho in ("buscar_noticias_web", "buscar_noticias", SECAO_NOTICIAS, SECAO_SETOR):
+        assert trecho in ANALYZER_PROMPT
+
+
 def test_analyzer_avisa_sobre_conteudo_removido():
     """Confere que o Analyzer é orientado a relatar quando o sanitizador removeu uma busca."""
     assert "Conteúdo removido pela sanitização" in ANALYZER_PROMPT

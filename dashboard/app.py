@@ -189,7 +189,8 @@ def aba_como_foi_feito(resultado: dict) -> None:
         st.warning("O fluxo parou pelo limite de 6 passagens do Supervisor (hard stop).")
 
     consolidou = any(no == "Consolidador" for no, _ in eventos) and not resultado.get("erro")
-    final = passo_do_consolidador(eventos, numero=len(passos) + 1)
+    proximo_num = max((p.numero for p in passos), default=0) + 1
+    final = passo_do_consolidador(eventos, numero=proximo_num)
     with st.container(horizontal_alignment="center"):
         st.graphviz_chart(dot_do_caminho(
             passos,
