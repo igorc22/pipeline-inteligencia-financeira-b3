@@ -2,7 +2,7 @@
 
 Todo texto que vem de fora do sistema (busca na web, NewsAPI, descrição da empresa no yfinance)
 entra nos prompts dentro de <conteudo_externo>. O que protege é a tag de fechamento: por isso
-os sinais < e > do texto são escapados, e uma notícia não consegue fechar a tag sozinha (D47).
+os sinais < e > do texto são escapados, e uma notícia não consegue fechar a tag sozinha.
 """
 
 TAG_CONTEUDO_EXTERNO = "conteudo_externo"

@@ -8,7 +8,7 @@ from langchain_core.tools import tool
 from fluxo_financeiro.shared.prompts import envolver_conteudo_externo
 from fluxo_financeiro.shared.retry import com_retentativas
 from fluxo_financeiro.shared.types import ConsultaBCBInput, IndicadorEconomico
-from fluxo_financeiro.shared.utils import logger
+from fluxo_financeiro.shared.utils import logger, numero_br, pct_br
 from fluxo_financeiro.tools.brapi import ParesDoSetor, PerfilBrapi, buscar_pares_do_setor, buscar_perfil
 from fluxo_financeiro.tools.moeda import com_simbolo, ler_simbolo_moeda
 from typing import Any, Dict, Optional
@@ -34,7 +34,7 @@ def _numero(valor) -> Optional[float]:
 
 def _em_bi(valor) -> str:
     numero = _numero(valor)
-    return f"R$ {numero / 1e9:.1f} bi" if numero is not None else "N/A"
+    return f"R$ {numero_br(numero / 1e9, 1)} bi" if numero is not None else "N/A"
 
 
 def _lpa_coerente(preco, lpa, pl) -> bool:
@@ -53,18 +53,18 @@ def _linhas_do_perfil(perfil: PerfilBrapi, preco_yf, pl) -> str:
     linhas = f"Empresa: {perfil.nome}\n" if perfil.nome else ""
     preco = _numero(perfil.preco)
     variacao = _numero(perfil.variacao_pct)
-    preco_txt = f"R$ {preco:.2f}" if preco is not None else f"R$ {preco_yf}"
+    preco_txt = f"R$ {numero_br(preco if preco is not None else preco_yf)}"
     if variacao is not None:
-        preco_txt += f" (no dia: {variacao:.2f}%)"
+        preco_txt += f" (no dia: {numero_br(variacao)}%)"
     linhas += f"Preço Atual: {preco_txt}\n"
     minima, maxima = _numero(perfil.minima_52s), _numero(perfil.maxima_52s)
     if minima is not None and maxima is not None:
-        linhas += f"Faixa de 52 semanas: R$ {minima:.2f} a R$ {maxima:.2f}\n"
+        linhas += f"Faixa de 52 semanas: R$ {numero_br(minima)} a R$ {numero_br(maxima)}\n"
     if _numero(perfil.valor_mercado) is not None:
         linhas += f"Valor de mercado: {_em_bi(perfil.valor_mercado)}\n"
     preco_conferido = preco if preco is not None else preco_yf
     if _lpa_coerente(preco_conferido, perfil.lpa, pl):
-        linhas += f"LPA: R$ {_numero(perfil.lpa):.2f}\n"
+        linhas += f"LPA: R$ {numero_br(_numero(perfil.lpa))}\n"
     return linhas
 
 
@@ -123,10 +123,10 @@ def buscar_dados_acao_b3(ticker: str) -> str:
         if perfil:
             resultado += _linhas_do_perfil(perfil, preco_atual, pl)
         else:
-            resultado += f"Preço Atual: R$ {preco_atual}\n"
-        resultado += f"P/L:  {f'{pl:.1f}x' if pl else 'N/A'}\n"
-        resultado += f"ROE:  {f'{roe*100:.1f}%' if roe else 'N/A'}\n"
-        resultado += f"DY:   {f'{dy*100:.2f}%' if dy else 'N/A'}\n"
+            resultado += f"Preço Atual: R$ {numero_br(preco_atual)}\n"
+        resultado += f"P/L:  {numero_br(pl, 1) + 'x' if pl else 'N/A'}\n"
+        resultado += f"ROE:  {pct_br(roe) if roe else 'N/A'}\n"
+        resultado += f"DY:   {pct_br(dy, 2) if dy else 'N/A'}\n"
         if perfil and perfil.setor:
             resultado += f"Setor: {perfil.setor}"
             resultado += f" | Subsetor: {perfil.subsetor}\n" if perfil.subsetor else "\n"
@@ -134,7 +134,7 @@ def buscar_dados_acao_b3(ticker: str) -> str:
             resultado += f"Industria: {industria}\n"
         if pares:
             resultado += _bloco_pares(pares, base)
-        # O sumário é texto de terceiros: vai na tag (D47). Não passa pelo classificador, que cobre só as buscas.
+        # O sumário é texto de terceiros: vai na tag. Não passa pelo classificador, que cobre só as buscas.
         if perfil and perfil.sumario:
             sumario, origem = perfil.sumario, "brapi"
         else:
@@ -155,14 +155,13 @@ def busca_indicador_bcb(input_data: ConsultaBCBInput) -> Dict[str, Any]:
     Consulta a API do Banco Central (SGS) para obter o valor mais recente
     de indicadores macroeconômicos brasileiros.
     Retorna: nome do indicador, valor numérico, data de referência e unidade.
-    Use para obter a taxa Selic meta vigente (432), a variação do IPCA no mês (433),
-    o CDI anualizado (4389) ou o IPCA acumulado em 12 meses (13522), especialmente
+    Use para obter a taxa Selic meta vigente (432), o CDI anualizado (4389) ou o IPCA acumulado em 12 meses (13522), especialmente
     quando precisar de benchmarks para retorno real ou comparar com a renda fixa.
     """
     codigo = input_data.indicador.value
 
-    # Unidades por série SGS: Selic e CDI anualizados, IPCA do mês e IPCA acumulado em 12 meses
-    unidades = {432: "% a.a.", 433: "% a.m.", 4389: "% a.a.", 13522: "% em 12 meses"}
+    # Unidades por série SGS: Selic e CDI anualizados e IPCA acumulado em 12 meses
+    unidades = {432: "% a.a.", 4389: "% a.a.", 13522: "% em 12 meses"}
     unidade = unidades.get(codigo, "%")
 
     # ultimos/2 e não ultimos/1: em 09/11/2026 o ultimos/1 da série 4389 (CDI) respondia 304 com o corpo
@@ -181,7 +180,7 @@ def busca_indicador_bcb(input_data: ConsultaBCBInput) -> Dict[str, Any]:
         dados = com_retentativas(_pedir_ao_bcb, contexto=f"[bcb] {input_data.indicador.name}")
 
         valor = float(dados["valor"])
-        logger.info(f"[tool] busca_indicador_bcb: ok — {input_data.indicador.name}={valor}{unidade}")
+        logger.info(f"[tool] busca_indicador_bcb: ok, {input_data.indicador.name}={valor}{unidade}")
         return {
             "indicador": input_data.indicador.name,
             "valor": valor,
@@ -214,7 +213,7 @@ def indicadores_economicos_em_texto() -> str:
             dado = busca_indicador_bcb.invoke({"input_data": {"indicador": indicador.value}})
             if "error" in dado:
                 continue
-            linhas.append(f"- {rotulo}: {dado['valor']:.2f}{sufixo} (BCB, {dado['data']})")
+            linhas.append(f"- {rotulo}: {numero_br(dado['valor'])}{sufixo} (BCB, {dado['data']})")
         except Exception:
             logger.exception(f"[bcb] indicadores_economicos_em_texto: falha em {indicador.name}")
     if not linhas:
@@ -230,7 +229,7 @@ def calcular_metricas_risco(ticker: str) -> str:
     livre de risco; se o BCB estiver indisponível, usa 10.75% a.a. como fallback.
     Use quando precisar avaliar o perfil de risco/retorno de uma ação: se ela é defensiva
     ou agressiva, se compensou o risco em relação à Selic, e qual a pior queda histórica.
-    Ticker sem sufixo é aceito (ex: PETR4) — o .SA é adicionado automaticamente.
+    Ticker sem sufixo é aceito (ex: PETR4): o .SA é adicionado automaticamente.
     """
     if not ticker.endswith('.SA'):
         ticker += '.SA'
@@ -246,7 +245,7 @@ def calcular_metricas_risco(ticker: str) -> str:
         )
         SELIC_ANUAL = float(resp.json()[0]["valor"]) / 100
     except Exception:
-        logger.warning(f"[tool] calcular_metricas_risco: BCB indisponivel — usando Selic fallback 10.75%")
+        logger.warning(f"[tool] calcular_metricas_risco: BCB indisponível, usando a SELIC de reserva 10.75%")
         SELIC_ANUAL = 0.1075
 
     try:
@@ -301,14 +300,14 @@ def calcular_metricas_risco(ticker: str) -> str:
             return 'agressivo' if v > 1.2 else 'defensivo' if v < 0.8 else 'neutro'
 
         resultado = f"Métricas de Risco para {ticker} (último 1 ano):\n"
-        resultado += f"Referência: Selic {SELIC_ANUAL:.2%} a.a. (BCB), benchmark IBOV\n\n"
-        resultado += f"Sharpe Ratio:      {sharpe:.2f} ({_label_sharpe(sharpe)})\n"
-        resultado += f"Sortino Ratio:     {sortino:.2f}\n"
-        resultado += f"Max Drawdown:      {mdd:.1%}\n"
-        resultado += f"VaR 95% (diário):  {var_95:.2%}\n"
-        resultado += f"Beta (vs IBOV):    {beta:.2f} ({_label_beta(beta)})\n"
-        resultado += f"Alpha (anual):     {alpha:.1%} ({'acima' if alpha > 0 else 'abaixo'} do esperado pelo CAPM)\n"
-        logger.info(f"[tool] calcular_metricas_risco: ok — Sharpe={sharpe:.2f}")
+        resultado += f"Referência: Selic {pct_br(SELIC_ANUAL, 2)} a.a. (BCB), benchmark IBOV\n\n"
+        resultado += f"Sharpe Ratio:      {numero_br(sharpe)} ({_label_sharpe(sharpe)})\n"
+        resultado += f"Sortino Ratio:     {numero_br(sortino)}\n"
+        resultado += f"Max Drawdown:      {pct_br(mdd)}\n"
+        resultado += f"VaR 95% (diário):  {pct_br(var_95, 2)}\n"
+        resultado += f"Beta (vs IBOV):    {numero_br(beta)} ({_label_beta(beta)})\n"
+        resultado += f"Alpha (anual):     {pct_br(alpha)} ({'acima' if alpha > 0 else 'abaixo'} do esperado pelo CAPM)\n"
+        logger.info(f"[tool] calcular_metricas_risco: ok, Sharpe={sharpe:.2f}")
         return resultado
 
     except Exception as e:
@@ -341,30 +340,30 @@ def _calcular_score(df_demonstrativo, df_balanco, df_fluxo_caixa, simbolo: str =
     # 1. Net Income > 0
     if ni > 0:
         score += 1
-        details['net_income'] = f"[OK] Net Income positivo ({com_simbolo(f'{ni/1e9:.2f}B', simbolo)})"
+        details['net_income'] = f"[OK] Net Income positivo ({com_simbolo(f'{numero_br(ni/1e9)} bi', simbolo)})"
     else:
-        details['net_income'] = f"[NAO] Net Income negativo ({com_simbolo(f'{ni/1e9:.2f}B', simbolo)})"
+        details['net_income'] = f"[NAO] Net Income negativo ({com_simbolo(f'{numero_br(ni/1e9)} bi', simbolo)})"
 
     # 2. OCF > 0
     if ocf > 0:
         score += 1
-        details['ocf'] = f"[OK] Operating Cash Flow positivo ({com_simbolo(f'{ocf/1e9:.2f}B', simbolo)})"
+        details['ocf'] = f"[OK] Operating Cash Flow positivo ({com_simbolo(f'{numero_br(ocf/1e9)} bi', simbolo)})"
     else:
-        details['ocf'] = f"[NAO] Operating Cash Flow negativo ({com_simbolo(f'{ocf/1e9:.2f}B', simbolo)})"
+        details['ocf'] = f"[NAO] Operating Cash Flow negativo ({com_simbolo(f'{numero_br(ocf/1e9)} bi', simbolo)})"
 
     # 3. Net Income crescente
     if ni > prv_ni:
         score += 1
-        details['ni_growth'] = f"[OK] Net Income cresceu ({com_simbolo(f'{ni/1e9:.2f}B', simbolo)} vs {com_simbolo(f'{prv_ni/1e9:.2f}B', simbolo)})"
+        details['ni_growth'] = f"[OK] Net Income cresceu ({com_simbolo(f'{numero_br(ni/1e9)} bi', simbolo)} vs {com_simbolo(f'{numero_br(prv_ni/1e9)} bi', simbolo)})"
     else:
-        details['ni_growth'] = f"[NAO] Net Income diminuiu ({com_simbolo(f'{ni/1e9:.2f}B', simbolo)} vs {com_simbolo(f'{prv_ni/1e9:.2f}B', simbolo)})"
+        details['ni_growth'] = f"[NAO] Net Income diminuiu ({com_simbolo(f'{numero_br(ni/1e9)} bi', simbolo)} vs {com_simbolo(f'{numero_br(prv_ni/1e9)} bi', simbolo)})"
 
     # 4. Qualidade do lucro: OCF > NI
     if ocf > ni:
         score += 1
-        details['cash_quality'] = f"[OK] OCF > Net Income — lucro com qualidade de caixa"
+        details['cash_quality'] = f"[OK] OCF > Net Income: lucro com qualidade de caixa"
     else:
-        details['cash_quality'] = f"[NAO] OCF <= Net Income — lucro pode ser inflado"
+        details['cash_quality'] = f"[NAO] OCF <= Net Income: lucro pode ser inflado"
 
     # 5. Total Assets crescente
     cur_assets = cur_bs.get('Total Assets', 0)
@@ -372,9 +371,9 @@ def _calcular_score(df_demonstrativo, df_balanco, df_fluxo_caixa, simbolo: str =
     if cur_assets > 0 and prv_assets > 0:
         if cur_assets > prv_assets:
             score += 1
-            details['assets'] = f"[OK] Total Assets cresceu (+{(cur_assets/prv_assets-1)*100:.1f}%)"
+            details['assets'] = f"[OK] Total Assets cresceu (+{pct_br(cur_assets/prv_assets-1)})"
         else:
-            details['assets'] = f"[NAO] Total Assets diminuiu ({(cur_assets/prv_assets-1)*100:.1f}%)"
+            details['assets'] = f"[NAO] Total Assets diminuiu ({pct_br(cur_assets/prv_assets-1)})"
     else:
         details['assets'] = "[ALERTA] Dados de Total Assets incompletos"
 
@@ -384,9 +383,9 @@ def _calcular_score(df_demonstrativo, df_balanco, df_fluxo_caixa, simbolo: str =
     if cur_liab > 0 and prv_liab > 0:
         if cur_liab < prv_liab:
             score += 1
-            details['debt'] = f"[OK] Divida corrente reduziu ({(1-cur_liab/prv_liab)*100:.1f}%)"
+            details['debt'] = f"[OK] Divida corrente reduziu ({pct_br(1-cur_liab/prv_liab)})"
         else:
-            details['debt'] = f"[NAO] Divida corrente aumentou (+{(cur_liab/prv_liab-1)*100:.1f}%)"
+            details['debt'] = f"[NAO] Divida corrente aumentou (+{pct_br(cur_liab/prv_liab-1)})"
     else:
         details['debt'] = "[ALERTA] Dados de Current Liabilities incompletos"
 
@@ -398,9 +397,9 @@ def _calcular_score(df_demonstrativo, df_balanco, df_fluxo_caixa, simbolo: str =
         cr_prv = prv_ca / prv_liab
         if cr_cur > cr_prv:
             score += 1
-            details['liquidity'] = f"[OK] Current Ratio melhorou ({cr_cur:.2f} vs {cr_prv:.2f})"
+            details['liquidity'] = f"[OK] Current Ratio melhorou ({numero_br(cr_cur)} vs {numero_br(cr_prv)})"
         else:
-            details['liquidity'] = f"[NAO] Current Ratio piorou ({cr_cur:.2f} vs {cr_prv:.2f})"
+            details['liquidity'] = f"[NAO] Current Ratio piorou ({numero_br(cr_cur)} vs {numero_br(cr_prv)})"
     else:
         details['liquidity'] = "[ALERTA] Dados para Current Ratio incompletos"
 
@@ -412,7 +411,7 @@ def _calcular_score(df_demonstrativo, df_balanco, df_fluxo_caixa, simbolo: str =
             score += 1
             details['shares'] = f"[OK] Sem diluicao de acoes"
         else:
-            details['shares'] = f"[NAO] Diluicao detectada (+{(cur_shares/prv_shares-1)*100:.1f}% novas acoes)"
+            details['shares'] = f"[NAO] Diluicao detectada (+{pct_br(cur_shares/prv_shares-1)} novas ações)"
     else:
         details['shares'] = "[ALERTA] Dados de shares ordinarias indisponíveis"
 
@@ -425,16 +424,16 @@ def _calcular_score(df_demonstrativo, df_balanco, df_fluxo_caixa, simbolo: str =
     gm_prv = (prv_rev - prv_cogs) / prv_rev
     if gm_cur > gm_prv:
         score += 1
-        details['margin'] = f"[OK] Gross Margin melhorou ({gm_cur:.1%} vs {gm_prv:.1%})"
+        details['margin'] = f"[OK] Gross Margin melhorou ({pct_br(gm_cur)} vs {pct_br(gm_prv)})"
     else:
-        details['margin'] = f"[NAO] Gross Margin caiu ({gm_cur:.1%} vs {gm_prv:.1%})"
+        details['margin'] = f"[NAO] Gross Margin caiu ({pct_br(gm_cur)} vs {pct_br(gm_prv)})"
 
     if score >= 7:
-        interpretation = 'Excelente (7-9) - Empresa com fundamentals muito solidos'
+        interpretation = 'Excelente (7-9): empresa com fundamentos muito sólidos'
     elif score >= 4:
-        interpretation = 'Bom (4-6) - Empresa competente, algumas fraquezas'
+        interpretation = 'Bom (4-6): empresa competente, com algumas fraquezas'
     else:
-        interpretation = 'Fraco (0-3) - Empresa com serios problemas financeiros'
+        interpretation = 'Fraco (0-3): empresa com sérios problemas financeiros'
 
     return {'piotroski_score': score, 'interpretation': interpretation, 'details': details}
 
@@ -447,7 +446,7 @@ def calcular_piotroski_score(ticker: str) -> str:
     alavancagem (dívida, liquidez corrente) e eficiência (diluição de ações, margem bruta).
     Score 7-9 = excelente; 4-6 = bom; 0-3 = fraco.
     Use quando o pedido envolve análise fundamentalista ou solidez financeira da empresa.
-    Ticker sem sufixo é aceito (ex: WEGE3) — o .SA é adicionado automaticamente.
+    Ticker sem sufixo é aceito (ex: WEGE3): o .SA é adicionado automaticamente.
     """
     if not ticker.endswith('.SA'):
         ticker += '.SA'
@@ -470,12 +469,12 @@ def calcular_piotroski_score(ticker: str) -> str:
         interpretation = resultado['interpretation']
         details = resultado['details']
 
-        saida = f"Piotroski F-Score para {ticker}: {score}/9 — {interpretation}\n\n"
+        saida = f"Piotroski F-Score para {ticker}: {score}/9, {interpretation}\n\n"
         saida += "Critérios:\n"
-        for criterio, detalhe in details.items():
+        for detalhe in details.values():
             saida += f"  {detalhe}\n"
 
-        logger.info(f"[tool] calcular_piotroski_score: ok — score={score}/9")
+        logger.info(f"[tool] calcular_piotroski_score: ok, score={score}/9")
         return saida
     except Exception as e:
         logger.exception(f"[tool] calcular_piotroski_score falhou para {ticker}")

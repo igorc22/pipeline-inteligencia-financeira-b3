@@ -78,7 +78,7 @@ def _sem_erros_superados(messages: list[BaseMessage]) -> list[BaseMessage]:
 def montar_insumos(messages: list[BaseMessage]) -> list[str]:
     """Insumos do Consolidador, um bloco por item. Os evals medem o relatório contra esta mesma função.
 
-    Pedido do usuário + uma tag por resposta de agente, numerada por agente (texto escapado, D47).
+    Pedido do usuário + uma tag por resposta de agente, numerada por agente (texto escapado).
     O "Erro: ..." de uma falha que o retry superou fica de fora: o LLM a registraria como limitação.
     """
     messages = _sem_erros_superados(messages)

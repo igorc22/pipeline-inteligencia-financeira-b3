@@ -1,189 +1,171 @@
 # Pipeline de Inteligência Financeira (B3)
 
-Sistema multi-agente com LLM para análise de ações da B3 usando LangGraph, yfinance e Gemini.
+Você digita o código de uma ação da B3 e um grupo de agentes coordenado com LangGraph monta um relatório: preço, múltiplos, risco, notícias, contexto do setor e, quando o lucro despenca, uma investigação do porquê. O LLM é o Gemini 3.5 Flash-Lite, e os dados vêm da Brapi, do yfinance, do Banco Central e de buscas na web.
 
-## Chaves de API
+<p align="center">
+  <img src="docs/desenho-arquitetura.jpg" alt="Arquitetura">
+</p>
 
-| Variável | Onde conseguir | Obrigatória? |
-|---|---|---|
-| `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey): entre com a conta Google e clique em **Create API key** | Sim: é o LLM de todos os agentes e a busca na web |
-| `NEWS_API_KEY` | [newsapi.org/register](https://newsapi.org/register): o plano gratuito (Developer) basta | Só para `buscar_noticias`, a reserva da busca na web |
-| `TAVILY_API_KEY` | [tavily.com](https://tavily.com): crie uma conta e copie a chave do painel | Não: só com `BUSCA_PROVEDOR=tavily`, para a busca na web usar a Tavily em vez do Google. Cada busca gasta créditos da conta da Tavily |
-| `BRAPI_API_KEY` | [brapi.dev](https://brapi.dev): crie uma conta e gere o token no painel; o plano gratuito basta | Não: confere se o ticker existe e traz cotação, setor da B3 e descrição em português. Sem ele, tudo vem do yfinance |
-| `LANGSMITH_API_KEY` | [smith.langchain.com](https://smith.langchain.com): **Settings → API Keys → Create API Key** | Não: só para ver os traces de cada análise |
+O desenho é a arquitetura-alvo: verde é o que já está no código, laranja está em parte e cinza ainda não existe. As decisões por trás de cada peça estão em [`docs/decisoes.md`](docs/decisoes.md), e as quatro partes que o desenho não explica por dentro (guards, subgrafo de pesquisa, retry e evals) estão em [`docs/arquitetura.md`](docs/arquitetura.md).
 
-A busca na web usa o Google Search pelo Gemini e só funciona com **faturamento ativo** no projeto da chave (crédito pré-pago no AI Studio serve; o crédito de boas-vindas do Google Cloud, não). Sem faturamento, o LLM continua funcionando, mas as buscas devolvem erro e as notícias ficam só com a NewsAPI. A outra saída é a Tavily: com `BUSCA_PROVEDOR=tavily` e a `TAVILY_API_KEY`, todas as buscas na web vão para ela, e o Gemini fica só como LLM. Com `tavily` e sem a chave, o log avisa e a busca continua no Google.
+<p align="center">
+  <img src="docs/img/analise-ao-vivo.gif" alt="Dashboard analisando a VALE3, com o caminho da análise desenhado enquanto os agentes rodam">
+</p>
 
-## Visão Geral
+## O que ele faz
 
-Um **Supervisor** central orquestra três agentes, e um **Consolidador** fecha toda análise com um relatório:
+Um **Supervisor** decide quem trabalha, mas só chama o LLM quando a decisão pede julgamento. As transições óbvias (dados coletados, então buscar notícias, por exemplo) são regras em código e não gastam token.
 
-- **YFinance Agent**: coleta dados de mercado (cotação, setor, valor de mercado e os maiores do setor pela Brapi; P/L, ROE, DY e histórico pelo yfinance) e tem tools para métricas de risco (Sharpe, Sortino, Max Drawdown, VaR, Beta, Alpha) e Piotroski F-Score. Em código, sem depender do LLM, a resposta dele ganha a SELIC, o CDI e o IPCA de 12 meses do Banco Central
-- **Analyzer Agent**: busca notícias da empresa e do setor numa passagem só (busca na web pelo Google Search ou pela Tavily, com a NewsAPI de reserva); com anomalia, roda em paralelo com o Investigator
-- **Investigator Agent** *(condicional)*: acionado só quando o Supervisor detecta uma anomalia; é um subgrafo de pesquisa que lê o histórico trimestral, gera até 3 perguntas sobre a causa, faz uma busca por pergunta em paralelo e passa o diagnóstico por um crítico, que pode pedir até 2 voltas de busca a mais
-- **Consolidador** *(sempre no fim)*: junta dados, notícias, setor e diagnóstico num relatório (resumo, indicadores da empresa e da economia, riscos e limitações), sem recomendação de compra ou venda
+- **YFinance** coleta cotação, setor e os maiores do setor pela Brapi e P/L, ROE, DY, risco (Sharpe, Sortino, drawdown, VaR, beta, alpha) e Piotroski pelo yfinance. Em código, sem passar pelo LLM, a resposta dele ganha SELIC, CDI e IPCA de 12 meses do Banco Central e os sinais de anomalia: lucro mais de 30% abaixo do mesmo trimestre do ano anterior, prejuízo ou Piotroski de 3 ou menos.
+- **Analyzer** busca notícias da empresa e do setor numa passagem só, pelo Google Search (via Gemini) ou pela Tavily, com a NewsAPI de reserva.
+- **Investigator** só roda quando há anomalia. É um subgrafo com caminho fixo: lê o histórico trimestral, escreve até 3 perguntas sobre a causa, busca as respostas em paralelo e passa o diagnóstico por um crítico, que pode pedir até 2 rodadas de busca a mais.
+- **Consolidador** fecha toda análise com um relatório (resumo, indicadores, riscos, limitações e o diagnóstico) e não recomenda compra nem venda.
 
 ```
-Usuário → Supervisor → YFinance → Supervisor → Analyzer (empresa e setor) [+ Investigator em paralelo,
-        se há sinal de anomalia] → Supervisor → [Investigator → Supervisor] → FINISH → Consolidador
+Usuário → Supervisor → YFinance → Supervisor → Analyzer
+                                               [+ Investigator em paralelo, se há sinal de anomalia]
+        → Supervisor → Consolidador → relatório
 ```
 
-Desenhos completos (fluxo, decisões do Supervisor, camadas e serviços) em [`docs/arquitetura.md`](docs/arquitetura.md). A história de por que o projeto ficou assim, decisão por decisão, está em [`docs/decisoes.md`](docs/decisoes.md).
+Na VALE3, que teve queda de lucro, o Analyzer e o Investigator rodam ao mesmo tempo. Na WEGE3, sem sinal, o Analyzer roda sozinho e o LLM decide encerrar. As duas análises fecham em 3 passagens do Supervisor e levam de 20 a 30 segundos.
 
-## Instalação
+## Demonstração
+
+O relatório da VALE3: o sinal de anomalia que o código achou, os indicadores da empresa e da economia e, logo abaixo, os riscos.
+
+<p align="center">
+  <img src="docs/img/relatorio.png" alt="Aba Relatório da VALE3">
+</p>
+
+O caminho de cada análise, com o número da ordem e quem decidiu cada passo (guard é regra em código, LLM é o modelo). Na VALE3, o mesmo passo 2 manda o Analyzer e o Investigator ao mesmo tempo. Na WEGE3, o Investigator nem roda.
+
+<p align="center">
+  <img src="docs/img/caminho-vale3-wege3.png" alt="Caminho da VALE3 ao lado do caminho da WEGE3">
+</p>
+
+O card do Investigator mostra a tarefa que ele recebeu do Supervisor, o começo do diagnóstico e o subgrafo de pesquisa que rodou dentro dele: 3 perguntas, 3 buscas com resultado e o crítico aprovando de primeira.
+
+<p align="center">
+  <img src="docs/img/card-investigator.png" alt="Card do Investigator com o subgrafo de pesquisa">
+</p>
+
+No LangSmith, as passagens do Supervisor decididas pelos guards levam 0,00 s e não chamam o LLM, e o Analyzer e o Investigator começam no mesmo instante.
+
+<p align="center">
+  <img src="docs/img/trace-langsmith.png" alt="Linha do tempo da análise da VALE3 no LangSmith">
+</p>
+
+## Como rodar
 
 ```bash
 uv sync
+cp .env.example .env    # e preencha pelo menos GEMINI_API_KEY e NEWS_API_KEY
+make streamlit          # dashboard em http://localhost:8501
 ```
 
-Copie `.env.example` para `.env` e preencha:
-
-```
-GEMINI_API_KEY=...            # obrigatório (LLM e busca na web)
-NEWS_API_KEY=...               # obrigatório para buscar_noticias
-BRAPI_API_KEY=...              # opcional: token da Brapi (plano gratuito); sem ele, tudo vem do yfinance
-LOG_LEVEL=INFO                 # opcional
-# BUSCA_PROVEDOR=google        # opcional: google (padrão, Gemini com Google Search) ou tavily
-TAVILY_API_KEY=...             # opcional: só com BUSCA_PROVEDOR=tavily
-# LLM_MODEL=gemini-3.5-flash-lite  # opcional: modelo dos agentes (padrão: gemini-3.5-flash-lite)
-
-# opcional: sanitização por IA do texto que volta das buscas
-SANITIZACAO_ATIVA=false        # true liga a checagem de injeção (gasta 1 chamada a mais por busca)
-# SANITIZACAO_MODELO=gemini-3.5-flash-lite  # modelo do classificador (padrão: o mesmo de LLM_MODEL)
-
-# opcional: tracing no LangSmith
-LANGSMITH_TRACING=true
-LANGSMITH_API_KEY=lsv2_...
-LANGSMITH_AGENT_ID=pipeline-b3      # não use junto com LANGSMITH_PROJECT
-LANGSMITH_AGENT_ENVIRONMENT=local    # local, development, staging ou production
-
-# evals (grupo dev)
-DEEPEVAL_TELEMETRY_OPT_OUT=1         # desliga a telemetria da deepeval
-# EVAL_MODELO=gemini-3.8-flash       # opcional: modelo do juiz (padrão: gemini-3.8-flash)
-```
-
-Onde tirar cada chave: veja [Chaves de API](#chaves-de-api), no topo.
-
-## Segurança das entradas
-
-- **Ticker:** a CLI e o dashboard só aceitam o código da B3 inteiro (ex: `VALE3`, `TAEE11`, com ou sem `.SA`). Qualquer outra coisa é recusada antes de o grafo rodar. Um código no formato certo que a Brapi diz não existir também é recusado, com uma sugestão quando ela acha uma (`WEGE4` → "Você quis dizer WEGE3?"). Se a Brapi não responde, a análise segue.
-- **Texto de fora** (busca na web, NewsAPI, descrição da empresa no yfinance): chega aos agentes dentro de `<conteudo_externo>`, com `<` e `>` escapados, e todo prompt diz que esse conteúdo é dado, nunca instrução. Sempre ligado, sem custo.
-- **Checagem por IA** (`SANITIZACAO_ATIVA=true`): antes de chegar aos agentes, o resultado de cada busca passa por um classificador (Gemini Flash-Lite) que diz se o texto tenta dar ordens ao sistema; se sim, ele é trocado por um aviso e entra nas limitações do relatório. Desligada por padrão, para economizar chamadas. O modelo pode ser trocado com `SANITIZACAO_MODELO`.
-
-## Limitações conhecidas
-
-- As regras de anomalia (lucro mais de 30% abaixo do mesmo trimestre do ano anterior, prejuízo, Piotroski de 3 ou menos) foram calibradas olhando poucos tickers, basicamente VALE3 e WEGE3. Os limites são constantes em `fluxo_financeiro/tools/anomalias.py`.
-- No plano gratuito da Brapi, os demonstrativos, os dividendos e os indicadores voltam com 403 (só PETR4, VALE3, MGLU3 e ITUB4, os tickers de teste, trazem tudo). Por isso trimestrais, Piotroski, anomalias e métricas de risco vêm só do yfinance.
-- O yfinance demora para publicar os trimestres: em 02/11/2026, a VALE3 ainda aparecia com o 2T26 como último trimestre, um mês depois do fim do 3T26.
-- O agente YFinance escolhe as tools pelo texto do pedido. Com "Analise a ação X", às vezes ele chama só a de preço e múltiplos, e o relatório sai sem risco e Piotroski.
-- Sem faturamento na chave do Gemini, a busca na web falha (erro 429) e as notícias dependem da NewsAPI, que acha pouca coisa sobre ações brasileiras.
-- O classificador da sanitização também é um LLM e pode errar para os dois lados.
-
-## Próximos passos
-
-- Docker e docker-compose, e deploy na AWS
-- Banco de dados para registrar cada análise (entrada, saída, data e hora)
-- Checkpointer e cache de dados frescos
-- LiteLLM na frente do modelo
-- No fim, expor o pipeline como um agente A2A, para um futuro fluxo de análise de carteira descobrir e chamar
-
-## Como Usar
-
-Os atalhos principais estão no `Makefile` (`make help` lista todos). No Windows, instale o make com `winget install ezwinports.make`.
+Sem o `make` (no Windows, ele se instala com `winget install ezwinports.make`):
 
 ```bash
-make test          # testes unitários (mockados)
-make streamlit     # dashboard em http://localhost:8501 (cada análise gasta créditos)
-make e2e TICKER=X  # roda o grafo real para um ticker (gasta créditos)
-make e2e-sanitizacao  # VALE3 com a checagem de injeção ligada (uma chamada a mais por busca)
+uv run streamlit run dashboard/app.py   # dashboard
+uv run python main.py                   # versão de terminal, pede o ticker
 ```
 
-Sem make:
+O dashboard tem três abas: **Relatório**, **Como foi feito** (o caminho que a análise percorreu, quem decidiu cada passo e o que cada agente recebeu e devolveu) e **State (JSON)**. Cada análise gasta créditos de verdade (uns centavos de dólar), por isso só o botão **Analisar** roda o grafo.
 
-```bash
-# CLI interativa
-uv run python main.py
-
-# Dashboard → http://localhost:8501
-uv run streamlit run dashboard/app.py
-```
-
-O dashboard tem três abas: **Relatório** (resumo, indicadores em quadros, riscos, limitações, notícias e diagnóstico), **Como foi feito** (o caminho da análise desenhado, quem decidiu cada passo e a entrada/saída de cada agente) e **State (JSON)**. Só o botão **Analisar** roda o grafo.
-
-Via código:
+Pelo código:
 
 ```python
 from langchain_core.messages import HumanMessage
 from fluxo_financeiro import app
 
-result = app.invoke({"messages": [HumanMessage("Analise WEGE3")]})
-print(result["messages"][-1].content)
+resultado = app.invoke({"messages": [HumanMessage("Analise WEGE3")]})
+print(resultado["messages"][-1].content)
 ```
+
+## Chaves de API
+
+| Variável | Onde conseguir | Precisa? |
+|---|---|---|
+| `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey), em **Create API key** | Sim: é o LLM de todos os agentes e a busca no Google |
+| `NEWS_API_KEY` | [newsapi.org/register](https://newsapi.org/register), plano gratuito | Sim: é a reserva quando a busca na web falha |
+| `BRAPI_API_KEY` | [brapi.dev](https://brapi.dev), token no [painel](https://brapi.dev/dashboard), plano gratuito | Recomendada: confere se o ticker existe antes de gastar uma análise e traz cotação, setor da B3 e os maiores do setor. Sem ela, tudo vem do yfinance e o relatório avisa |
+| `TAVILY_API_KEY` | [app.tavily.com](https://app.tavily.com), em **API Keys** (1.000 buscas grátis por mês) | Só com `BUSCA_PROVEDOR=tavily` |
+| `LANGSMITH_API_KEY` | [smith.langchain.com](https://smith.langchain.com), em **Settings → API Keys** | Não: só para ver os traces |
+
+O Banco Central não pede chave. A busca no Google pelo Gemini só funciona com faturamento ativo no projeto da chave (crédito pré-pago no AI Studio serve, o crédito de boas-vindas do Google Cloud não). Sem faturamento, `BUSCA_PROVEDOR=tavily` manda todas as buscas para a Tavily e o Gemini fica só como LLM.
+
+## Segurança das entradas
+
+- **Ticker:** a CLI e o dashboard só aceitam o código inteiro (`VALE3`, `TAEE11`, com ou sem `.SA`). Um código no formato certo que a Brapi não conhece também é recusado, com sugestão quando ela acha uma: `WEGE4` vira "Você quis dizer WEGE3?".
+- **Texto de fora:** o que vem das buscas, da NewsAPI e da descrição da empresa chega aos agentes dentro de `<conteudo_externo>`, com `<` e `>` escapados, e todo prompt diz que esse conteúdo é dado e nunca instrução.
+- **Checagem por IA** (`SANITIZACAO_ATIVA=true`, desligada por padrão): antes de chegar aos agentes, cada resultado de busca passa por um classificador que procura ordens dirigidas ao sistema. Se acha, troca o texto por um aviso, que entra nas limitações do relatório. Custa uma chamada a mais por busca.
 
 ## Testes
 
 ```bash
-uv run pytest tests/ -v           # todos (mockados, sem rede)
-uv run pytest tests/tools/ -v     # por camada: tools/, agents/, graph/
+make test    # 390 testes, tudo mockado, ~23 s
 ```
 
-### Teste end-to-end (chamadas reais)
+A rede fica bloqueada nos testes pelo `pytest-socket`: um mock esquecido reprova o teste em vez de chamar uma API paga. A suíte já teve 564 testes e foi enxugada: saiu o que não protegia nenhuma regra (teste de código morto, a mesma regra testada em três camadas, variações de formatação).
+
+O e2e roda o grafo de verdade e falha se o caminho sair do esperado:
 
 ```bash
-uv run python scripts/e2e.py VALE3 --espera-investigator      # ticker com anomalia
-uv run python scripts/e2e.py WEGE3 --espera-sem-investigator  # ticker estável
-BUSCA_PROVEDOR=tavily uv run python scripts/e2e.py VALE3 --espera-investigator  # o mesmo, com a busca na Tavily
+make e2e-anomalia    # VALE3: falha se o Investigator NÃO rodar
+make e2e-estavel     # WEGE3: falha se o Investigator rodar
+BUSCA_PROVEDOR=tavily uv run python scripts/e2e.py VALE3 --espera-investigator
 ```
 
-Mostra o caminho que o grafo percorreu, as decisões do Supervisor e sai com código 1 se o comportamento não for o esperado.
-
-### Evals (chamadas reais)
-
-Um LLM-juiz (`gemini-3.8-flash`, com a `deepeval`) confere o texto de cada agente contra o que ele tinha em mãos: fidelidade do Analyzer, do Investigator e do Consolidador, diagnóstico do Investigator, cobertura e relevância do relatório e a neutralidade (sem recomendação de compra ou venda). Ficam fora do `pytest` comum (marcador `eval`).
+Os evals medem o texto. Um juiz (`gemini-3.8-flash`, pela `deepeval`) lê a resposta de cada agente contra o que aquele agente tinha em mãos e mede fidelidade, a qualidade do diagnóstico, relevância, cobertura e neutralidade (nenhuma recomendação de compra ou venda). Ficam fora do `pytest` comum porque custam dinheiro:
 
 ```bash
-make eval-fixtures        # grava uma análise real da VALE3 e da WEGE3 em tests/evals/fixtures/ (~US$ 0,02 cada)
-make eval-fixtures-tavily # as mesmas análises com a busca na Tavily, em vale3_tavily.json e wege3_tavily.json
-make eval FIXTURE=vale3   # roda os evals numa fixture (~US$ 0,12 a 0,16 na VALE3, ~US$ 0,07 a 0,09 na WEGE3)
-make -k eval-todos        # as duas fixtures (o -k deixa a WEGE3 rodar mesmo se a VALE3 reprovar)
+make eval-fixtures        # grava uma análise real da VALE3 e da WEGE3
+make eval FIXTURE=vale3   # roda os evals numa fixture 
+make -k eval-todos        # as duas fixtures
 ```
 
-Toda nota vai para `tests/evals/notas.csv` (passando ou não, com o custo e o juiz). Uma reprovação grava entrada, saída, vereditos e contexto em `tests/evals/_falhas/`. A cobertura do Consolidador registra a nota mas não reprova a suíte: na primeira rodada, quase todos os itens que ela apontou eram erro do juiz. Ela lê a entrada sem o sumário do negócio, que o relatório não precisa repetir. Cada fidelidade grava também uma nota rígida, que conta como falha o que a fonte não confirma (a nota normal só desconta o que a fonte contradiz); ela não custa chamada nova e não reprova nada.
+Toda nota vai para `tests/evals/notas.csv`, com o custo, e cada reprovação deixa os vereditos do juiz em `tests/evals/_falhas/`.
 
-### Testar tools individualmente (chamadas reais)
+## Limitações conhecidas
 
-```bash
-uv run python -c "from fluxo_financeiro.tools.financial_data import buscar_dados_acao_b3; print(buscar_dados_acao_b3.invoke('WEGE3'))"
-uv run python -c "from fluxo_financeiro.tools.financial_data import calcular_metricas_risco; print(calcular_metricas_risco.invoke('WEGE3'))"
-uv run python -c "from fluxo_financeiro.tools.financial_data import calcular_piotroski_score; print(calcular_piotroski_score.invoke('WEGE3'))"
-uv run python -c "from fluxo_financeiro.tools.news import buscar_noticias; print(buscar_noticias.invoke('WEG'))"
-uv run python -c "from fluxo_financeiro.tools.investigation import buscar_historico_trimestral; print(buscar_historico_trimestral.invoke('VALE3'))"
-```
+- As regras de anomalia foram calibradas olhando poucos tickers, basicamente VALE3 e WEGE3. Os limites são constantes em `fluxo_financeiro/tools/anomalias.py`.
+- No plano gratuito da Brapi, demonstrativos e indicadores voltam com 403 (só PETR4, VALE3, MGLU3 e ITUB4, os tickers de teste, trazem tudo). Por isso trimestrais, Piotroski e risco vêm do yfinance.
+- O yfinance demora a publicar os trimestres e às vezes se contradiz: em 09/11/2026, o ROE da VALE3 vinha como 0,3%, enquanto o P/L e o P/VP dele mesmo davam algo perto de 1,8%.
+- O agente YFinance escolhe as tools pelo texto do pedido. Com "Analise a ação X", às vezes chama só a de preço e múltiplos, e o relatório sai sem risco e sem Piotroski.
+- O classificador da sanitização também é um LLM e erra para os dois lados.
+
+## Próximos passos
+
+- Docker e docker-compose, e deploy na AWS
+- Banco de dados para registrar cada análise (entrada, saída, data e hora)
+- Checkpointer para retomar uma análise e cache para não buscar de novo um dado que acabou de chegar
+- LiteLLM na frente do modelo, para trocar de provedor sem mexer nos agentes
+- Expor o pipeline como agente A2A, para um futuro fluxo de análise de carteira descobrir e chamar
 
 ## Estrutura
 
 ```
 fluxo_financeiro/
-├── shared/    # config (flags), llm (fábrica do Gemini), types, prompts (tag de conteúdo externo), utils (logger, ticker)
-├── tools/     # financial_data, news, investigation, web_search, anomalias, sanitizacao, moeda, brapi
-├── agents/    # collectors (YFinance), analysts (Analyzer), pesquisa (subgrafo do Investigator), consolidator
-└── graph/     # supervisor (guards + LLM) e StateGraph
-scripts/       # e2e.py (teste end-to-end com chamadas reais) e gerar_fixture_eval.py (fixtures dos evals)
-dashboard/     # app.py (Streamlit) e visao.py (state → o que a tela mostra)
-tests/         # espelha fluxo_financeiro/
-notebooks/     # fluxo_financeiro/01 a 21: cada peça explicada e rodando com as APIs reais
-docs/          # arquitetura.md (diagramas) e decisoes.md (a história das decisões)
+├── shared/    # config, fábrica do LLM, tipos, prompts, retry, utilitários
+├── tools/     # dados de mercado, notícias, busca na web, anomalias, sanitização, Brapi
+├── agents/    # YFinance, Analyzer, subgrafo de pesquisa do Investigator, Consolidador
+└── graph/     # Supervisor (guards e LLM) e o StateGraph
+dashboard/     # Streamlit e as funções que transformam o state em tela
+scripts/       # e2e e gerador das fixtures dos evals
+tests/         # espelha fluxo_financeiro/, mais os evals
+notebooks/     # fluxo_financeiro/01 a 20: cada peça explicada e rodando com as APIs reais
+docs/          # arquitetura.md, decisoes.md e o desenho
 ```
 
 ## Stack
 
 | Camada | Tecnologia |
-|--------|-----------|
+|---|---|
 | Orquestração | LangGraph 1.x |
-| LLM | Gemini 3.5 Flash-Lite (langchain-google-genai) |
-| Dados de mercado | Brapi (plano gratuito: ticker, cotação, perfil), yfinance (múltiplos, histórico, demonstrativos), API SGS do Banco Central (SELIC meta, CDI anualizado, IPCA de 12 meses) |
-| Notícias e busca na web | Google Search (Gemini, padrão) ou Tavily (`BUSCA_PROVEDOR`), NewsAPI de reserva |
-| Dashboard | Streamlit (graphviz para o caminho da análise) |
-| Observabilidade | LangSmith (tracing de agentes, tools e buscas) |
-| Testes | pytest |
-| Ambiente | uv, python-dotenv |
+| LLM | Gemini 3.5 Flash-Lite (`langchain-google-genai`) |
+| Dados | Brapi, yfinance e API SGS do Banco Central |
+| Busca e notícias | Google Search pelo Gemini ou Tavily, NewsAPI de reserva |
+| Dashboard | Streamlit, com o caminho da análise em graphviz |
+| Observabilidade | LangSmith |
+| Testes | pytest, pytest-socket e deepeval |
+| Ambiente | uv |

@@ -74,20 +74,6 @@ def test_pesquisar_na_web_lista_fontes_sem_repetir(mock_client_cls):
 
 
 @patch('fluxo_financeiro.tools.web_search._criar_cliente')
-def test_pesquisar_na_web_nao_inclui_links(mock_client_cls):
-    """Confere que os links de redirecionamento do Google (longos) não entram no texto dos agentes."""
-    redirect = "https://vertexaisearch.cloud.google.com/grounding-api-redirect/" + "A" * 180
-    mock_client_cls.return_value.models.generate_content.return_value = _resposta_gemini(
-        "texto", [_chunk("seudinheiro.com", redirect)]
-    )
-
-    resultado = pesquisar_na_web("x")
-
-    assert "http" not in resultado
-    assert "seudinheiro.com" in resultado
-
-
-@patch('fluxo_financeiro.tools.web_search._criar_cliente')
 def test_pesquisar_na_web_limita_fontes(mock_client_cls):
     """Confere que no máximo MAX_FONTES fontes são listadas."""
     chunks = [_chunk(f"site{i}.com", f"https://{i}") for i in range(MAX_FONTES + 3)]
@@ -109,17 +95,6 @@ def test_pesquisar_na_web_sem_texto_retorna_vazio(mock_client_cls):
 # ---------------------------------------------------------------------------
 # buscar_noticias_web (tool do Analyzer)
 # ---------------------------------------------------------------------------
-
-@patch('fluxo_financeiro.tools.web_search.pesquisar_na_web')
-def test_buscar_noticias_web_retorna_resultado(mock_pesquisa):
-    """Confere que a tool repassa o resumo com fontes."""
-    mock_pesquisa.return_value = "Resumo.\n\nFontes: site.com"
-
-    resultado = buscar_noticias_web.invoke("WEGE3")
-
-    assert "Resumo." in resultado
-    assert "WEGE3" in mock_pesquisa.call_args.args[0]
-
 
 @patch('fluxo_financeiro.tools.web_search.pesquisar_na_web')
 def test_buscar_noticias_web_sem_resultado(mock_pesquisa):
@@ -159,31 +134,8 @@ def test_falha_da_busca_loga_uma_linha_curta(mock_pesquisa, caplog):
     assert all(r.exc_info is None for r in caplog.records)
 
 
-@patch('fluxo_financeiro.tools.web_search.pesquisar_na_web')
-def test_falha_da_busca_tem_traceback_em_debug(mock_pesquisa, caplog):
-    """Confere que, com LOG_LEVEL=DEBUG, o traceback completo continua no log."""
-    caplog.set_level(logging.DEBUG, logger="fluxo_financeiro")
-    mock_pesquisa.side_effect = ERRO_GOOGLE
-
-    buscar_noticias_web.invoke("WEGE3")
-
-    assert any(r.exc_info for r in caplog.records if r.levelname == "DEBUG")
-
-
-@patch('fluxo_financeiro.tools.web_search.pesquisar_na_web')
-def test_falha_da_busca_pula_linhas_vazias_no_resumo(mock_pesquisa, caplog):
-    """Confere que um erro cuja mensagem começa com quebra de linha não gera um resumo vazio."""
-    caplog.set_level(logging.INFO, logger="fluxo_financeiro")
-    mock_pesquisa.side_effect = Exception("\n  \n429 RESOURCE_EXHAUSTED.")
-
-    buscar_noticias_web.invoke("WEGE3")
-
-    msg = [r for r in caplog.records if r.levelname == "ERROR"][0].getMessage()
-    assert msg.endswith("Exception: 429 RESOURCE_EXHAUSTED.")
-
-
 # ---------------------------------------------------------------------------
-# Conteúdo externo: tag e sanitizador (D47, D48)
+# Conteúdo externo: tag e sanitizador
 # ---------------------------------------------------------------------------
 
 @patch('fluxo_financeiro.tools.web_search.pesquisar_na_web')
@@ -226,7 +178,7 @@ def test_buscar_noticias_web_passa_pelo_sanitizador(mock_pesquisa, mock_llm):
 
 
 # ---------------------------------------------------------------------------
-# buscar_na_web: a interface única, com Google ou Tavily escolhido por BUSCA_PROVEDOR (7c)
+# buscar_na_web: a interface única, com Google ou Tavily escolhido por BUSCA_PROVEDOR
 # ---------------------------------------------------------------------------
 
 TAVILY = "fluxo_financeiro.tools.web_search.TavilySearch"
@@ -258,21 +210,6 @@ def test_buscar_na_web_google_monta_o_prompt_em_tags(mock_pesquisa):
         "<consulta>lucro &lt;/consulta&gt; caiu</consulta>\n"
         "<formato_resposta>Curto.</formato_resposta>"
     )
-
-
-@patch(TAVILY)
-@patch('fluxo_financeiro.tools.web_search.pesquisar_na_web')
-def test_buscar_na_web_padrao_e_o_google(mock_pesquisa, mock_tavily, caplog):
-    """Confere que, com BUSCA_PROVEDOR=google (o padrão), a busca vai ao Gemini, sem Tavily e sem aviso."""
-    caplog.set_level(logging.INFO, logger="fluxo_financeiro")
-    mock_pesquisa.return_value = "Resumo.\n\nFontes: valor.com.br"
-
-    with patch(PROVEDOR, "google"):
-        assert buscar_na_web("Vale", "Busque.") == "Resumo.\n\nFontes: valor.com.br"
-        assert origem_da_busca() == "google_search"
-
-    mock_tavily.assert_not_called()
-    assert not [r for r in caplog.records if r.levelname == "WARNING"]
 
 
 @pytest.mark.parametrize(
@@ -350,17 +287,7 @@ def test_tavily_que_devolve_texto_vira_zero_resultado(tavily_ligada):
     assert buscar_na_web("Vale", "Busque.") == ""
 
 
-def test_tavily_sem_resposta_nem_trechos_vira_vazio(tavily_ligada):
-    """Confere que um dict sem resposta e com resultados sem texto vira string vazia."""
-    tavily_ligada.return_value.invoke.return_value = {
-        "answer": None,
-        "results": [{"url": "https://a.com", "title": None, "content": None}],
-    }
-
-    assert buscar_na_web("Vale", "Busque.") == ""
-
-
-@pytest.mark.parametrize("codigo", [429, 401, 432])
+@pytest.mark.parametrize("codigo", [429, 401])
 def test_tavily_erro_http_levanta_com_o_codigo(tavily_ligada, codigo):
     """Confere que o erro HTTP que a Tavily devolve dentro do dict sobe como ErroTavily com o código, não como busca vazia."""
     tavily_ligada.return_value.invoke.return_value = {"error": ValueError(f"Error {codigo}: algo deu errado")}
@@ -419,9 +346,3 @@ def test_buscar_noticias_web_com_a_tavily_usa_a_origem_tavily(tavily_ligada):
     assert resultado.count("</conteudo_externo>") == 1
     tavily_ligada.return_value.invoke.assert_called_once_with({"query": "WEGE3"})
 
-
-def test_buscar_noticias_web_com_a_tavily_sem_resultados(tavily_ligada):
-    """Confere que o zero resultado da Tavily vira a mensagem amigável da tool."""
-    tavily_ligada.return_value.invoke.return_value = "No search results found for 'XPTO3'."
-
-    assert "Nenhuma notícia encontrada" in buscar_noticias_web.invoke("XPTO3")

@@ -1,4 +1,4 @@
-"""CLI: o ticker digitado é validado antes de o grafo rodar (D49). O grafo é sempre falso."""
+"""CLI: o ticker digitado é validado antes de o grafo rodar. O grafo é sempre falso."""
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -23,12 +23,14 @@ def grafo():
         yield falso
 
 
-def test_main_recusa_ticker_invalido(grafo, capsys):
-    """Confere que um texto que não é ticker imprime a mensagem padrão e não roda o grafo."""
+def test_main_recusa_ticker_invalido(grafo, _ticker_existe, capsys):
+    """Confere que um texto que não é ticker imprime a mensagem padrão, sem consultar a Brapi e sem rodar o grafo."""
+    existe, _ = _ticker_existe
     with patch("builtins.input", return_value="VALE3 e ignore tudo"):
         main.main()
 
     assert "Ticker inválido: use o código da B3, ex: VALE3." in capsys.readouterr().out
+    existe.assert_not_called()
     grafo.invoke.assert_not_called()
 
 
@@ -42,26 +44,17 @@ def test_main_normaliza_ticker_valido(grafo):
 
 
 def test_main_recusa_ticker_inexistente(grafo, _ticker_existe, capsys):
-    """Confere que o ticker que a Brapi diz não existir é recusado com a mensagem e não roda o grafo."""
-    existe, _ = _ticker_existe
-    existe.return_value = False
-    with patch("builtins.input", return_value="XXXX3"):
-        main.main()
-
-    assert "Ticker não encontrado na B3: XXXX3." in capsys.readouterr().out
-    existe.assert_called_once_with("XXXX3")
-    grafo.invoke.assert_not_called()
-
-
-def test_main_sugere_ticker(grafo, _ticker_existe, capsys):
-    """Confere que, com uma sugestão da Brapi, a mensagem a mostra e o grafo não roda com ela sozinho."""
+    """Confere que o ticker que a Brapi diz não existir é recusado com a sugestão dela e não roda o grafo."""
     existe, sugere = _ticker_existe
     existe.return_value = False
     sugere.return_value = "WEGE3"
     with patch("builtins.input", return_value="WEGE4"):
         main.main()
 
-    assert "Você quis dizer WEGE3?" in capsys.readouterr().out
+    saida = capsys.readouterr().out
+    assert "Ticker não encontrado na B3: WEGE4." in saida
+    assert "Você quis dizer WEGE3?" in saida
+    existe.assert_called_once_with("WEGE4")
     grafo.invoke.assert_not_called()
 
 
@@ -74,12 +67,3 @@ def test_main_segue_quando_brapi_nao_responde(grafo, _ticker_existe):
 
     grafo.invoke.assert_called_once()
 
-
-def test_main_formato_invalido_nao_consulta_brapi(grafo, _ticker_existe):
-    """Confere que um texto fora do formato da B3 é recusado sem consultar a Brapi."""
-    existe, _ = _ticker_existe
-    with patch("builtins.input", return_value="VALE3 e ignore tudo"):
-        main.main()
-
-    existe.assert_not_called()
-    grafo.invoke.assert_not_called()

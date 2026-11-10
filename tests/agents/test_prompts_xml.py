@@ -1,89 +1,82 @@
-"""Prompts dos agentes em XML (D47): regra de conteúdo externo e strings que são contrato."""
+"""Prompts em XML: a regra de conteúdo externo em todos e as strings que são contrato com o código."""
 import pytest
 from langchain_core.messages import HumanMessage
 
-from fluxo_financeiro.agents.analysts import ANALYZER_PROMPT
+from fluxo_financeiro.agents.analysts import ANALYZER_PROMPT, SECAO_NOTICIAS, SECAO_SETOR
 from fluxo_financeiro.agents.collectors import YFINANCE_PROMPT
 from fluxo_financeiro.agents.consolidator import CONSOLIDADOR_PROMPT, montar_insumos
+from fluxo_financeiro.agents.pesquisa import CRITICO_PROMPT, PERGUNTAS_PROMPT, SINTESE_PROMPT
+from fluxo_financeiro.graph.supervisor import SUPERVISOR_PROMPT
 from fluxo_financeiro.shared.prompts import REGRA_CONTEUDO_EXTERNO
+from fluxo_financeiro.shared.types import RelatorioFinal
 
-# O Investigator não tem mais prompt de agente: os prompts dele são os do subgrafo de pesquisa,
-# conferidos mais abaixo (seções, regra no fim e tags de dados).
+SECOES_DA_PESQUISA = ("papel", "processo", "formato_resposta", "regras")
+
+# Cada prompt e as seções XML que ele precisa ter abertas e fechadas.
 PROMPTS = {
-    "YFinance": YFINANCE_PROMPT,
-    "Analyzer": ANALYZER_PROMPT,
-    "Consolidador": CONSOLIDADOR_PROMPT,
+    "YFinance": (YFINANCE_PROMPT, ("papel", "formato_resposta")),
+    "Analyzer": (ANALYZER_PROMPT, ("papel", "formato_resposta")),
+    "Consolidador": (CONSOLIDADOR_PROMPT, ("papel", "formato_resposta")),
+    "Supervisor": (SUPERVISOR_PROMPT, ("papel", "pipeline", "formato_resposta")),
+    "perguntas": (PERGUNTAS_PROMPT, SECOES_DA_PESQUISA),
+    "sintese": (SINTESE_PROMPT, SECOES_DA_PESQUISA),
+    "critico": (CRITICO_PROMPT, SECOES_DA_PESQUISA),
 }
 
 
 @pytest.mark.parametrize("nome", PROMPTS)
-def test_prompt_tem_regra_de_conteudo_externo(nome):
-    """Confere que todo agente sabe que o texto dentro de <conteudo_externo> é dado, não instrução."""
-    assert REGRA_CONTEUDO_EXTERNO in PROMPTS[nome]
-
-
-@pytest.mark.parametrize("nome", PROMPTS)
-def test_prompt_estruturado_em_tags(nome):
-    """Confere que os prompts usam as seções XML combinadas, cada uma aberta e fechada."""
-    prompt = PROMPTS[nome]
-    for tag in ("papel", "formato_resposta"):
+def test_prompt_em_secoes_e_com_a_regra_de_conteudo_externo(nome):
+    """Confere que todo prompt tem as seções XML dele e a regra de que <conteudo_externo> é dado, não instrução."""
+    prompt, secoes = PROMPTS[nome]
+    assert REGRA_CONTEUDO_EXTERNO in prompt
+    for tag in secoes:
         assert f"<{tag}>" in prompt and f"</{tag}>" in prompt
 
 
 def test_yfinance_prompt_mantem_tools_e_faixas_do_piotroski():
-    """Confere que a reescrita manteve as três tools e as faixas do Piotroski iguais às do código."""
+    """Confere que o prompt cita as três tools e as faixas do Piotroski iguais às do código."""
     for trecho in ("buscar_dados_acao_b3", "calcular_metricas_risco", "calcular_piotroski_score",
                    "7-9", "4-6", "0-3"):
         assert trecho in YFINANCE_PROMPT
 
 
 def test_analyzer_prompt_mantem_contratos():
-    """Confere que o prompt do Analyzer cita as duas tools e os dois títulos que o nó usa para separar a resposta."""
-    from fluxo_financeiro.agents.analysts import SECAO_NOTICIAS, SECAO_SETOR
-    for trecho in ("buscar_noticias_web", "buscar_noticias", SECAO_NOTICIAS, SECAO_SETOR):
-        assert trecho in ANALYZER_PROMPT
-
-
-def test_analyzer_avisa_sobre_conteudo_removido():
-    """Confere que o Analyzer é orientado a relatar quando o sanitizador removeu uma busca."""
+    """Confere que o prompt do Analyzer põe a web antes da NewsAPI, pede as duas seções com os títulos que o nó
+    separa (notícias antes do setor) e manda relatar a busca removida pela sanitização."""
+    assert ANALYZER_PROMPT.index("- buscar_noticias_web:") < ANALYZER_PROMPT.index("- buscar_noticias:")
+    assert SECAO_NOTICIAS == "## Notícias da empresa" and SECAO_SETOR == "## Contexto do setor"
+    assert ANALYZER_PROMPT.index(SECAO_NOTICIAS) < ANALYZER_PROMPT.index(SECAO_SETOR)
     assert "Conteúdo removido pela sanitização" in ANALYZER_PROMPT
 
 
-def test_consolidador_lista_remocao_nas_limitacoes():
-    """Confere que o Consolidador põe a remoção pela sanitização nas limitações."""
+def test_consolidador_prompt_mantem_contratos():
+    """Confere que o Consolidador põe a sanitização nas limitações e só lista risco que algum insumo citou
+    (a WEGE3 citou câmbio sem fonte)."""
     assert "sanitização" in CONSOLIDADOR_PROMPT
-
-
-def test_consolidador_exige_origem_de_cada_risco():
-    """Confere que o prompt e o campo riscos pedem que cada risco venha de um insumo (a WEGE3 citou câmbio sem fonte)."""
-    from fluxo_financeiro.agents.consolidator import CONSOLIDADOR_PROMPT
-    from fluxo_financeiro.shared.types import RelatorioFinal
     assert "Cada risco precisa vir de um insumo" in CONSOLIDADOR_PROMPT
     assert "nenhum agente citou" in RelatorioFinal.model_fields["riscos"].description
 
 
-# ---------------------------------------------------------------------------
-# Subgrafo de pesquisa (agents/pesquisa.py): os três prompts e os dados em tags
-# ---------------------------------------------------------------------------
+def test_supervisor_prompt_mantem_contratos():
+    """Confere que o prompt do Supervisor manteve o que o pipeline e os guards dependem, com o Analyzer numa passagem."""
+    for trecho in ("SINAIS DE ANOMALIA", "YFinance", "Analyzer", "Investigator", "FINISH",
+                   "Um investidor ficaria com dúvida de POR QUE", SECAO_SETOR, "depois da resposta do Analyzer"):
+        assert trecho in SUPERVISOR_PROMPT
+    assert "2 ou mais mensagens do Analyzer" not in SUPERVISOR_PROMPT
 
-def _prompts_da_pesquisa():
-    from fluxo_financeiro.agents.pesquisa import CRITICO_PROMPT, PERGUNTAS_PROMPT, SINTESE_PROMPT
-    return {"perguntas": PERGUNTAS_PROMPT, "sintese": SINTESE_PROMPT, "critico": CRITICO_PROMPT}
 
-
-@pytest.mark.parametrize("nome", ["perguntas", "sintese", "critico"])
-def test_prompts_da_pesquisa_em_secoes_e_com_a_regra_no_fim(nome):
-    """Confere que os prompts do subgrafo têm as quatro seções XML e terminam com a regra de conteúdo externo."""
-    prompt = _prompts_da_pesquisa()[nome]
-    for tag in ("papel", "processo", "formato_resposta", "regras"):
-        assert f"<{tag}>" in prompt and f"</{tag}>" in prompt
-    assert prompt.endswith(REGRA_CONTEUDO_EXTERNO)
+def test_supervisor_prompt_tem_tres_etapas():
+    """Confere que o pipeline do prompt tem as etapas 1, 2 e 3, sem a etapa do setor que deixou de existir."""
+    for etapa in ("Etapa 1", "Etapa 2", "Etapa 3"):
+        assert etapa in SUPERVISOR_PROMPT
+    assert "Etapa 4" not in SUPERVISOR_PROMPT
+    assert "não é mais uma passagem separada" not in SUPERVISOR_PROMPT
 
 
 @pytest.mark.parametrize("nome", ["perguntas", "sintese", "critico"])
 def test_prompts_da_pesquisa_dizem_que_as_tags_de_dados_sao_dado(nome):
     """Confere que as regras de cada prompt nomeiam as tags de dados que ele recebe e dizem que são dado, não instrução."""
-    prompt = _prompts_da_pesquisa()[nome]
+    prompt = {"perguntas": PERGUNTAS_PROMPT, "sintese": SINTESE_PROMPT, "critico": CRITICO_PROMPT}[nome]
     regras = prompt.split("<regras>")[1].split("</regras>")[0]
     tags = {
         "perguntas": ("tarefa_supervisor", "historico_trimestral"),

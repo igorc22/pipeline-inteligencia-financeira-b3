@@ -736,8 +736,6 @@ version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "brapi" },
-    { name = "ipykernel" },
-    { name = "jupyter" },
     { name = "langchain" },
     { name = "langchain-google-genai" },
     { name = "langchain-tavily" },
@@ -754,12 +752,14 @@ dev = [
     { name = "pytest" },
     { name = "pytest-socket" },
 ]
+notebooks = [
+    { name = "ipykernel" },
+    { name = "jupyter" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "brapi", specifier = ">=1.13.0" },
-    { name = "ipykernel", specifier = ">=7.2.0" },
-    { name = "jupyter", specifier = ">=1.1.1" },
     { name = "langchain", specifier = ">=1.2.18" },
     { name = "langchain-google-genai", specifier = ">=4.4.2" },
     { name = "langchain-tavily", specifier = ">=0.2.18" },
@@ -775,6 +775,10 @@ dev = [
     { name = "deepeval", specifier = "==4.3.3" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-socket", specifier = ">=0.8.1" },
+]
+notebooks = [
+    { name = "ipykernel", specifier = ">=7.2.0" },
+    { name = "jupyter", specifier = ">=1.1.1" },
 ]
 
 [[package]]

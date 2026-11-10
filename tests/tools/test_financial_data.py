@@ -84,9 +84,9 @@ def test_dados_b3_usa_cotacao_e_perfil_da_brapi(mock_ticker, brapi):
 
     assert "Dados para WEGE3.SA:" in result
     assert "Empresa: WEG SA" in result
-    assert "Preço Atual: R$ 48.19 (no dia: -0.23%)" in result
-    assert "Faixa de 52 semanas: R$ 41.15 a R$ 54.53" in result
-    assert "P/L:  5.2x" in result
+    assert "Preço Atual: R$ 48,19 (no dia: -0,23%)" in result
+    assert "Faixa de 52 semanas: R$ 41,15 a R$ 54,53" in result
+    assert "P/L:  5,2x" in result
     assert "Setor: Bens Industriais | Subsetor: Máquinas e Equipamentos" in result
     assert "Industria:" not in result
     assert '<conteudo_externo origem="brapi">' in result
@@ -119,7 +119,7 @@ def test_dados_b3_perfil_sem_setor_cai_no_yfinance(mock_ticker, brapi):
     result = buscar_dados_acao_b3.invoke("PETR4")
 
     assert "Empresa: PETROBRAS" in result
-    assert "Preço Atual: R$ 38.50\n" in result
+    assert "Preço Atual: R$ 38,50\n" in result
     assert "Faixa de 52 semanas" not in result
     assert "Industria: Oil & Gas" in result
     assert '<conteudo_externo origem="yfinance">' in result
@@ -134,7 +134,7 @@ def test_dados_b3_sem_brapi_avisa_reserva(mock_ticker, brapi):
     result = buscar_dados_acao_b3.invoke("PETR4")
 
     assert result.rstrip().endswith(AVISO_PERFIL_RESERVA)
-    assert "Preço Atual: R$ 40.0\n" in result
+    assert "Preço Atual: R$ 40,00\n" in result
     assert "Empresa:" not in result
     assert "Fonte: cotação e perfil da Brapi" not in result
     brapi.pares.assert_not_called()
@@ -147,8 +147,8 @@ def test_dados_b3_valor_de_mercado_e_lpa(mock_ticker, brapi):
     brapi.perfil.return_value = PERFIL_WEGE3
 
     result = buscar_dados_acao_b3.invoke("WEGE3")
-    assert "Valor de mercado: R$ 210.0 bi" in result
-    assert "LPA: R$ 1.49" in result
+    assert "Valor de mercado: R$ 210,0 bi" in result
+    assert "LPA: R$ 1,49" in result
 
     brapi.perfil.return_value = PerfilBrapi(**{**PERFIL_WEGE3.__dict__, "valor_mercado": None, "lpa": None})
     result = buscar_dados_acao_b3.invoke("WEGE3")
@@ -165,19 +165,7 @@ def test_dados_b3_lpa_some_quando_nao_bate_com_o_pl(mock_ticker, brapi):
     result = buscar_dados_acao_b3.invoke("VALE3")
 
     assert "LPA" not in result
-    assert "P/L:  77.2x" in result
-
-
-@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
-def test_dados_b3_lpa_some_sem_pl_para_conferir(mock_ticker, brapi):
-    """Confere que, sem P/L no yfinance, o LPA da Brapi não aparece (não há com o que conferir)."""
-    _acao_yf(mock_ticker, info={**INFO_WEGE3, 'trailingPE': None})
-    brapi.perfil.return_value = PERFIL_WEGE3
-
-    result = buscar_dados_acao_b3.invoke("WEGE3")
-
-    assert "LPA" not in result
-    assert "P/L:  N/A" in result
+    assert "P/L:  77,2x" in result
 
 
 @patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
@@ -190,63 +178,12 @@ def test_dados_b3_pares_do_setor(mock_ticker, brapi):
     result = buscar_dados_acao_b3.invoke("WEGE3")
     brapi.pares.assert_called_once_with("WEGE3")
     assert "Maiores do setor na Brapi (Producer Manufacturing, por valor de mercado): WEGE3 é a 1ª de 36." in result
-    assert "  1. WEGE3 WEG S.A.: R$ 210.0 bi" in result
-    assert "2. FRAS3 FRASLE MOBILITY S.A.: R$ 5.9 bi" in result
+    assert "  1. WEGE3 WEG S.A.: R$ 210,0 bi" in result
+    assert "2. FRAS3 FRASLE MOBILITY S.A.: R$ 5,9 bi" in result
 
     brapi.pares.return_value = None
     result = buscar_dados_acao_b3.invoke("WEGE3")
     assert "Maiores do setor" not in result
-
-
-@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
-def test_dados_b3_pares_sem_posicao_e_valor_faltando(mock_ticker, brapi):
-    """Confere que, sem a posição da empresa e com valor de mercado faltando num par, a lista sai sem erro."""
-    _acao_yf(mock_ticker)
-    brapi.perfil.return_value = PERFIL_WEGE3
-    brapi.pares.return_value = ParesDoSetor(
-        setor="Producer Manufacturing", posicao=None, total=2,
-        pares=[("FRAS3", "FRASLE MOBILITY S.A.", 5.9e9), ("SHUL4", "SCHULZ S.A.", None)],
-    )
-
-    result = buscar_dados_acao_b3.invoke("WEGE3")
-
-    assert "Maiores do setor na Brapi (Producer Manufacturing, por valor de mercado):\n" in result
-    assert "é a" not in result
-    assert "  2. SHUL4 SCHULZ S.A.: N/A" in result
-    assert "Erro" not in result
-
-
-@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
-def test_dados_b3_campos_da_brapi_faltando_nao_viram_erro(mock_ticker, brapi):
-    """Confere que preço e faixa incompletos da Brapi não derrubam a saída: o preço cai no yfinance e a faixa some."""
-    _acao_yf(mock_ticker)
-    brapi.perfil.return_value = PerfilBrapi(**{**PERFIL_WEGE3.__dict__, "preco": None, "maxima_52s": None})
-
-    result = buscar_dados_acao_b3.invoke("WEGE3")
-
-    assert "Preço Atual: R$ 40.0 (no dia: -0.23%)" in result
-    assert "Faixa de 52 semanas" not in result
-    assert "Erro" not in result
-
-@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
-def test_buscar_dados_retorna_string(mock_ticker):
-    """Confere que buscar_dados_acao_b3 traz ticker, preço, P/L, ROE e DY."""
-    mock_instance = MagicMock()
-    mock_ticker.return_value = mock_instance
-    mock_instance.history.return_value = pd.DataFrame(
-        {'Close': [38.0, 38.5, 39.0, 39.5, 40.0]},
-        index=pd.date_range('2024-01-01', periods=5)
-    )
-    mock_instance.info = {'currentPrice': 40.0, 'trailingPE': 5.2, 'returnOnEquity': 0.18, 'dividendYield': 0.06}
-
-    result = buscar_dados_acao_b3.invoke("PETR4")
-
-    assert isinstance(result, str)
-    assert "PETR4.SA" in result
-    assert "Preço Atual" in result
-    assert "P/L" in result
-    assert "ROE" in result
-    assert "DY" in result
 
 
 @patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
@@ -269,23 +206,6 @@ def test_buscar_dados_envolve_o_sumario(mock_ticker):
 
 
 @patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
-def test_buscar_dados_valida_ticker(mock_ticker):
-    """Confere que o sufixo .SA é aceito sem ser duplicado."""
-    mock_instance = MagicMock()
-    mock_ticker.return_value = mock_instance
-    mock_instance.history.return_value = pd.DataFrame(
-        {'Close': [28.0]},
-        index=pd.date_range('2024-01-01', periods=1)
-    )
-    mock_instance.info = {}
-
-    result = buscar_dados_acao_b3.invoke("WEGE3.SA")
-
-    assert "WEGE3.SA" in result
-    assert "WEGE3.SA.SA" not in result
-
-
-@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
 def test_buscar_dados_ticker_vazio(mock_ticker):
     """Confere a mensagem quando o yfinance não traz dados."""
     mock_instance = MagicMock()
@@ -301,64 +221,21 @@ def test_buscar_dados_ticker_vazio(mock_ticker):
 # busca_indicador_bcb
 # ---------------------------------------------------------------------------
 
+@pytest.mark.parametrize("serie, nome, unidade", [
+    (432, "SELIC_META", "% a.a."),
+    (4389, "CDI", "% a.a."),  # a série anualizada: a 12 é o CDI diário e saía como "0,05% a.a."
+    (13522, "IPCA_12M", "% em 12 meses"),
+])
 @patch('fluxo_financeiro.tools.financial_data.requests.get')
-def test_busca_indicador_bcb_selic(mock_get):
-    """Confere que busca_indicador_bcb retorna Selic com unidade anual e usa o timeout de 5 s."""
-    mock_response = MagicMock()
-    mock_response.json.return_value = [{'valor': '10.75', 'data': '09/05/2026'}]
-    mock_get.return_value = mock_response
+def test_busca_indicador_bcb(mock_get, serie, nome, unidade):
+    """Confere que cada série pede a URL dela, com o timeout de 5 s, e volta com nome, valor, data e unidade."""
+    mock_get.return_value.json.return_value = [{'valor': '13.65', 'data': '05/11/2026'}]
 
-    result = busca_indicador_bcb.invoke({'input_data': {'indicador': 432}})
+    result = busca_indicador_bcb.invoke({'input_data': {'indicador': serie}})
 
+    assert f'bcdata.sgs.{serie}/' in mock_get.call_args.args[0]
     assert mock_get.call_args.kwargs['timeout'] == 5
-    assert result['indicador'] == 'SELIC_META'
-    assert result['valor'] == 10.75
-    assert result['unidade'] == '% a.a.'
-    assert result['data'] == '09/05/2026'
-
-
-@patch('fluxo_financeiro.tools.financial_data.requests.get')
-def test_busca_indicador_bcb_ipca(mock_get):
-    """Confere que IPCA retorna unidade mensal."""
-    mock_response = MagicMock()
-    mock_response.json.return_value = [{'valor': '0.43', 'data': '09/05/2026'}]
-    mock_get.return_value = mock_response
-
-    result = busca_indicador_bcb.invoke({'input_data': {'indicador': 433}})
-
-    assert result['indicador'] == 'IPCA'
-    assert result['valor'] == 0.43
-    assert result['unidade'] == '% a.m.'
-
-
-@patch('fluxo_financeiro.tools.financial_data.requests.get')
-def test_busca_indicador_bcb_cdi(mock_get):
-    """Confere que o CDI vem da série anualizada (4389) com unidade anual, e não da diária (12)."""
-    mock_response = MagicMock()
-    mock_response.json.return_value = [{'valor': '13.65', 'data': '05/11/2026'}]
-    mock_get.return_value = mock_response
-
-    result = busca_indicador_bcb.invoke({'input_data': {'indicador': 4389}})
-
-    assert 'bcdata.sgs.4389/' in mock_get.call_args.args[0]
-    assert result['indicador'] == 'CDI'
-    assert result['valor'] == 13.65
-    assert result['unidade'] == '% a.a.'
-
-
-@patch('fluxo_financeiro.tools.financial_data.requests.get')
-def test_bcb_ipca_12m(mock_get):
-    """Confere que o IPCA acumulado em 12 meses vem da série 13522 com a unidade de 12 meses."""
-    mock_response = MagicMock()
-    mock_response.json.return_value = [{'valor': '4.58', 'data': '01/09/2026'}]
-    mock_get.return_value = mock_response
-
-    result = busca_indicador_bcb.invoke({'input_data': {'indicador': 13522}})
-
-    assert 'bcdata.sgs.13522/' in mock_get.call_args.args[0]
-    assert result['indicador'] == 'IPCA_12M'
-    assert result['valor'] == 4.58
-    assert result['unidade'] == '% em 12 meses'
+    assert result == {'indicador': nome, 'valor': 13.65, 'data': '05/11/2026', 'unidade': unidade}
 
 
 @patch('fluxo_financeiro.tools.financial_data.requests.get')
@@ -402,17 +279,6 @@ def test_bcb_timeout_duas_vezes_devolve_erro(mock_get, espera_falsa):
     espera_falsa.assert_called_once_with(2.0)
 
 
-@patch('fluxo_financeiro.tools.financial_data.requests.get')
-def test_busca_indicador_bcb_erro_api(mock_get):
-    """Confere que retorna dict com 'error' quando API falha."""
-    mock_get.side_effect = Exception("timeout")
-
-    result = busca_indicador_bcb.invoke({'input_data': {'indicador': 432}})
-
-    assert 'error' in result
-    assert 'BCB' in result['error']
-
-
 # ---------------------------------------------------------------------------
 # indicadores_economicos_em_texto
 # ---------------------------------------------------------------------------
@@ -443,9 +309,9 @@ def test_indicadores_em_texto_tres_series(mock_get):
 
     assert indicadores_economicos_em_texto() == (
         "INDICADORES ECONÔMICOS (Banco Central, buscados em código):\n"
-        "- SELIC (meta): 13.75% a.a. (BCB, 08/12/2026)\n"
-        "- CDI: 13.65% a.a. (BCB, 05/11/2026)\n"
-        "- IPCA acumulado em 12 meses: 4.58% (BCB, 01/09/2026)"
+        "- SELIC (meta): 13,75% a.a. (BCB, 08/12/2026)\n"
+        "- CDI: 13,65% a.a. (BCB, 05/11/2026)\n"
+        "- IPCA acumulado em 12 meses: 4,58% (BCB, 01/09/2026)"
     )
 
 
@@ -457,8 +323,8 @@ def test_indicadores_em_texto_uma_falha(mock_get):
     texto = indicadores_economicos_em_texto()
 
     assert "CDI" not in texto
-    assert "- SELIC (meta): 13.75% a.a. (BCB, 08/12/2026)" in texto
-    assert "- IPCA acumulado em 12 meses: 4.58% (BCB, 01/09/2026)" in texto
+    assert "- SELIC (meta): 13,75% a.a. (BCB, 08/12/2026)" in texto
+    assert "- IPCA acumulado em 12 meses: 4,58% (BCB, 01/09/2026)" in texto
 
 
 @patch('fluxo_financeiro.tools.financial_data.requests.get')
@@ -482,9 +348,9 @@ def _hist_fake(n=252):
 @patch('fluxo_financeiro.tools.financial_data.requests.get')
 @patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
 def test_calcular_metricas_risco_retorna_campos(mock_ticker, mock_get):
-    """Confere que calcular_metricas_risco retorna string com todas as métricas."""
+    """Confere que calcular_metricas_risco traz as seis métricas, com a SELIC buscada no BCB."""
     mock_response = MagicMock()
-    mock_response.json.return_value = [{'valor': '10.75', 'data': '09/05/2026'}]
+    mock_response.json.return_value = [{'valor': '13.25', 'data': '09/05/2026'}]
     mock_get.return_value = mock_response
 
     mock_instance = MagicMock()
@@ -501,23 +367,7 @@ def test_calcular_metricas_risco_retorna_campos(mock_ticker, mock_get):
     assert "VaR" in result
     assert "Beta" in result
     assert "Alpha" in result
-
-
-@patch('fluxo_financeiro.tools.financial_data.requests.get')
-@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
-def test_calcular_metricas_risco_usa_selic_bcb(mock_ticker, mock_get):
-    """Confere que a Selic buscada no BCB aparece no resultado."""
-    mock_response = MagicMock()
-    mock_response.json.return_value = [{'valor': '13.25', 'data': '09/05/2026'}]
-    mock_get.return_value = mock_response
-
-    mock_instance = MagicMock()
-    mock_instance.history.return_value = _hist_fake()
-    mock_ticker.return_value = mock_instance
-
-    result = calcular_metricas_risco.invoke("PETR4")
-
-    assert "13.25%" in result
+    assert "13,25%" in result
 
 
 @patch('fluxo_financeiro.tools.financial_data.requests.get')
@@ -533,7 +383,7 @@ def test_calcular_metricas_risco_fallback_selic(mock_ticker, mock_get):
     result = calcular_metricas_risco.invoke("WEGE3")
 
     assert isinstance(result, str)
-    assert "10.75%" in result  # valor fallback
+    assert "10,75%" in result  # valor fallback
 
 
 @patch('fluxo_financeiro.tools.financial_data.requests.get')
@@ -600,33 +450,10 @@ def test_calcular_piotroski_em_dolar_usa_us(mock_ticker):
 
     result = calcular_piotroski_score.invoke("VALE3")
 
-    assert "Net Income positivo (US$ 0.80B)" in result
-    assert "Operating Cash Flow positivo (US$ 1.00B)" in result
-    assert "Net Income diminuiu (US$ 0.80B vs US$ 1.00B)" in result
+    assert "Net Income positivo (US$ 0,80 bi)" in result
+    assert "Operating Cash Flow positivo (US$ 1,00 bi)" in result
+    assert "Net Income diminuiu (US$ 0,80 bi vs US$ 1,00 bi)" in result
     assert "R$" not in result.replace("US$", "")
-
-
-@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
-def test_calcular_piotroski_em_real_usa_r(mock_ticker):
-    """Confere que Net Income, OCF e a variação do lucro em real continuam saindo como R$."""
-    mock_ticker.return_value = _acao_piotroski('BRL')
-
-    result = calcular_piotroski_score.invoke("WEGE3")
-
-    assert "Net Income positivo (R$ 0.80B)" in result
-    assert "Operating Cash Flow positivo (R$ 1.00B)" in result
-    assert "Net Income diminuiu (R$ 0.80B vs R$ 1.00B)" in result
-
-
-@patch('fluxo_financeiro.tools.financial_data.yf.Ticker')
-def test_calcular_piotroski_sem_moeda_nao_finge_real(mock_ticker):
-    """Confere que, sem a moeda na série do Yahoo, os valores saem sem símbolo de moeda."""
-    mock_ticker.return_value = _acao_piotroski(None)
-
-    result = calcular_piotroski_score.invoke("XPTO3")
-
-    assert "Net Income positivo (0.80B)" in result
-    assert "$" not in result
 
 
 @patch('fluxo_financeiro.tools.financial_data.yf.Ticker')

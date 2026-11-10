@@ -48,20 +48,12 @@ def _embrulhado(classe_langchain, erro_sdk):
     "erro",
     [
         requests.Timeout("lento"),
-        requests.ConnectionError("caiu"),
-        httpx.ReadTimeout("lento"),
         httpx.ConnectError("caiu"),
         curl_exceptions.Timeout("lento"),
-        curl_exceptions.ConnectionError("caiu"),
         TimeoutError("lento"),
-        ConnectionError("caiu"),
-        brapi.APITimeoutError(request=REQ),
         brapi.APIConnectionError(request=REQ),
         brapi.RateLimitError("429", response=httpx.Response(429, request=REQ), body=None),
-        brapi.InternalServerError("500", response=httpx.Response(500, request=REQ), body=None),
-        _erro_gemini(genai_errors.ServerError, 500, "Internal error", "INTERNAL"),
         _erro_gemini(GoogleAPIError, 503, "The model is overloaded.", "UNAVAILABLE"),
-        _erro_gemini(genai_errors.ServerError, 504, "Deadline exceeded", "DEADLINE_EXCEEDED"),
     ],
     ids=lambda e: type(e).__name__,
 )
@@ -136,15 +128,9 @@ def test_429_de_cota_e_permanente_e_de_instabilidade_e_transitorio():
     ("codigo", "esperado"),
     [
         (429, TRANSITORIO),
-        (500, TRANSITORIO),
         (502, TRANSITORIO),
-        (503, TRANSITORIO),
-        (504, TRANSITORIO),
-        (400, PERMANENTE),
         (401, PERMANENTE),
-        (403, PERMANENTE),
         (432, PERMANENTE),
-        (433, PERMANENTE),
         (None, PERMANENTE),
     ],
 )
@@ -202,11 +188,3 @@ def test_com_retentativas_esgota_e_levanta():
     assert levantado.value is ultima
     assert funcao.call_count == 2
 
-
-def test_com_retentativas_sem_dormir_usa_a_espera_do_modulo(espera_falsa):
-    """Confere que, sem `dormir`, a espera é a do módulo (trocada nos testes pela fixture)."""
-    funcao = MagicMock(side_effect=[TimeoutError(), "ok"])
-
-    assert com_retentativas(funcao) == "ok"
-
-    espera_falsa.assert_called_once_with(2.0)

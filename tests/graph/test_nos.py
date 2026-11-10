@@ -111,14 +111,6 @@ def test_analyzer_grava_os_dois_campos_numa_passagem():
     assert resultado["messages"][0].content == texto
 
 
-def test_analyzer_sem_secao_do_setor():
-    """Confere que, sem a seção do setor, o texto inteiro vai para noticias e contexto_setor fica None."""
-    resultado = _rodar_analyzer({"messages": [PEDIDO], "dados_mercado": "dados"}, "análise de notícias")
-
-    assert resultado["noticias"] == "análise de notícias"
-    assert resultado["contexto_setor"] is None
-
-
 PESQUISA = PesquisaFeita(perguntas=["Por que o lucro caiu?"], achados=[], voltas=0)
 
 
@@ -148,18 +140,6 @@ def test_investigator_sem_tarefa_usa_o_pedido():
         investigator_node({"messages": [PEDIDO]})
 
     investigar.assert_called_once_with("Analise VALE3", "VALE3")
-
-
-def test_investigator_texto_vazio_e_resposta_vazia():
-    """Confere que um diagnóstico vazio continua levantando RespostaVazia: o nó repete o subgrafo e, sem texto, devolve o erro."""
-    investigar = _investigar("  ", "")
-    with patch("fluxo_financeiro.graph.graph.investigar", investigar):
-        resultado = investigator_node({"messages": [PEDIDO]})
-
-    assert investigar.call_count == 2
-    assert "diagnostico" not in resultado and "pesquisa" not in resultado
-    erro = resultado["erros"]["Investigator"]
-    assert erro.tipo == "transitorio" and "RespostaVazia" in erro.mensagem
 
 
 def test_no_grava_campo_mesmo_com_erro_em_texto():

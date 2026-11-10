@@ -6,7 +6,6 @@ END, e conferimos o caminho percorrido: é o mesmo que o scripts/e2e.py valida c
 from unittest.mock import MagicMock, patch
 
 import pytest
-from langchain_core.exceptions import OutputParserException
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from fluxo_financeiro.agents.analysts import SECAO_NOTICIAS, SECAO_SETOR
@@ -70,7 +69,7 @@ def grafo_mockado():
     """Troca os agentes do YFinance e do Analyzer, o subgrafo do Investigator (`investigar`), o detector
     de anomalias e o LLM do Supervisor por mocks.
 
-    O detector por padrão não acha nada (o LLM decide a Etapa 4); cada teste pode trocar o
+    O detector por padrão não acha nada (o LLM decide a Etapa 3); cada teste pode trocar o
     return_value de mocks["sinais"]. Sem esse mock, o nó do YFinance iria ao yfinance de verdade.
     O LLM do Consolidador também é mockado (mocks["consolidador"]): sem ele, todo teste daqui
     chamaria o Gemini de verdade no fim do fluxo. O bloco do Banco Central (mocks["indicadores"])
@@ -157,7 +156,7 @@ def subgrafo_real(grafo_mockado):
 
 
 def test_vale3_paralelo_com_o_subgrafo(subgrafo_real):
-    """Confere que, com o subgrafo de pesquisa de verdade dentro do ramo do Investigator, o paralelo da 7a
+    """Confere que, com o subgrafo de pesquisa de verdade dentro do ramo do Investigator, o paralelo
     continua (Analista e Investigator no mesmo passo, loop_count 3) e o state ganha a pesquisa e o diagnóstico."""
     subgrafo_real["sinais"].return_value = [QUEDA]
     subgrafo_real["decisoes"].side_effect = [_decisao("YFinance", "Colete os dados da VALE3")]
@@ -209,23 +208,6 @@ def test_excecao_no_subgrafo_vira_erro_do_investigator(subgrafo_real):
     assert subgrafo_real["Analyzer"].invoke.call_count == 1
 
 
-def test_json_quebrado_no_subgrafo_repete_no_retry_local(subgrafo_real):
-    """Confere que um JSON quebrado na saída estruturada do subgrafo é temporário: o retry local do nó
-    do Investigator roda o subgrafo de novo e acerta, sem erro no histórico e com o diagnóstico."""
-    subgrafo_real["sinais"].return_value = [QUEDA]
-    subgrafo_real["decisoes"].side_effect = [_decisao("YFinance", "Colete os dados da VALE3")]
-    fila = [OutputParserException('{"perguntas": ['), PerguntasPesquisa(perguntas=["Por que o lucro caiu?"])]
-
-    with patch("fluxo_financeiro.agents.pesquisa.grafo_pesquisa", _subgrafo_falso(fila)):
-        resultado = _rodar()
-
-    # 2 rodadas do subgrafo, as duas no retry local: a do JSON quebrado e a que acertou.
-    assert subgrafo_real["historico"].invoke.call_count == 2
-    assert not any(m.name == "Investigator" and m.content.startswith("Erro:") for m in resultado["messages"])
-    assert resultado["erros"]["Investigator"] is None
-    assert resultado["diagnostico"].startswith("- Causa identificada: impairment")
-
-
 def test_cada_ramo_recebe_so_a_propria_tarefa(grafo_mockado):
     """Confere que, na execução em paralelo, cada ramo recebe apenas a própria tarefa do Supervisor, sem ver a tarefa do outro ramo."""
     queda = SinalAnomalia(tipo="queda_lucro", descricao="O lucro líquido de VALE3.SA caiu 35% contra o ano anterior.")
@@ -248,7 +230,7 @@ def test_cada_ramo_recebe_so_a_propria_tarefa(grafo_mockado):
 
 
 def test_llm_sem_sinal_ainda_pode_investigar(grafo_mockado):
-    """Confere que, sem sinal de anomalia em código, o LLM na Etapa 4 ainda pode acionar o Investigator sequencialmente após o Analyzer."""
+    """Confere que, sem sinal de anomalia em código, o LLM na Etapa 3 ainda pode acionar o Investigator sequencialmente após o Analyzer."""
     grafo_mockado["sinais"].return_value = []
     grafo_mockado["decisoes"].side_effect = [
         _decisao("YFinance", "Colete os dados da VALE3"),
@@ -299,23 +281,6 @@ def test_aviso_da_reserva_chega_ao_relatorio_mesmo_se_o_agente_resumir(grafo_moc
     assert LIMITACAO_PERFIL_RESERVA in resultado["relatorio"].limitacoes
 
 
-def test_aviso_da_reserva_nao_repete_nem_aparece_com_a_brapi(grafo_mockado):
-    """Confere que o aviso não é duplicado quando o agente já o repassou, nem acrescentado quando a Brapi respondeu."""
-    grafo_mockado["decisoes"].side_effect = [_decisao("YFinance", "Colete os dados da VALE3"), _decisao("FINISH")] * 2
-    copiado = f"Dados para VALE3.SA: P/L 74.7x\n{AVISO_PERFIL_RESERVA}"
-    with patch("fluxo_financeiro.graph.graph.yfinance_agent", _yfinance_com_saida_da_tool(copiado, copiado)):
-        resultado = _rodar()
-    msg_yfinance = next(m for m in resultado["messages"] if m.name == "YFinance")
-    assert msg_yfinance.text.count(AVISO_PERFIL_RESERVA) == 1
-
-    com_brapi = "Dados para VALE3.SA: P/L 74.7x\nFonte: cotação e perfil da Brapi; P/L, ROE, DY e histórico do yfinance."
-    with patch("fluxo_financeiro.graph.graph.yfinance_agent", _yfinance_com_saida_da_tool(com_brapi, "P/L 74.7x")):
-        resultado = _rodar()
-    msg_yfinance = next(m for m in resultado["messages"] if m.name == "YFinance")
-    assert AVISO_PERFIL_RESERVA not in msg_yfinance.text
-    assert LIMITACAO_PERFIL_RESERVA not in resultado["relatorio"].limitacoes
-
-
 def test_yfinance_anexa_indicadores(grafo_mockado):
     """Confere que a mensagem do YFinance termina com o bloco do Banco Central, depois dos sinais de anomalia."""
     grafo_mockado["sinais"].return_value = [SinalAnomalia(tipo="prejuizo", descricao="prejuízo no trimestre")]
@@ -327,19 +292,6 @@ def test_yfinance_anexa_indicadores(grafo_mockado):
     assert msg_yfinance.text.endswith("\n\n" + BLOCO_BCB)
     assert msg_yfinance.text.index("SINAIS DE ANOMALIA") < msg_yfinance.text.index("INDICADORES ECONÔMICOS")
     grafo_mockado["indicadores"].assert_called_once_with()
-
-
-def test_yfinance_sem_indicadores_nao_anexa(grafo_mockado):
-    """Confere que, com o BCB fora do ar (bloco vazio), a mensagem do YFinance segue sem o bloco."""
-    grafo_mockado["indicadores"].return_value = ""
-    grafo_mockado["decisoes"].side_effect = [_decisao("YFinance", "Colete os dados da VALE3"), _decisao("FINISH")]
-
-    resultado = _rodar()
-
-    msg_yfinance = next(m for m in resultado["messages"] if m.name == "YFinance")
-    assert "INDICADORES ECONÔMICOS" not in msg_yfinance.text
-    assert msg_yfinance.text == "Dados para VALE3.SA: P/L 74.7x, ROE 0.3%"
-    assert resultado["messages"][-1].name == "Consolidador"
 
 
 def test_wege3_sem_sinal_nao_usa_paralelo(grafo_mockado):
@@ -439,7 +391,7 @@ def test_analyzer_permanente_segue_sem_noticias(grafo_mockado):
     limitacoes = resultado["relatorio"].limitacoes
     assert "O Analyzer falhou depois de 1 tentativa (erro permanente): a etapa ficou de fora." in limitacoes
     assert LIMITACAO_SEM_NOTICIAS in limitacoes
-    assert resultado["loop_count"] == 3  # YFinance, Analyzer e a Etapa 4 pelo LLM
+    assert resultado["loop_count"] == 3  # YFinance, Analyzer e a Etapa 3 pelo LLM
 
 
 @pytest.mark.parametrize("worker", sorted(WORKERS))

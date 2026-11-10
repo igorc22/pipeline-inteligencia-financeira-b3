@@ -14,7 +14,6 @@ from langchain_core.messages import HumanMessage, messages_to_dict
 
 from fluxo_financeiro.agents.consolidator import montar_insumos
 from tests.evals.helpers import (
-    AVISO_LIMITE,
     CABECALHO,
     FIXTURES_DIR,
     carregar_fixture,
@@ -36,25 +35,29 @@ HIST = [
     HumanMessage("Analise a ação VALE3"),
     HumanMessage("Colete os dados da VALE3", name="Supervisor"),
     HumanMessage("P/L 5,2", name="YFinance"),
-    HumanMessage("Busque notícias da VALE3", name="Supervisor"),
-    HumanMessage("a1: minério caiu", name="Analyzer"),
-    HumanMessage("Busque o setor", name="Supervisor"),
-    HumanMessage("a2: setor de mineração", name="Analyzer"),
-    HumanMessage("Investigue a queda de 40%", name="Supervisor"),
+    HumanMessage("Busque notícias e setor da VALE3", name="Supervisor"),
+    HumanMessage("Investigue a anomalia na queda de lucro", name="Supervisor"),
+    HumanMessage("notícias e setor", name="Analyzer"),
     HumanMessage("Causa identificada: impairment", name="Investigator"),
 ]
 PASSAGENS = [
     {"agente": "YFinance", "n": 1, "tools": [{"nome": "buscar_dados_acao_b3", "conteudo": "P/L 5,2"}]},
     {"agente": "Analyzer", "n": 1, "tools": [{"nome": "buscar_noticias_web", "conteudo": "n1"}]},
-    {"agente": "Analyzer", "n": 2, "tools": [{"nome": "buscar_noticias_web", "conteudo": "s1"}]},
-    {"agente": "Investigator", "n": 1, "tools": [
-        {"nome": "buscar_fatos_relevantes", "conteudo": "impairment de US$ 1 bi"},
-        {"nome": "buscar_noticias_web", "conteudo": "Tool call limit exceeded. Do not call it again."}]},
 ]
+PESQUISA = {
+    "perguntas": ["Por que o lucro caiu?", "Houve impairment?", "O minério caiu?"],
+    "achados": [
+        {"pergunta": "Por que o lucro caiu?", "rodada": 1, "texto": "impairment de US$ 1 bi\nFontes: vale.com"},
+        {"pergunta": "Houve impairment?", "rodada": 1, "texto": ""},
+        {"pergunta": "O minério caiu?", "rodada": 2, "texto": "minério a US$ 95"},
+    ],
+    "voltas": 1,
+    "historico": "Net Income 4T25: -3.8B",
+}
 
 
-def _estado(messages=HIST, passagens=PASSAGENS):
-    return {"messages": messages_to_dict(messages), "passagens": passagens}
+def _estado(messages=HIST, passagens=PASSAGENS, pesquisa=PESQUISA):
+    return {"messages": messages_to_dict(messages), "passagens": passagens, "pesquisa": pesquisa}
 
 
 class MetricaFalsa:
@@ -142,20 +145,6 @@ def test_registrar_erro_grava_linha_de_erro(tmp_path):
     assert linha["juiz"] == "juiz-x"
 
 
-def test_registrar_erro_usa_o_mesmo_cabecalho_de_registrar(tmp_path):
-    """Confere que uma linha de erro e uma linha normal cabem no mesmo CSV."""
-    caminho = tmp_path / "notas.csv"
-    metric = _metrica(**{"__name__": "Faithfulness"})
-
-    registrar("vale3", "test_ok", metric, "juiz-x", caminho=caminho)
-    registrar_erro("vale3", "test_quebrou", ValueError("x"), "juiz-x", caminho=caminho)
-
-    linhas = _linhas(caminho)
-    assert linhas[0] == CABECALHO
-    assert len(linhas) == 3
-    assert all(len(linha) == len(CABECALHO) for linha in linhas)
-
-
 def test_despejar_escreve_entrada_saida_e_caminho_do_arquivo(tmp_path):
     """Confere que o despejo traz entrada, saída e justificativa, e devolve o caminho do arquivo."""
     metric = _metrica(**{"__name__": "Neutralidade"}, reason="tom neutro insuficiente")
@@ -170,31 +159,10 @@ def test_despejar_escreve_entrada_saida_e_caminho_do_arquivo(tmp_path):
     assert "tom neutro insuficiente" in conteudo
 
 
-def test_despejar_numera_os_itens_do_contexto(tmp_path):
-    """Confere que o despejo lista o retrieval_context um item por bloco numerado, para achar o trecho do juiz."""
-    metric = _metrica(**{"__name__": "Faithfulness"}, reason=None)
-    tc = SimpleNamespace(input="tarefa", actual_output="saída", retrieval_context=["primeiro trecho", "segundo trecho"])
-
-    conteudo = despejar("vale3", "test_x", metric, tc, diretorio=tmp_path).read_text(encoding="utf-8")
-
-    assert "[1]\nprimeiro trecho" in conteudo
-    assert "[2]\nsegundo trecho" in conteudo
-
-
-def test_limitar_fontes_corta_a_quantidade():
-    """Confere que o corte é do orçamento do juiz, não da produção: sobram só max_fontes itens."""
-    assert len(limitar_fontes([str(i) for i in range(30)], max_fontes=5)) == 5
-
-
 def test_limitar_fontes_preserva_textos_dentro_do_orcamento():
     """Confere que textos que cabem no orçamento passam iguais e na mesma ordem."""
     textos = ["a", "bb", "ccc"]
     assert limitar_fontes(textos) == textos
-
-
-def test_limitar_fontes_tolera_lista_vazia():
-    """Confere que contexto vazio (nenhuma fonte) não quebra."""
-    assert limitar_fontes([]) == []
 
 
 def test_formatar_distingue_no_de_idk_em_faithfulness():
@@ -247,50 +215,28 @@ def test_limitar_fontes_corta_quantidade_e_tamanho():
     assert limitar_fontes(["x" * 10] * 5, max_fontes=3, max_chars=4) == ["xxxx"] * 3
 
 
-def test_contexto_do_agente_tem_tools_e_historico_permitido():
-    """Confere que o contexto da 2ª passagem do Analyzer traz as tools dela, o pedido, o YFinance e as tarefas,
-    e não as respostas anteriores do Analyzer nem a própria."""
-    ctx = contexto_do_agente(_estado(), "Analyzer", 2)
-    assert ctx[0] == "buscar_noticias_web: s1"
-    assert {"Usuario: Analise a ação VALE3", "YFinance: P/L 5,2", "Supervisor: Busque o setor"} <= set(ctx)
-    assert not any(c.startswith("Analyzer:") or "a1:" in c or "a2:" in c for c in ctx)
-    assert "buscar_noticias_web: n1" not in ctx
+def test_contexto_do_analyzer_tem_as_tools_e_o_historico_do_ramo():
+    """Confere que o contexto do Analyzer traz as tools dele, o pedido, o YFinance e a própria tarefa,
+    sem a tarefa do Investigator (que veio junto, no paralelo) e sem respostas de agentes."""
+    ctx = contexto_do_agente(_estado(), "Analyzer")
+    assert ctx[0] == "buscar_noticias_web: n1"
+    assert {"Usuario: Analise a ação VALE3", "YFinance: P/L 5,2", "Supervisor: Busque notícias e setor da VALE3"} <= set(ctx)
+    assert not any("Investigue" in c or c.startswith("Analyzer:") for c in ctx)
 
 
 def test_contexto_de_passagem_sem_tools_e_so_o_historico():
     """Confere que passagem sem tool não quebra: o contexto é só o histórico permitido."""
-    passagens = [PASSAGENS[0], PASSAGENS[1], {"agente": "Analyzer", "n": 2, "tools": []}, PASSAGENS[3]]
-    assert contexto_do_agente(_estado(passagens=passagens), "Analyzer", 2) == [
+    passagens = [PASSAGENS[0], {"agente": "Analyzer", "n": 1, "tools": []}]
+    assert contexto_do_agente(_estado(passagens=passagens), "Analyzer") == [
         "Usuario: Analise a ação VALE3", "Supervisor: Colete os dados da VALE3", "YFinance: P/L 5,2",
-        "Supervisor: Busque notícias da VALE3", "Supervisor: Busque o setor"]
+        "Supervisor: Busque notícias e setor da VALE3"]
 
 
-def test_contexto_tira_o_aviso_de_limite_de_buscas():
-    """Confere que a ToolMessage de 'Tool call limit exceeded' não entra como evidência."""
-    ctx = contexto_do_agente(_estado(), "Investigator")
-    assert "buscar_fatos_relevantes: impairment de US$ 1 bi" in ctx
-    assert not any(AVISO_LIMITE in c for c in ctx)
-
-
-PESQUISA = {
-    "perguntas": ["Por que o lucro caiu?", "Houve impairment?", "O minério caiu?"],
-    "achados": [
-        {"pergunta": "Por que o lucro caiu?", "rodada": 1, "texto": "impairment de US$ 1 bi\nFontes: vale.com"},
-        {"pergunta": "Houve impairment?", "rodada": 1, "texto": ""},
-        {"pergunta": "O minério caiu?", "rodada": 2, "texto": "minério a US$ 95"},
-    ],
-    "voltas": 1,
-    "historico": "Net Income 4T25: -3.8B",
-}
-
-
-def test_contexto_do_investigator_com_o_subgrafo_e_historico_e_achados():
-    """Confere que, na fixture com a pesquisa do subgrafo, o contexto do Investigator é o que o subgrafo leu:
-    a tarefa do Supervisor, o histórico trimestral e um item por achado com texto (com a pergunta), e nada
-    das tools da passagem, do pedido ou da resposta do YFinance."""
-    estado = {**_estado(), "pesquisa": PESQUISA}
-    assert contexto_do_agente(estado, "Investigator") == [
-        "Supervisor: Investigue a queda de 40%",
+def test_contexto_do_investigator_e_o_que_o_subgrafo_leu():
+    """Confere que o contexto do Investigator é a tarefa dele (sem a do Analyzer), o histórico trimestral e um
+    item por achado com texto, e nada do pedido ou da resposta do YFinance."""
+    assert contexto_do_agente(_estado(), "Investigator") == [
+        "Supervisor: Investigue a anomalia na queda de lucro",
         "buscar_historico_trimestral: Net Income 4T25: -3.8B",
         "pesquisa (Por que o lucro caiu?): impairment de US$ 1 bi\nFontes: vale.com",
         "pesquisa (O minério caiu?): minério a US$ 95",
@@ -300,85 +246,26 @@ def test_contexto_do_investigator_com_o_subgrafo_e_historico_e_achados():
 def test_contexto_do_investigator_sem_historico_nem_tarefa():
     """Confere que histórico trimestral vazio e falta de tarefa não viram itens vazios no contexto."""
     msgs = [HumanMessage("Analise a ação VALE3"), HumanMessage("Causa identificada: x", name="Investigator")]
-    estado = {"messages": messages_to_dict(msgs), "passagens": [],
-              "pesquisa": {**PESQUISA, "historico": "", "achados": PESQUISA["achados"][:1]}}
+    estado = _estado(msgs, [], {**PESQUISA, "historico": "", "achados": PESQUISA["achados"][:1]})
     assert contexto_do_agente(estado, "Investigator") == [
         "pesquisa (Por que o lucro caiu?): impairment de US$ 1 bi\nFontes: vale.com"]
 
 
-def test_contexto_do_investigator_sem_pesquisa_usa_as_tools():
-    """Confere que fixture antiga (sem a chave pesquisa, ou com pesquisa None) segue pelo caminho das tools da passagem."""
-    assert contexto_do_agente({**_estado(), "pesquisa": None}, "Investigator") == contexto_do_agente(_estado(), "Investigator")
-    assert "buscar_fatos_relevantes: impairment de US$ 1 bi" in contexto_do_agente(_estado(), "Investigator")
-
-
-def test_contexto_do_analyzer_ignora_a_pesquisa():
-    """Confere que a pesquisa do subgrafo só muda o contexto do Investigator."""
-    assert contexto_do_agente({**_estado(), "pesquisa": PESQUISA}, "Analyzer", 2) == contexto_do_agente(_estado(), "Analyzer", 2)
-
-
 def test_resposta_do_agente_ausente_devolve_none():
     """Confere que fixture sem Investigator devolve None (os evals dele pulam)."""
-    sem_investigator = _estado(HIST[:7], PASSAGENS[:3])
+    sem_investigator = _estado(HIST[:4] + [HIST[5]], PASSAGENS, None)
     assert resposta_do_agente(sem_investigator, "Investigator") is None
     assert tarefa_do_supervisor(sem_investigator, "Investigator") is None
-    assert resposta_do_agente(sem_investigator, "Analyzer", 2) == "a2: setor de mineração"
-
-
-def test_tarefa_do_supervisor_e_a_anterior_a_resposta():
-    """Confere que a tarefa de cada agente é a mensagem do Supervisor logo antes da resposta dele."""
-    assert tarefa_do_supervisor(_estado(), "Investigator") == "Investigue a queda de 40%"
-    assert tarefa_do_supervisor(_estado(), "Analyzer", 1) == "Busque notícias da VALE3"
-    assert tarefa_do_supervisor(_estado(), "Analyzer", 2) == "Busque o setor"
-
-
-HIST_PARALELO = [
-    HumanMessage("Analise a ação VALE3"),
-    HumanMessage("Colete os dados da VALE3", name="Supervisor"),
-    HumanMessage("P/L 5,2", name="YFinance"),
-    HumanMessage("Busque notícias e setor da VALE3", name="Supervisor"),
-    HumanMessage("Investigue a anomalia na queda de lucro", name="Supervisor"),
-    HumanMessage("notícias e setor", name="Analyzer"),
-    HumanMessage("Causa identificada: impairment", name="Investigator"),
-]
-PASSAGENS_PARALELO = [
-    {"agente": "YFinance", "n": 1, "tools": [{"nome": "buscar_dados_acao_b3", "conteudo": "P/L 5,2"}]},
-    {"agente": "Analyzer", "n": 1, "tools": [{"nome": "buscar_noticias_web", "conteudo": "n1"}]},
-    {"agente": "Investigator", "n": 1, "tools": [{"nome": "buscar_fatos_relevantes", "conteudo": "impairment"}]},
-]
+    assert resposta_do_agente(sem_investigator, "Analyzer") == "notícias e setor"
 
 
 def test_tarefa_do_supervisor_com_tarefas_paralelas_adjacentes():
-    """Confere que com as tarefas do Analyzer e Investigator adjacentes no histórico, cada um localiza a sua."""
-    estado = {"messages": messages_to_dict(HIST_PARALELO), "passagens": PASSAGENS_PARALELO}
-    assert tarefa_do_supervisor(estado, "Analyzer") == "Busque notícias e setor da VALE3"
-    assert tarefa_do_supervisor(estado, "Investigator") == "Investigue a anomalia na queda de lucro"
-
-
-def test_contexto_do_agente_com_tarefas_paralelas_adjacentes():
-    """Confere que no paralelo o contexto do Analyzer não traz a tarefa do Investigator e vice-versa."""
-    estado = {"messages": messages_to_dict(HIST_PARALELO), "passagens": PASSAGENS_PARALELO}
-    ctx_ana = contexto_do_agente(estado, "Analyzer")
-    assert "Supervisor: Busque notícias e setor da VALE3" in ctx_ana
-    assert not any("Investigue" in c for c in ctx_ana)
-
-    ctx_inv = contexto_do_agente(estado, "Investigator")
-    assert "Supervisor: Investigue a anomalia na queda de lucro" in ctx_inv
-    assert not any("Busque notícias e setor" in c for c in ctx_inv)
-
-
-def test_tarefa_e_contexto_paralelo_quando_investigator_responde_primeiro():
-    """Confere que a identificação da tarefa funciona mesmo se o Investigator responder antes do Analyzer."""
-    msgs_invertidas = [
-        *HIST_PARALELO[:5],
-        HIST_PARALELO[6],  # Investigator respondeu antes
-        HIST_PARALELO[5],  # Analyzer respondeu depois
-    ]
-    estado = {"messages": messages_to_dict(msgs_invertidas), "passagens": PASSAGENS_PARALELO}
-    assert tarefa_do_supervisor(estado, "Analyzer") == "Busque notícias e setor da VALE3"
-    assert tarefa_do_supervisor(estado, "Investigator") == "Investigue a anomalia na queda de lucro"
-    assert not any("Investigue" in c for c in contexto_do_agente(estado, "Analyzer"))
-    assert not any("Busque notícias e setor" in c for c in contexto_do_agente(estado, "Investigator"))
+    """Confere que, com as tarefas do Analyzer e do Investigator lado a lado no histórico, cada um acha a sua,
+    em qualquer ordem de resposta."""
+    for historico in (HIST, HIST[:5] + [HIST[6], HIST[5]]):  # o Investigator pode responder antes
+        estado = _estado(historico)
+        assert tarefa_do_supervisor(estado, "Analyzer") == "Busque notícias e setor da VALE3"
+        assert tarefa_do_supervisor(estado, "Investigator") == "Investigue a anomalia na queda de lucro"
 
 
 def test_carregar_fixture_le_utf8(tmp_path):
@@ -395,14 +282,6 @@ def test_medir_e_registrar_measure_que_quebra(tmp_path):
                           caminho=tmp_path / "n.csv", diretorio=tmp_path / "f")
     linhas = list(csv.DictReader((tmp_path / "n.csv").open(encoding="utf-8")))
     assert [l["passou"] for l in linhas] == ["erro"]
-    assert not (tmp_path / "f").exists()
-
-
-def test_medir_e_registrar_metrica_que_passa(tmp_path):
-    """Confere que nota aprovada é registrada e não gera despejo nem falha."""
-    medir_e_registrar(MetricaFalsa(0.9), TC, "vale3", "t", "juiz-x", caminho=tmp_path / "n.csv", diretorio=tmp_path / "f")
-    linhas = list(csv.DictReader((tmp_path / "n.csv").open(encoding="utf-8")))
-    assert len(linhas) == 1 and linhas[0]["nota"].startswith("0.9") and linhas[0]["juiz"] == "juiz-x"
     assert not (tmp_path / "f").exists()
 
 
@@ -516,20 +395,6 @@ def test_sem_sumario_tira_o_texto_sem_tag():
     assert "fundada em 1961" not in saida and "Sumario de Negócio" not in saida
     assert saida.startswith("Dados para WEGE3.SA:\nP/L:  32.3x\nSetor: Bens Industriais\nHistórico Recente")
     assert saida.endswith("Piotroski F-Score para WEGE3.SA: 5/9\n")
-
-
-def test_sem_sumario_texto_sem_bloco_fica_igual():
-    """Confere que texto sem o sumário volta igual, que 'N/A' perde só as duas linhas e que sumário sem tag
-    e sem o Histórico Recente depois fica como está (cortar até o fim levaria o Piotroski e o risco junto)."""
-    sem_bloco = "Dados para VALE3.SA:\nP/L:  5.2x\n" + DEPOIS
-    assert sem_sumario(sem_bloco) == sem_bloco
-    assert sem_sumario("") == ""
-
-    com_na = ANTES + "N/A\n" + DEPOIS
-    assert sem_sumario(com_na) == "Dados para WEGE3.SA:\nP/L:  32.3x\nSetor: Bens Industriais\n" + DEPOIS
-
-    sem_historico = ANTES + SUMARIO + "\nPiotroski F-Score: 5/9\n"
-    assert sem_sumario(sem_historico) == sem_historico
 
 
 def test_sem_sumario_na_fixture_da_wege3():

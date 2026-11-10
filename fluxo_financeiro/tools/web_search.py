@@ -1,6 +1,6 @@
 """Busca na web com Google Search (via Gemini) ou Tavily, escolhida por BUSCA_PROVEDOR no .env.
 
-`buscar_na_web` é a interface única, usada por buscar_noticias_web, buscar_fatos_relevantes e
+`buscar_na_web` é a interface única, usada por buscar_noticias_web e
 pesquisar_pergunta. `pesquisar_na_web` é a implementação Google (o Gemini busca e resume); a da
 Tavily é uma API de busca: devolve a resposta curta dela e os trechos das páginas, sem LLM nosso.
 """
@@ -34,8 +34,8 @@ PROVEDORES = ("google", "tavily")
 ORIGEM_DO_PROVEDOR = {"google": "google_search", "tavily": "tavily"}
 
 # Redes sociais ficam fora da Tavily: legenda curta e promocional, sem o corpo de texto que a análise
-# precisa (o youtube.com é vídeo). Lista do Fluxo Pesquisa, onde o instagram.com de uma conta de
-# "consultoria de investimentos" voltava como lixo em rodadas diferentes.
+# precisa (o youtube.com é vídeo). Em testes de busca, o instagram.com de uma conta de
+# "consultoria de investimentos" voltava como resultado irrelevante em rodadas diferentes.
 REDES_SOCIAIS = ["youtube.com", "instagram.com", "x.com", "twitter.com", "facebook.com", "tiktok.com"]
 
 # O langchain-tavily põe o código HTTP só no texto do erro: "Error 429: ...".

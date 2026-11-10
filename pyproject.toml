@@ -10,8 +10,6 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "brapi>=1.13.0",
-    "ipykernel>=7.2.0",
-    "jupyter>=1.1.1",
     "langchain>=1.2.18",
     "langchain-google-genai>=4.4.2",
     "langchain-tavily>=0.2.18",
@@ -28,6 +26,14 @@ dev = [
     "pytest>=8.0",
     "pytest-socket>=0.8.1",
 ]
+# Só para abrir e regerar os notebooks: fica fora das dependências do pacote.
+notebooks = [
+    "ipykernel>=7.2.0",
+    "jupyter>=1.1.1",
+]
+
+[tool.uv]
+default-groups = ["dev", "notebooks"]
 
 [tool.setuptools.packages.find]
 include = ["fluxo_financeiro*", "api*", "dashboard*"]

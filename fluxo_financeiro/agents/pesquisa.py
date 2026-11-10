@@ -14,7 +14,7 @@ fixo e os limites ficam no código:
   o subgrafo inteiro pelo retry de sempre. A saída estruturada vazia ou com JSON quebrado sobe como
   RespostaVazia (temporária), para esse retry valer também nela.
 
-Molde: o subgrafo de pesquisa setorial do Fluxo Pesquisa. Os prompts foram reescritos para a
+Formato: planejador, buscas em paralelo, síntese e crítico, com os prompts escritos para a
 investigação causal.
 """
 import operator

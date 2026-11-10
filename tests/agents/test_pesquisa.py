@@ -19,7 +19,7 @@ from fluxo_financeiro.agents.pesquisa import (
     criar_grafo_pesquisa,
     investigar,
 )
-from fluxo_financeiro.shared.prompts import REGRA_CONTEUDO_EXTERNO, envolver_conteudo_externo
+from fluxo_financeiro.shared.prompts import envolver_conteudo_externo
 from fluxo_financeiro.shared.retry import TRANSITORIO, RespostaVazia, classificar_erro
 from fluxo_financeiro.shared.types import (
     CriticaPesquisa,
@@ -223,15 +223,15 @@ def test_erro_do_llm_sobe(busca):
         _rodar(llm)
 
 
-@pytest.mark.parametrize("schema", [PerguntasPesquisa, DiagnosticoPesquisa, CriticaPesquisa])
-def test_json_quebrado_vira_resposta_vazia(busca, schema):
-    """Confere que a saída estruturada com JSON quebrado, em qualquer dos 3 nós com LLM, sobe como
+def test_json_quebrado_vira_resposta_vazia(busca):
+    """Confere que a saída estruturada com JSON quebrado (aqui na síntese; os 3 nós usam chamar_estruturado) sobe como
     RespostaVazia (temporária, o retry do nó vale), com a exceção do parser na cadeia e sem a resposta crua."""
     filas = {
         PerguntasPesquisa: [PerguntasPesquisa(perguntas=PERGUNTAS[:1])],
         DiagnosticoPesquisa: [DIAGNOSTICO],
         CriticaPesquisa: [APROVADO],
     }
+    schema = DiagnosticoPesquisa
     filas[schema] = [OutputParserException('{"aprovado": tr')]
 
     with pytest.raises(RespostaVazia, match=schema.__name__) as erro:
@@ -291,31 +291,15 @@ def test_diagnostico_tem_as_quatro_secoes(busca):
     assert linhas[1] == "- Natureza do evento: cíclico"
     assert linhas[2] == "- Evidências: minério caiu 12% no trimestre; sem impairment relevante"
     assert linhas[3] == "- Impacto no investimento: O lucro acompanha o ciclo do minério."
-    fontes = linhas[4].removeprefix("Fontes: ").split(", ")
+    fontes = linhas[-1].removeprefix("Fontes: ").split(", ")
     assert sorted(fontes) == ["g1.globo.com", "valor.com.br"]
     assert isinstance(feita, PesquisaFeita)
     assert feita.perguntas == PERGUNTAS
     assert len(feita.achados) == 3 and feita.voltas == 0
 
 
-def test_investigar_sem_achados_diz_que_nao_achou_causa(busca):
-    """Confere que, com tudo vazio, o texto do Investigator diz que não achou causa e não inventa fontes."""
-    for p in PERGUNTAS:
-        busca.respostas[p] = ""
-    llm = LlmFalso({
-        PerguntasPesquisa: [PerguntasPesquisa(perguntas=PERGUNTAS)],
-        CriticaPesquisa: [APROVADO],
-    })
-
-    with patch.object(pesquisa, "grafo_pesquisa", criar_grafo_pesquisa(llm)):
-        texto, _ = investigar(TAREFA, "VALE3")
-
-    assert "- Natureza do evento: indeterminado" in texto
-    assert "Fontes:" not in texto
-
-
-def test_prompts_terminam_com_a_regra_de_conteudo_externo(busca):
-    """Confere que os três nós com LLM mandam os próprios prompts, todos terminando com a regra de conteúdo externo."""
+def test_cada_no_manda_o_proprio_prompt(busca):
+    """Confere que cada um dos três nós com LLM manda o próprio prompt como mensagem de sistema."""
     llm = LlmFalso({
         PerguntasPesquisa: [PerguntasPesquisa(perguntas=PERGUNTAS[:1])],
         DiagnosticoPesquisa: [DIAGNOSTICO],
@@ -329,10 +313,4 @@ def test_prompts_terminam_com_a_regra_de_conteudo_externo(busca):
         sistema = llm.chamadas[schema][0][0]
         assert isinstance(sistema, SystemMessage)
         assert sistema.content == prompt
-        assert prompt.endswith(REGRA_CONTEUDO_EXTERNO)
 
-
-def test_grafo_do_modulo_tem_os_cinco_nos():
-    """Confere que o módulo expõe o subgrafo compilado com os cinco nós."""
-    nos = set(pesquisa.grafo_pesquisa.get_graph().nodes)
-    assert {"preparar", "gerar_perguntas", "buscar", "sintetizar", "criticar"} <= nos

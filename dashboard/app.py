@@ -1,4 +1,4 @@
-"""Dashboard em Streamlit: relatório primeiro, caminho da análise e state em abas (D46).
+"""Dashboard em Streamlit: relatório primeiro, caminho da análise e state em abas.
 
 Rodar: make streamlit  (ou: uv run streamlit run dashboard/app.py)
 
@@ -14,7 +14,7 @@ from langchain_core.messages import HumanMessage
 from dashboard.visao import (
     ROTULO_DECISAO,
     Passo,
-    _conteudo,
+    _ultima_mensagem,
     agrupar_achados_por_rodada,
     decisao_do_fim,
     dividir_indicadores,
@@ -53,7 +53,6 @@ def rodar_analise(ticker: str) -> dict:
     eventos: list[tuple[str, dict]] = []
     state: Optional[dict] = None
     erro: Optional[str] = None
-    passagens_analyzer = 0
     with st.status(f"Analisando {ticker}...", expanded=True) as status:
         col_grafo, col_passos = st.columns([3, 2], vertical_alignment="center")
         with col_grafo.container(horizontal_alignment="center"):
@@ -66,18 +65,15 @@ def rodar_analise(ticker: str) -> dict:
             pedido = {"messages": [HumanMessage(f"Analise a ação {ticker}")]}
             for modo, dado in grafo.stream(pedido, stream_mode=["updates", "values"]):
                 if modo == "values":
-                    state = dado if isinstance(dado, dict) else None
+                    state = dado
                     continue
-                dado_dict = dado if isinstance(dado, dict) else {}
-                for no, update in dado_dict.items():
-                    update_dict = update if isinstance(update, dict) else {}
-                    eventos.append((no, update_dict))
+                for no, update in dado.items():
+                    update = update or {}  # nó que não devolve nada chega como None
+                    eventos.append((no, update))
                     if no == "Supervisor":
-                        proximo = update_dict.get("next_agent") or ""
-                        rotulo = rotulo_agente_em_execucao(proximo, passagens_analyzer)
+                        rotulo = rotulo_agente_em_execucao(update.get("next_agent"))
                         status.update(label=status_execucao(ticker, rotulo), state="running", expanded=True)
                     else:
-                        passagens_analyzer += no == "Analyzer"
                         rotulo_pendente = rotulo_em_execucao(eventos)
                         if rotulo_pendente:
                             status.update(label=status_execucao(ticker, rotulo_pendente), state="running", expanded=True)
@@ -99,16 +95,9 @@ def rodar_analise(ticker: str) -> dict:
 
 def _mensagem_final(resultado: dict) -> Optional[str]:
     """Markdown que o Consolidador escreveu (relatório formatado ou o de emergência)."""
-    for no, update in reversed(resultado.get("eventos") or []):
+    for no, update in reversed(resultado["eventos"]):
         if no == "Consolidador":
-            if isinstance(update, dict):
-                msgs = update.get("messages")
-                if isinstance(msgs, list) and msgs:
-                    return _conteudo(msgs[-1])
-                elif msgs is not None:
-                    return _conteudo(msgs)
-            elif update is not None:
-                return _conteudo(update)
+            return _ultima_mensagem(update) or None
     return None
 
 
@@ -177,26 +166,13 @@ def _previa(texto: Optional[str]) -> str:
 
 
 def aba_como_foi_feito(resultado: dict) -> None:
-    eventos = resultado.get("eventos") or []
-    state = resultado.get("state") or {}
+    eventos = resultado["eventos"]
     passos = montar_passos(eventos)
     if not passos:
         st.info("Nenhum agente chegou a rodar.")
         return
     if parou_no_hard_stop(eventos):
         st.warning("O fluxo parou pelo limite de 6 passagens do Supervisor (hard stop).")
-
-    pesquisa_state = state.get("pesquisa") if isinstance(state, dict) else None
-    if isinstance(pesquisa_state, dict):
-        try:
-            pesquisa_state = PesquisaFeita(**pesquisa_state)
-        except Exception:
-            pesquisa_state = None
-    if isinstance(pesquisa_state, PesquisaFeita):
-        for p in reversed(passos):
-            if p.agente == "Investigator" and p.erro is None and p.pesquisa is None:
-                p.pesquisa = pesquisa_state
-                break
 
     consolidou = any(no == "Consolidador" for no, _ in eventos) and not resultado.get("erro")
     proximo_num = max((p.numero for p in passos), default=0) + 1
@@ -312,7 +288,7 @@ def _pedir_analise() -> None:
         st.session_state["ticker_pedido"] = ticker
         st.session_state["rodando"] = True
     elif digitado:
-        st.session_state["aviso_ticker_invalido"] = True  # não é ticker: nem chega ao grafo (D49)
+        st.session_state["aviso_ticker_invalido"] = True  # não é ticker: nem chega ao grafo
     else:
         st.session_state["aviso_ticker_vazio"] = True
 

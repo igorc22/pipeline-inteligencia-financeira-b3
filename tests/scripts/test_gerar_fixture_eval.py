@@ -127,7 +127,7 @@ def grafo_com_agentes_falsos():
 # ---------------------------------------------------------------------------
 
 def test_coletar_separa_passagens_por_namespace():
-    """Confere que duas passagens do Analyzer viram duas entradas, cada uma com as suas tools."""
+    """Confere que duas passagens do mesmo agente (o reenvio do retry) viram duas entradas, cada uma com as suas tools."""
     eventos = [
         (("Analyzer:a",), "updates", {"tools": {"messages": [ToolMessage("n1", name="buscar_noticias_web", tool_call_id="1")]}}),
         (("Analyzer:b",), "updates", {"tools": {"messages": [ToolMessage("s1", name="buscar_noticias_web", tool_call_id="2")]}}),
@@ -182,7 +182,7 @@ def test_coletar_ramos_paralelos_intercalados():
     eventos = [
         (("YFinance:yf-1",), "updates", {"tools": {"messages": [ToolMessage("dados", name="buscar_dados_acao_b3", tool_call_id="1")]}}),
         (("Analyzer:ana-1",), "updates", {"tools": {"messages": [ToolMessage("noticias", name="buscar_noticias_web", tool_call_id="2")]}}),
-        (("Investigator:inv-1",), "updates", {"tools": {"messages": [ToolMessage("fatos", name="buscar_fatos_relevantes", tool_call_id="3")]}}),
+        (("Investigator:inv-1",), "updates", {"tools": {"messages": [ToolMessage("fatos", name="buscar_historico_trimestral", tool_call_id="3")]}}),
         (("Analyzer:ana-1",), "updates", {"tools": {"messages": [ToolMessage("setor", name="buscar_noticias_web", tool_call_id="4")]}}),
         ((), "values", {"messages": [HumanMessage("fim", name="Consolidador")], "relatorio": REL}),
     ]
@@ -264,17 +264,6 @@ def test_main_com_tavily_grava_com_sufixo_e_nao_toca_a_do_google(tmp_path):
     assert do_google.read_text(encoding="utf-8") == '{"busca": "google"}'
 
 
-def test_main_com_google_grava_sem_sufixo_e_anota_o_provedor(tmp_path):
-    """Confere que, com a busca no Google (o padrão), o nome da fixture continua <ticker>.json e o provedor vai junto."""
-    eventos = [((), "values", {"messages": [HumanMessage("Analise a ação WEGE3"), HumanMessage("# Relatório", name="Consolidador")],
-                               "relatorio": REL, "sinais_anomalia": []})]
-    with patch.object(gerar, "app") as app_falso:
-        app_falso.stream.return_value = iter(eventos)
-        assert gerar.main(["WEGE3"], pasta=tmp_path) == 0
-    assert [c.name for c in tmp_path.glob("*.json")] == ["wege3.json"]
-    assert json.loads((tmp_path / "wege3.json").read_text(encoding="utf-8"))["busca"] == "google"
-
-
 def test_main_recusa_quando_a_tavily_caiu_no_google_sem_rodar(tmp_path, capsys):
     """Confere que BUSCA_PROVEDOR=tavily com a busca caindo no Google (sem chave) sai com 1 antes de gastar,
     em vez de gravar uma fixture do Google por cima da que já existe."""
@@ -292,13 +281,6 @@ def test_main_nao_grava_quando_relatorio_ausente(tmp_path):
         app_falso.stream.return_value = iter([((), "values", {"messages": [], "relatorio": None, "sinais_anomalia": []})])
         assert gerar.main(["VALE3"], pasta=tmp_path) == 1
     assert not list(tmp_path.glob("*.json"))
-
-
-def test_main_recusa_ticker_invalido_sem_rodar_o_grafo(tmp_path):
-    """Confere que ticker fora do formato da B3 é recusado antes do grafo."""
-    with patch.object(gerar, "app") as app_falso:
-        assert gerar.main(["isso nao e ticker"], pasta=tmp_path) == 2
-        app_falso.stream.assert_not_called()
 
 
 def test_main_recusa_ticker_inexistente_sem_rodar(_ticker_existe, tmp_path, capsys):

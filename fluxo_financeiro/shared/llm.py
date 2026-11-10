@@ -18,7 +18,7 @@ def criar_llm() -> ChatGoogleGenerativeAI:
     O LLM não guarda estado entre chamadas, então uma instância é compartilhada por todos os agentes.
     """
     if not GEMINI_API_KEY:
-        logger.warning("[llm] GEMINI_API_KEY não configurada no .env — chamadas ao Gemini vão falhar")
+        logger.warning("[llm] GEMINI_API_KEY não configurada no .env: as chamadas ao Gemini vão falhar")
     return ChatGoogleGenerativeAI(
         model=MODEL,
         # None = usa o padrão do modelo. O Google recomenda não mexer na temperatura no Gemini 3+

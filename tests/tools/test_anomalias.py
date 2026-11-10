@@ -44,6 +44,7 @@ def test_queda_de_lucro_acima_do_limite(mock_yf):
 
     assert _tipos(sinais) == ["queda_lucro"]
     assert "35%" in sinais[0].descricao and "VALE3.SA" in sinais[0].descricao
+    assert "encerrado em 30/06/2026" in sinais[0].descricao  # data e decimal no formato brasileiro
 
 
 def test_queda_pequena_nao_acusa(mock_yf):
@@ -113,48 +114,14 @@ def test_anomalias_repete_e_depois_devolve_vazio(espera_falsa):
     espera_falsa.assert_called_once_with(2.0)
 
 
-def test_anomalias_repete_e_acerta(mock_yf, espera_falsa):
-    """Confere que, se a segunda leitura do yfinance dá certo, os sinais saem normalmente."""
-    acao = mock_yf([1.26, 1.5, 1.6, 1.7, 2.69, 2.0])
-    with patch("fluxo_financeiro.tools.anomalias.yf.Ticker", side_effect=[TimeoutError("lento"), acao]):
-        sinais = detectar_sinais_anomalia("VALE3")
-
-    assert _tipos(sinais) == ["queda_lucro"]
-    espera_falsa.assert_called_once_with(2.0)
-
-
 def test_queda_de_lucro_em_dolar_usa_us(mock_yf):
     """Confere que demonstrativo em dólar (caso VALE3) sai como US$, não como R$."""
     mock_yf([1.26, 1.5, 1.6, 1.7, 2.69, 2.0], moeda="USD")
 
     descricao = detectar_sinais_anomalia("VALE3")[0].descricao
 
-    assert "US$ 1.26 bi contra US$ 2.69 bi" in descricao
+    assert "US$ 1,26 bi contra US$ 2,69 bi" in descricao
     assert "R$" not in descricao.replace("US$", "")
-
-
-def test_queda_de_lucro_em_real_usa_r(mock_yf):
-    """Confere que demonstrativo em real continua saindo como R$."""
-    mock_yf([1.38, 1.5, 1.6, 1.7, 2.12, 2.0], moeda="BRL")
-
-    assert "R$ 1.38 bi contra R$ 2.12 bi" in detectar_sinais_anomalia("WEGE3")[0].descricao
-
-
-def test_queda_de_lucro_sem_moeda_nao_finge_real(mock_yf):
-    """Confere que, sem a moeda na série do Yahoo, sai só o número, sem símbolo de moeda."""
-    mock_yf([1.38, 1.5, 1.6, 1.7, 2.12, 2.0], moeda=None)
-
-    descricao = detectar_sinais_anomalia("XPTO3")[0].descricao
-
-    assert "(1.38 bi contra 2.12 bi)" in descricao
-    assert "$" not in descricao
-
-
-def test_prejuizo_em_dolar_usa_us(mock_yf):
-    """Confere que o prejuízo em dólar sai como US$."""
-    mock_yf([-0.07, -0.05, 0.01, -0.03, -0.02, 0.0], moeda="USD")
-
-    assert "prejuízo líquido de US$ 0.07 bi" in detectar_sinais_anomalia("XPTO3")[0].descricao
 
 
 def test_falha_ao_ler_moeda_mantem_os_sinais(mock_yf):

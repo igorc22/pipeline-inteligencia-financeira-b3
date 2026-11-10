@@ -35,7 +35,7 @@ calcular_piotroski_score: Use quando o pedido mencionar fundamentos, solidez fin
     Score 7-9 = excelente; 4-6 = bom; 0-3 = fraco.
     Exemplo:
     Input: "A WEGE3 tem bons fundamentos?"
-    Output: "Piotroski F-Score para WEGE3.SA: 7/9 — Excelente (7-9) - Empresa com fundamentals muito solidos\n\nCritérios:\n  [OK] Net Income positivo..."
+    Output: "Piotroski F-Score para WEGE3.SA: 7/9, Excelente (7-9): empresa com fundamentos muito sólidos\n\nCritérios:\n  [OK] Net Income positivo..."
 </ferramentas>
 
 <formato_resposta>

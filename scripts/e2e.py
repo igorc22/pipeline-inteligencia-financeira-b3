@@ -25,7 +25,7 @@ HARD_STOP = 6
 def conferir_diagnostico(diag: str, final: str) -> list[str]:
     """Falhas do diagnóstico: seções faltando no texto do Investigator, ou o texto dele fora do relatório final.
 
-    O Consolidador copia o diagnóstico literalmente (D41); procurar só as quatro palavras deixaria
+    O Consolidador copia o diagnóstico literalmente, e procurar só as quatro palavras deixaria
     passar um relatório que resumiu ou reescreveu o diagnóstico.
     """
     falhas = []
@@ -38,7 +38,7 @@ def conferir_diagnostico(diag: str, final: str) -> list[str]:
 
 
 def conferir_tags_vazadas(mensagens: list[tuple[str, str]]) -> list[str]:
-    """Agentes cuja resposta repetiu a tag <conteudo_externo> (D47), na ordem, sem repetir nomes.
+    """Agentes cuja resposta repetiu a tag <conteudo_externo>, na ordem, sem repetir nomes.
 
     A tag é para o agente ler, não para aparecer no relatório e no dashboard. Só avisa: vazar
     a tag não muda a análise, então o e2e não reprova por isso.

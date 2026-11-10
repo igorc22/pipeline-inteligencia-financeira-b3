@@ -14,7 +14,7 @@ def flag_ligada(valor: Optional[str]) -> bool:
     return (valor or "").strip().lower() in ("1", "true", "sim", "yes", "on")
 
 
-# Sanitização por IA (D48): com a flag ligada, o texto que volta das buscas passa por um classificador
+# Sanitização por IA: com a flag ligada, o texto que volta das buscas passa por um classificador
 # antes de chegar aos agentes. Liga só essa chamada extra ao LLM (que gasta a key); as tags XML e a
 # validação do ticker não custam nada e ficam sempre ligadas.
 SANITIZACAO_ATIVA = flag_ligada(os.getenv("SANITIZACAO_ATIVA"))
@@ -25,11 +25,10 @@ SANITIZACAO_MODELO = os.getenv("SANITIZACAO_MODELO", MODEL)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or None
 
 NEWS_API_KEY = os.getenv("NEWS_API_KEY")
-# Busca na web (7c): "google" (Gemini com Google Search, o padrão) ou "tavily". Valor inválido ou
+# Busca na web: "google" (Gemini com Google Search, o padrão) ou "tavily". Valor inválido ou
 # tavily sem TAVILY_API_KEY: tools/web_search.py avisa numa linha e usa o Google.
 BUSCA_PROVEDOR = (os.getenv("BUSCA_PROVEDOR") or "google").strip().lower()
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY") or None
 # Token da Brapi (plano gratuito): cotação, perfil e conferência do ticker. Vazio conta como ausente.
 BRAPI_API_KEY = os.getenv("BRAPI_API_KEY") or None
-DATABASE_URL = os.getenv("DATABASE_URL")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

@@ -30,9 +30,6 @@ MAX_CHARS_POR_FONTE = 6000
 JUIZ_PADRAO = "gemini-3.8-flash"
 TEMPERATURA_JUIZ = None
 
-# Texto que o ToolCallLimitMiddleware devolve no lugar da busca que passou do teto: não é evidência.
-AVISO_LIMITE = "Tool call limit exceeded"
-
 # Quem entra no contexto de um agente além das tools dele: o pedido (sem name), a resposta do YFinance
 # (com os sinais calculados em código) e as tarefas do Supervisor. Respostas de Analyzer e Investigator
 # ficam de fora: são saída de LLM, e um fato inventado numa passagem contaria como fiel na seguinte.
@@ -317,19 +314,17 @@ def _contexto_da_pesquisa(estado: dict, pesquisa: dict) -> list[str]:
 def contexto_do_agente(estado: dict, agente: str, n: int = 1) -> list[str]:
     """O que o agente tinha em mãos na n-ésima passagem, um texto por item.
 
-    Primeiro as saídas das tools daquela passagem ("<tool>: <conteúdo>"), sem o aviso de limite de
-    buscas. Depois as mensagens anteriores à resposta cujo name está em NOMES_NO_CONTEXTO
-    ("<name ou Usuario>: <texto>"). Passagem sem tool (a busca falhou e o agente respondeu do
-    histórico) devolve só o histórico permitido.
+    Primeiro as saídas das tools daquela passagem ("<tool>: <conteúdo>"). Depois as mensagens
+    anteriores à resposta cujo name está em NOMES_NO_CONTEXTO ("<name ou Usuario>: <texto>").
+    Passagem sem tool (a busca falhou e o agente respondeu do histórico) devolve só o histórico permitido.
 
-    Investigator com a chave "pesquisa" na fixture (o subgrafo de pesquisa, sem ToolMessage): o
-    contexto é o de _contexto_da_pesquisa. Fixture antiga, sem a chave, segue pelas tools.
+    O Investigator é o subgrafo de pesquisa, sem ToolMessage: o contexto dele é o de _contexto_da_pesquisa.
     """
-    if agente == "Investigator" and estado.get("pesquisa"):
+    if agente == "Investigator":
         return _contexto_da_pesquisa(estado, estado["pesquisa"])
     passagem = next((p for p in estado["passagens"] if p["agente"] == agente and p["n"] == n), None)
     tools = passagem["tools"] if passagem else []
-    contexto = [f"{t['nome']}: {t['conteudo']}" for t in tools if AVISO_LIMITE not in t["conteudo"]]
+    contexto = [f"{t['nome']}: {t['conteudo']}" for t in tools]
 
     msgs = mensagens(estado)
     indice = _indice_da_resposta(msgs, agente, n)

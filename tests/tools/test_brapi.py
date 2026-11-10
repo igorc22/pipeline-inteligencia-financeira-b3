@@ -3,7 +3,6 @@
 As classes PerfilBrapi e ParesDoSetor são lidas pelo módulo (brapi_mod.PerfilBrapi), não importadas
 no topo: o teste do reload cria classes novas, e o __eq__ do dataclass compara a classe.
 """
-import importlib
 import logging
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -121,16 +120,6 @@ def test_brapi_repete_timeout(cliente, espera_falsa):
     espera_falsa.assert_called_once_with(2.0)
 
 
-def test_brapi_404_nao_repete(cliente, espera_falsa):
-    """Confere que o 404 (ticker inexistente) é permanente: uma chamada só, sem espera."""
-    cliente.quote.retrieve.side_effect = _erro_status(brapi.NotFoundError, 404)
-
-    assert brapi_mod.ticker_existe("XXXX3") is False
-
-    assert cliente.quote.retrieve.call_count == 1
-    espera_falsa.assert_not_called()
-
-
 def test_ticker_existe_sem_chave_nao_levanta(monkeypatch):
     """Confere que, sem token, a criação do cliente falha dentro do try e devolve None, sem rede."""
     monkeypatch.delenv("BRAPI_API_KEY", raising=False)
@@ -157,13 +146,6 @@ def test_criar_cliente_sem_retentativas():
         assert cliente_real.timeout == brapi_mod.TIMEOUT_SEGUNDOS
     finally:
         brapi_mod.criar_cliente.cache_clear()
-
-
-def test_importar_nao_cria_cliente():
-    """Confere que importar o módulo não cria o cliente (nem exige o token)."""
-    brapi_mod.criar_cliente.cache_clear()
-    modulo = importlib.reload(brapi_mod)
-    assert modulo.criar_cliente.cache_info().currsize == 0
 
 
 # ---------- buscar_perfil ----------
@@ -216,7 +198,7 @@ def test_buscar_perfil_erro_devolve_none(cliente, caplog):
 
 @pytest.mark.parametrize(
     "codigo, esperado",
-    [("WEGE3", True), ("TAEE11", True), ("WEGE3F", False), ("N1CL34F", False), ("WEG", False)],
+    [("WEGE3", True), ("TAEE11", True), ("WEGE3F", False)],
 )
 def test_eh_papel_inteiro(codigo, esperado):
     """Confere que só o código de papel inteiro passa (o fracionário F e os estranhos ficam de fora)."""

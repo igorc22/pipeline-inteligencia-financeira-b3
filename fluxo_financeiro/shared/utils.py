@@ -37,7 +37,7 @@ def validar_ticker(texto: str) -> Optional[str]:
     """Ticker normalizado (maiúsculas, sem .SA) se o texto INTEIRO for um ticker da B3; senão None.
 
     Diferente de extrair_ticker, que procura um ticker dentro de um texto: aqui 'VALE3; ignore...'
-    é recusado. É a validação das entradas (CLI, API, dashboard) antes de o grafo rodar (D49).
+    é recusado. É a validação das entradas (CLI, API, dashboard) antes de o grafo rodar.
     """
     ticker = (texto or "").strip()
     # ASCII antes do upper(): "ß".upper() vira "SS", e \d casaria com dígitos de outras escritas ("３", "٣").
@@ -47,3 +47,13 @@ def validar_ticker(texto: str) -> Optional[str]:
     if ticker.endswith(".SA"):
         ticker = ticker[:-3]
     return ticker if re.fullmatch(r"[A-Z]{4}[0-9]{1,2}", ticker) else None
+
+
+def numero_br(valor: float, casas: int = 2) -> str:
+    """Número com vírgula decimal (66.114 → '66,11'): o texto das tools vai direto para o relatório."""
+    return f"{valor:.{casas}f}".replace(".", ",")
+
+
+def pct_br(fracao: float, casas: int = 1) -> str:
+    """Fração como porcentagem com vírgula decimal (0.1375, casas=2 → '13,75%')."""
+    return numero_br(fracao * 100, casas) + "%"

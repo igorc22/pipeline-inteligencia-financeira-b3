@@ -1,7 +1,7 @@
 """Detecção de anomalias em código, sem LLM. Usada pelo nó do YFinance para alimentar o guard do Investigator.
 
 Não é uma @tool: nenhum agente decide chamá-la. O grafo chama sempre, depois da coleta de dados,
-e o resultado decide de forma determinística se a Etapa 4 vai para o Investigator.
+e o resultado decide de forma determinística se o Investigator roda já na Etapa 2, em paralelo com o Analyzer.
 
 Regras (calibradas em 02/11/2026 com VALE3, WEGE3, PETR4, ITUB4, MGLU3, BBAS3, ABEV3):
 - queda_lucro: lucro líquido do último trimestre caiu mais de QUEDA_LUCRO_LIMITE em relação ao
@@ -20,7 +20,7 @@ import yfinance as yf
 
 from fluxo_financeiro.shared.retry import com_retentativas
 from fluxo_financeiro.shared.types import SinalAnomalia
-from fluxo_financeiro.shared.utils import logger
+from fluxo_financeiro.shared.utils import logger, numero_br
 from fluxo_financeiro.tools.financial_data import _calcular_score
 from fluxo_financeiro.tools.moeda import com_simbolo, ler_simbolo_moeda
 
@@ -75,7 +75,8 @@ def _valido(valor) -> bool:
 
 
 def _bilhoes(valor: float, simbolo: str) -> str:
-    return com_simbolo(f"{valor / 1e9:.2f} bi", simbolo)
+    """Valor em bilhões no formato brasileiro (vírgula decimal): o texto vai direto para o relatório."""
+    return com_simbolo(f"{numero_br(valor / 1e9)} bi", simbolo)
 
 
 def _sinais_trimestrais(ticker, trimestral, simbolo="") -> list[SinalAnomalia]:
@@ -85,7 +86,7 @@ def _sinais_trimestrais(ticker, trimestral, simbolo="") -> list[SinalAnomalia]:
     if not _valido(lucro.iloc[0]):
         return []
 
-    atual, data = float(lucro.iloc[0]), lucro.index[0].date()
+    atual, data = float(lucro.iloc[0]), lucro.index[0].strftime("%d/%m/%Y")
     sinais = []
     if atual < 0:
         sinais.append(SinalAnomalia(

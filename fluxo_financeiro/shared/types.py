@@ -77,9 +77,9 @@ def formatar_diagnostico(d: DiagnosticoPesquisa, fontes: list[str]) -> str:
         f"- Evidências: {'; '.join(evidencias) if evidencias else SEM_EVIDENCIAS}",
         f"- Impacto no investimento: {d.impacto}",
     ]
-    if fontes:
-        linhas.append(f"Fontes: {', '.join(fontes)}")
-    return "\n".join(linhas)
+    texto = "\n".join(linhas)
+    # Linha em branco antes das fontes: sem ela, o markdown emenda as fontes no item do Impacto.
+    return f"{texto}\n\nFontes: {', '.join(fontes)}" if fontes else texto
 
 
 class ErroAgente(BaseModel):
@@ -103,7 +103,7 @@ class MessagesState(TypedDict):
     decidido_por: str
     # Preenchido pelo nó do YFinance; se não estiver vazio, o Supervisor dispara o Analyzer e o
     # Investigator em paralelo na Etapa 2 (guard). Sem sinais, o Analyzer roda sozinho e na
-    # Etapa 4 o LLM decide se investiga.
+    # Etapa 3 o LLM decide se investiga.
     sinais_anomalia: list[SinalAnomalia]
     # Preenchido pelo Consolidador no fim do fluxo; None se o LLM dele falhou (fallback em texto).
     relatorio: Optional[RelatorioFinal]
@@ -148,7 +148,6 @@ class RouteDecision(BaseModel):
 
 class IndicadorEconomico(IntEnum):
     SELIC_META = 432
-    IPCA = 433
     CDI = 4389  # CDI anualizado (base 252). A série 12 é o CDI diário, ~0,05% ao dia
     IPCA_12M = 13522
 
@@ -156,7 +155,7 @@ class ConsultaBCBInput(BaseModel):
     indicador: IndicadorEconomico = Field(
         ...,
         description=(
-            "O indicador econômico que deseja consultar: 432 para Selic meta, 433 para IPCA do mês, "
+            "O indicador econômico que deseja consultar: 432 para Selic meta, "
             "4389 para CDI anualizado ou 13522 para IPCA acumulado em 12 meses."
         ),
     )

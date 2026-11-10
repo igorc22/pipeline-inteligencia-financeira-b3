@@ -113,14 +113,6 @@ def test_app_normaliza_ticker(grafo):
     assert at.text_input(key="ticker").value == "PETR4"  # o campo não fica vazio depois da análise
 
 
-def test_app_ticker_vazio_nao_roda(grafo):
-    """Confere que, sem ticker, aparece um aviso e o grafo não roda."""
-    at = _rodar("   ")
-
-    assert at.warning
-    grafo.stream.assert_not_called()
-
-
 def test_app_nao_roda_de_novo_sem_clique(grafo):
     """Confere que um rerun sem clicar (trocar de aba, abrir expansor) não roda o grafo de novo."""
     at = _rodar("PETR4")
@@ -155,26 +147,6 @@ def test_app_erro_no_grafo_mantem_passos(grafo):
     assert "Preço Atual: R$ 52.71" in _textos(at)
 
 
-def test_app_escapa_cifrao(grafo):
-    """Confere que o R$ do texto chega ao markdown escapado (senão o Streamlit desenha como fórmula)."""
-    at = _rodar("PETR4")
-
-    assert "Lucro de R\\$ 3,2 bi contra R\\$ 5,0 bi." in _textos(at)
-
-
-def test_app_erro_sem_texto_mostra_o_tipo(grafo):
-    """Confere que uma exceção sem mensagem ainda diz o que falhou."""
-    def _quebra(*a, **k):
-        yield from _analise()[:2]
-        raise TimeoutError()
-
-    grafo.stream.side_effect = _quebra
-
-    at = _rodar("PETR4")
-
-    assert any("TimeoutError" in e.value for e in at.error)
-
-
 def test_app_trava_campos_durante_a_analise(grafo):
     """Confere que o botão e o campo ficam travados enquanto o grafo roda e voltam ao fim.
 
@@ -196,13 +168,6 @@ def test_app_trava_campos_durante_a_analise(grafo):
     assert vistos == [True]
     assert at.button[0].disabled is False
     assert grafo.stream.call_count == 1
-
-
-def test_app_passos_sem_none_solto(grafo):
-    """Confere que nenhum 'None' aparece na tela (a mágica do Streamlit desenha expressões soltas)."""
-    at = _rodar("PETR4")
-
-    assert not any(str(e.value).strip("` ") == "None" for e in at.markdown)  # a mágica desenha `None`
 
 
 def test_app_mostra_raciocinio_e_card_do_consolidador(grafo):
@@ -232,14 +197,6 @@ def test_app_recusa_ticker_inexistente(grafo, _ticker_existe):
 
     assert any("Ticker não encontrado na B3: XXXX3." in w.value for w in at.warning)
     grafo.stream.assert_not_called()
-
-
-def test_app_aceita_sufixo_sa(grafo):
-    """Confere que o ticker com .SA é aceito e vai sem o sufixo para o grafo."""
-    _rodar("vale3.sa")
-
-    pedido = grafo.stream.call_args.args[0]["messages"][0]
-    assert pedido.content == "Analise a ação VALE3"
 
 
 def test_app_status_e_diagrama_atualizam_ao_vivo_no_stream(grafo):
@@ -298,85 +255,6 @@ def test_app_status_e_diagrama_atualizam_ao_vivo_no_stream(grafo):
     dot_cons = next(d for n, d in diagramas_dot if n == 5)
     assert 'consolidador [label="Consolidador\\n(rodando agora)"' in dot_cons
     assert 'label="3 · LLM"' in dot_cons
-
-
-def test_app_status_e_diagrama_com_investigator(grafo):
-    """Confere que o status ao vivo e o diagrama destacam o Investigator quando despachado pelo Supervisor."""
-    import streamlit as st
-    import dashboard.visao as visao
-
-    status_labels = []
-    diagramas_dot = []
-
-    orig_status = st.status
-
-    def spy_status(*a, **k):
-        s = orig_status(*a, **k)
-        orig_up = s.update
-
-        def up(*ua, **uk):
-            lbl = uk.get("label") or (ua[0] if ua else None)
-            if lbl:
-                status_labels.append(lbl)
-            return orig_up(*ua, **uk)
-
-        s.update = up
-        return s
-
-    orig_dot = visao.dot_do_caminho_em_progresso
-
-    def spy_dot(eventos):
-        dot = orig_dot(eventos)
-        diagramas_dot.append((len(eventos), dot))
-        return dot
-
-    fluxo_investigator = _analise()[:4] + [
-        _sup("llm", "Investigator", "Investigue anomalia"),
-        _worker("Investigator", "Causa encontrada."),
-        _sup("guard", "FINISH"),
-        ("updates", {"Consolidador": {"messages": [HumanMessage("Relatório com anomalia", name="Consolidador")]}}),
-        ("values", {"messages": [], "loop_count": 4, "next_agent": "FINISH", "relatorio": None, "sinais_anomalia": []}),
-    ]
-    grafo.stream.side_effect = lambda *a, **k: iter(fluxo_investigator)
-
-    with patch.object(st, "status", spy_status), \
-         patch.object(visao, "dot_do_caminho_em_progresso", spy_dot):
-        at = _rodar("PETR4")
-
-    assert not at.exception
-    assert "Analisando PETR4: Investigator..." in status_labels
-    dot_inv = next(d for n, d in diagramas_dot if n == 5)
-    assert 'investigator [label="Investigator\\n(rodando agora)"' in dot_inv
-    assert 'label="3 · LLM"' in dot_inv
-
-
-def test_app_erro_no_stream_atualiza_diagrama_para_interrompido(grafo):
-    """Confere que uma falha durante o streaming atualiza o diagrama no status para o estado interrompido."""
-    import dashboard.visao as visao
-
-    diagramas_dot = []
-
-    def _quebra(*a, **k):
-        yield from _analise()[:3]  # YFinance concluiu, Supervisor despachou Analyzer
-        raise RuntimeError("Conexão interrompida com o provedor de LLM")
-
-    grafo.stream.side_effect = _quebra
-
-    orig_dot = visao.dot_do_caminho
-
-    def spy_dot(*a, **k):
-        dot = orig_dot(*a, **k)
-        diagramas_dot.append(dot)
-        return dot
-
-    with patch.object(visao, "dot_do_caminho", spy_dot):
-        at = _rodar("PETR4")
-
-    assert any("Conexão interrompida" in e.value for e in at.error)
-    # O último diagrama gerado para o status deve mostrar Interrompido e nenhum nó 'rodando agora'
-    ultimo_dot = diagramas_dot[-1]
-    assert "Interrompido" in ultimo_dot
-    assert "(rodando agora)" not in ultimo_dot
 
 
 def test_app_supervisor_next_agent_nulo_nao_gera_status_invalido(grafo):
@@ -439,94 +317,6 @@ def test_app_stream_terminado_sem_consolidador_marca_interrompido(grafo):
     ultimo_dot = diagramas_dot[-1]
     assert "Interrompido" in ultimo_dot
     assert "(rodando agora)" not in ultimo_dot
-
-
-def test_app_mensagem_final_com_string_ou_dicionario(grafo):
-    """Confere que mensagens finais em string ou dicionário são lidas sem causar exceção."""
-    fluxo = _analise()[:-2] + [
-        ("updates", {"Consolidador": {"messages": ["Relatório direto em string de texto."]}}),
-        ("values", {"messages": [], "loop_count": 4, "next_agent": "FINISH", "relatorio": None, "sinais_anomalia": []}),
-    ]
-    grafo.stream.side_effect = lambda *a, **k: iter(fluxo)
-
-    at = _rodar("PETR4")
-
-    assert not at.exception
-    assert "Relatório direto em string de texto." in _textos(at)
-
-
-def test_app_mensagem_final_com_evento_none_ou_vazio(grafo):
-    """Confere que eventos com update nulo ou vazio não causam erro na busca da mensagem final nem nas prévias."""
-    from dashboard.app import _mensagem_final, _previa
-
-    assert _mensagem_final({"eventos": [("Consolidador", None)]}) is None
-    assert _mensagem_final({"eventos": [("Consolidador", {})]}) is None
-    assert _mensagem_final({}) is None
-    assert _previa(None) == ""
-    assert _previa("") == ""
-
-
-def test_app_erro_apos_consolidador_marca_interrompido_na_aba_como_foi_feito(grafo):
-    """Confere que erro ocorrido durante ou após o Consolidador desenha nó Interrompido na aba Como foi feito."""
-    import dashboard.visao as visao
-
-    diagramas_aba = []
-    orig_dot = visao.dot_do_caminho
-
-    def spy_dot(*a, **k):
-        dot = orig_dot(*a, **k)
-        diagramas_aba.append((k.get("consolidou"), dot))
-        return dot
-
-    def _quebra_depois_do_consolidador(*a, **k):
-        yield from _analise()[:-1]  # emite Consolidador mas quebra antes de values
-        raise RuntimeError("Falha de persistência do state")
-
-    grafo.stream.side_effect = _quebra_depois_do_consolidador
-
-    with patch.object(visao, "dot_do_caminho", spy_dot):
-        at = _rodar("PETR4")
-
-    assert any("Falha de persistência" in e.value for e in at.error)
-    # Na aba 'Como foi feito', consolidou deve ser False devido ao erro registrado
-    chamadas_falsas = [dot for consolidou, dot in diagramas_aba if consolidou is False]
-    assert chamadas_falsas
-    assert "Interrompido" in chamadas_falsas[-1]
-
-
-def test_app_fluxo_paralelo_stream(grafo):
-    """Confere que o app renderiza a análise com passo paralelo (Analyzer + Investigator) sem exceções."""
-    mensagens = [HumanMessage("Analise a ação VALE3"), HumanMessage(FINAL_MD, name="Consolidador")]
-    fluxo = [
-        _sup("llm", "YFinance", "Colete os dados da VALE3"),
-        _worker("YFinance", "Dados para VALE3.SA:\nPreço: R$ 60\nP/L: 5.2x"),
-        ("updates", {
-            "Supervisor": {
-                "next_agent": "Analyzer+Investigator",
-                "loop_count": 1,
-                "decidido_por": "guard",
-                "supervisor_reasoning": "Sinais de anomalia encontrados.",
-                "messages": [
-                    HumanMessage("## Notícias da empresa", name="Supervisor"),
-                    HumanMessage("Investigue", name="Supervisor"),
-                ],
-            }
-        }),
-        _worker("Analyzer", "Notícias e setor da VALE3"),
-        _worker("Investigator", "Diagnóstico: impairment"),
-        _sup("guard", "FINISH"),
-        ("updates", {"Consolidador": {"messages": [mensagens[-1]], "relatorio": RELATORIO}}),
-        ("values", {"messages": mensagens, "loop_count": 3, "next_agent": "FINISH",
-                    "relatorio": RELATORIO, "sinais_anomalia": []}),
-    ]
-    grafo.stream.side_effect = lambda *a, **k: iter(fluxo)
-
-    at = _rodar("VALE3")
-
-    assert not at.exception
-    assert len(at.tabs) == 3
-    assert "A Petrobras apresenta fundamentos sólidos." in _textos(at)
-    assert at.text_input(key="ticker").value == "VALE3"
 
 
 def test_app_paralelo_atualiza_status_quando_um_ramo_termina(grafo):

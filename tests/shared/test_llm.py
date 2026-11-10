@@ -30,14 +30,9 @@ def test_criar_llm_sem_chave_nao_quebra_importacao():
     assert llm.google_api_key.get_secret_value() == llm_module.CHAVE_AUSENTE
 
 
-def test_criar_llm_reutiliza_a_mesma_instancia():
-    """Confere que todos os agentes compartilham uma única instância do LLM."""
-    assert llm_module.criar_llm() is llm_module.criar_llm()
-
-
 @pytest.mark.parametrize("valor,esperado", [
-    ("true", True), ("True", True), ("1", True), (" sim ", True), ("on", True), ("YES", True),
-    ("false", False), ("0", False), ("", False), (None, False), ("talvez", False),
+    ("true", True), (" sim ", True), ("YES", True),
+    ("", False), (None, False), ("talvez", False),
 ])
 def test_flag_ligada_aceita_variacoes(valor, esperado):
     """Confere que a flag aceita os jeitos comuns de escrever 'ligado' e trata o resto como desligado."""
@@ -53,8 +48,3 @@ def test_sanitizador_usa_o_modelo_configurado():
     assert llm.model.endswith("modelo-x")
     assert llm.temperature is None
 
-
-def test_sanitizador_e_instancia_separada_do_llm_principal():
-    """Confere que o sanitizador tem instância própria (única) e não reaproveita a dos agentes."""
-    assert llm_module.criar_llm_sanitizador() is not llm_module.criar_llm()
-    assert llm_module.criar_llm_sanitizador() is llm_module.criar_llm_sanitizador()

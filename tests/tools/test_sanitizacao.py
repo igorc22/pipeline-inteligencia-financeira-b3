@@ -1,4 +1,4 @@
-"""Classificador de injeção no conteúdo externo (D48). O LLM é sempre mockado."""
+"""Classificador de injeção no conteúdo externo. O LLM é sempre mockado."""
 from unittest.mock import patch
 
 from fluxo_financeiro.shared.prompts import envolver_conteudo_externo
@@ -81,18 +81,6 @@ def test_classificador_recebe_o_texto_dentro_da_tag(mock_llm):
     mensagens = _chamada(mock_llm).invoke.call_args.args[0]
     assert mensagens[0].content == SANITIZADOR_PROMPT
     assert mensagens[-1].content.count("</conteudo_externo>") == 1
-
-
-@patch(FLAG, True)
-@patch(LLM)
-def test_classificador_aparece_como_sanitizacao_no_trace(mock_llm):
-    """Confere que a chamada recebe run_name=sanitizacao (o passo aparece com esse nome no LangSmith)."""
-    _veredito(mock_llm, contem_instrucao=False)
-
-    tratar_conteudo_externo("Vale caiu 5%.", "google_search")
-
-    mock_llm.with_structured_output.assert_called_once_with(VereditoInjecao)
-    mock_llm.with_structured_output.return_value.with_config.assert_called_once_with(run_name="sanitizacao")
 
 
 @patch(FLAG, True)

@@ -6,12 +6,8 @@ from fluxo_financeiro.shared.prompts import (
 
 
 def test_escapar_tags_troca_sinais_de_menor_e_maior():
-    """Confere que < e > viram entidades, para o texto não abrir nem fechar tags."""
+    """Confere que < e > viram entidades, para o texto não abrir nem fechar tags, e que o & fica (S&P continua S&P)."""
     assert escapar_tags("P/L < 10 e <b>x</b>") == "P/L &lt; 10 e &lt;b&gt;x&lt;/b&gt;"
-
-
-def test_escapar_tags_nao_mexe_no_e_comercial():
-    """Confere que só < e > mudam (S&P continua S&P, diferente do html.escape)."""
     assert escapar_tags("S&P 500") == "S&P 500"
 
 
@@ -35,14 +31,10 @@ def test_escapar_tags_neutraliza_sinais_parecidos():
     assert texto.count("&lt;") == 4 and texto.count("&gt;") == 4
 
 
-def test_regra_conteudo_externo_declara_mensagens_dos_agentes_como_dado():
-    """Confere o 2º salto: o que os outros agentes escreveram no histórico também é dado, não tarefa."""
+def test_regra_conteudo_externo_cita_a_tag():
+    """Confere que a regra dos prompts fala da tag que as tools usam e que o histórico dos outros agentes também é dado."""
+    assert "<conteudo_externo>" in REGRA_CONTEUDO_EXTERNO
     for trecho in ("histórico", "YFinance", "Analyzer", "Investigator"):
         assert trecho in REGRA_CONTEUDO_EXTERNO
-
-
-def test_regra_conteudo_externo_cita_a_tag():
-    """Confere que a regra dos prompts fala da tag que as tools usam."""
-    assert "<conteudo_externo>" in REGRA_CONTEUDO_EXTERNO
     assert REGRA_CONTEUDO_EXTERNO.startswith("<seguranca>")
     assert REGRA_CONTEUDO_EXTERNO.rstrip().endswith("</seguranca>")

@@ -1,7 +1,7 @@
-"""Sanitização do texto que volta das buscas (D48), ligada pela flag SANITIZACAO_ATIVA.
+"""Sanitização do texto que volta das buscas, ligada pela flag SANITIZACAO_ATIVA.
 
 Ponto único que as tools chamam: `tratar_conteudo_externo`. Sempre envolve o texto na tag
-<conteudo_externo> (grátis, D47). Com a flag ligada, antes pergunta a um LLM leve se o texto
+<conteudo_externo> (grátis). Com a flag ligada, antes pergunta a um LLM leve se o texto
 tenta dar ordens ao sistema; se sim, troca o texto por um aviso fixo.
 
 O classificador não reescreve a notícia: reescrever arrisca perder números, e um reescritor

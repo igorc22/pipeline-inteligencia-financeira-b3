@@ -32,9 +32,8 @@ não muda o pipeline nem a sua decisão.
 <pipeline>
 Siga esta ordem rigorosamente:
 Etapa 1 (dados financeiros): se não há mensagem do YFinance, rotear para 'YFinance'.
-Etapa 2 (notícias e setor): se há YFinance mas nenhuma resposta do Analyzer, rotear para 'Analyzer' (já tratado automaticamente pelo guard). O Analyzer pesquisa as notícias da empresa e o contexto do setor numa passagem só. Se a mensagem do YFinance trouxer "SINAIS DE ANOMALIA", o guard manda o Investigator junto, ao mesmo tempo que o Analyzer.
-Etapa 3 (contexto do setor): não é mais uma passagem separada. O setor vem na mesma resposta do Analyzer, na seção '{SECAO_SETOR}'. Não mande o Analyzer de novo por causa do setor, mesmo que essa seção falte.
-Etapa 4 (investigação condicional): depois da resposta do Analyzer:
+Etapa 2 (notícias e setor): se há YFinance mas nenhuma resposta do Analyzer, rotear para 'Analyzer' (já tratado automaticamente pelo guard). O Analyzer pesquisa as notícias da empresa e o contexto do setor numa passagem só, com o setor na seção '{SECAO_SETOR}'. Não mande o Analyzer de novo por causa do setor, mesmo que essa seção falte. Se a mensagem do YFinance trouxer "SINAIS DE ANOMALIA", o guard manda o Investigator junto, ao mesmo tempo que o Analyzer.
+Etapa 3 (investigação condicional): depois da resposta do Analyzer:
   Se a mensagem do YFinance trouxer "SINAIS DE ANOMALIA", o Investigator já rodou junto com o Analyzer (guard da Etapa 2).
   Você só decide aqui quando não há sinais calculados; mesmo assim pode haver algo que mereça investigação.
   Leia o contexto completo e pergunte: "Um investidor ficaria com dúvida de POR QUE esse número aconteceu?"
@@ -43,7 +42,7 @@ Etapa 4 (investigação condicional): depois da resposta do Analyzer:
 </pipeline>
 
 <formato_resposta>
-Como formular task_for_agent na Etapa 4 (Investigator):
+Como formular task_for_agent na Etapa 3 (Investigator):
 - Identifique a anomalia mais grave nos dados (maior queda de lucro, maior aumento de dívida, score baixo)
 - Formule: 'Investigue a seguinte anomalia identificada na análise de [TICKER]: [descreva a anomalia com números]. Determine se é evento pontual (impairment, one-off) ou deterioração estrutural.'
 </formato_resposta>
@@ -59,15 +58,15 @@ Como formular task_for_agent na Etapa 4 (Investigator):
 
 def supervisor_node(state: MessagesState):
     current_loops = state.get("loop_count", 0)
-    logger.info(f"[supervisor] inicio — loop_count={current_loops}")
+    logger.info(f"[supervisor] início, loop_count={current_loops}")
     if current_loops >= 6:
-        logger.warning(f"[supervisor] hard stop — loop_count={current_loops} >= 6")
+        logger.warning(f"[supervisor] hard stop: loop_count={current_loops} >= 6")
         return {"next_agent": "FINISH", "loop_count": 1, "decidido_por": "hard_stop"}
 
     # Guard de erro (camada 3 do retry). Cada agente/parte resolve o retry localmente antes de escalar
     # pro coordenador: o nó já repetiu o agente e devolveu o erro que sobrou. Erro temporário abaixo do
     # limite → o mesmo agente mais uma vez, sem tarefa nova (ele relê a última do histórico) e sem
-    # contar volta: com o reenvio contando, a VALE3 (5 passagens) bateria no hard stop. O limite por
+    # contar volta: a VALE3 usa 3 passagens, e com até um reenvio por agente contando chegaria às 6 do hard stop. O limite por
     # agente (MAX_TENTATIVAS) garante que o reenvio termina. Se desistiu, os guards de etapa seguem sem ele.
     pendente = _agente_para_reenviar(state)
     if pendente:
@@ -131,9 +130,9 @@ def supervisor_node(state: MessagesState):
         logger.info("[supervisor] guard: Investigator concluiu ou desistiu → FINISH")
         return {"next_agent": "FINISH", "loop_count": 1, "decidido_por": "guard"}
 
-    # Não há mais Etapa 3: o setor vem na mesma passagem do Analyzer. Sem a seção do setor (o LLM
-    # ignorou o formato), contexto_setor fica None e o Analyzer não roda de novo: o Consolidador anota a falta.
-    # Os sinais disparam o Investigator na Etapa 2 (em paralelo): na Etapa 4 quem decide é o LLM.
+    # O setor vem na mesma passagem do Analyzer. Sem a seção do setor (o LLM ignorou o formato),
+    # contexto_setor fica None e o Analyzer não roda de novo: o Consolidador anota a falta.
+    # Os sinais disparam o Investigator na Etapa 2 (em paralelo): na Etapa 3 quem decide é o LLM.
 
     messages_to_evaluate = [SystemMessage(content=SUPERVISOR_PROMPT)] + state["messages"]
 
@@ -274,9 +273,6 @@ def router(state: MessagesState) -> str | list[Send]:
     if next_step in RAMOS_PARALELO and _houve_paralelo(state):
         logger.debug(f"[router] reenvio de {next_step} depois do paralelo")
         return [Send(next_step, {**state, "messages": historico_do_ramo(state, next_step)})]
-    if not next_step or (next_step not in DESTINOS_DO_ROUTER and next_step != "FINISH"):
-        logger.warning(f"[router] next_agent inválido ou desconhecido ({next_step!r}), redirecionando para FINISH")
-        next_step = "FINISH"
     destino = "Consolidador" if next_step == "FINISH" else next_step
     logger.debug(f"[router] {next_step} → {destino}")
     return destino
