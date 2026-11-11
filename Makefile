@@ -5,7 +5,7 @@ TICKER ?= VALE3
 FIXTURE ?= vale3
 
 .DEFAULT_GOAL := help
-.PHONY: help install test test-tools test-agents test-graph check run streamlit e2e e2e-anomalia e2e-estavel e2e-sanitizacao eval-fixtures eval-fixtures-tavily eval eval-vale3 eval-wege3 eval-todos notebook clean
+.PHONY: help install test test-tools test-agents test-graph check run streamlit e2e e2e-anomalia e2e-estavel e2e-sanitizacao eval-fixtures eval-fixtures-tavily eval eval-vale3 eval-wege3 eval-todos notebook docker-up docker-dev docker-down docker-logs clean
 
 help:
 	@echo Alvos disponiveis:
@@ -28,6 +28,10 @@ help:
 	@echo   make eval-wege3      - evals na fixture da WEGE3, sem Investigator, GASTA CREDITOS
 	@echo   make -k eval-todos   - evals nas duas fixtures, o -k roda a WEGE3 mesmo se a VALE3 reprovar, GASTA CREDITOS
 	@echo   make notebook        - abre o Jupyter
+	@echo   make docker-up       - dashboard num container em http://localhost:8501, em segundo plano, GASTA CREDITOS por analise
+	@echo   make docker-dev      - o mesmo com recarga ao salvar: o codigo vai para o container sem rebuild
+	@echo   make docker-down     - para e remove o container
+	@echo   make docker-logs     - acompanha o log do container
 	@echo   make clean           - apaga os caches __pycache__ e .pytest_cache
 
 install:
@@ -99,6 +103,18 @@ eval-todos: eval-vale3 eval-wege3
 
 notebook:
 	uv run jupyter notebook
+
+docker-up:
+	docker compose up --build -d
+
+docker-dev:
+	docker compose up --build --watch
+
+docker-down:
+	docker compose down
+
+docker-logs:
+	docker compose logs -f dashboard
 
 clean:
 	uv run python -c "import pathlib, shutil; [shutil.rmtree(p, ignore_errors=True) for p in [*pathlib.Path('.').rglob('__pycache__'), pathlib.Path('.pytest_cache')] if '.venv' not in p.parts]"
