@@ -119,7 +119,7 @@ O Banco Central não pede chave. A busca no Google pelo Gemini só funciona com 
 make test    # 390 testes, tudo mockado, ~23 s
 ```
 
-A rede fica bloqueada nos testes pelo `pytest-socket`: um mock esquecido reprova o teste em vez de chamar uma API paga. A suíte já teve 564 testes e foi enxugada: saiu o que não protegia nenhuma regra (teste de código morto, a mesma regra testada em três camadas, variações de formatação).
+A rede fica bloqueada nos testes pelo `pytest-socket`: um mock esquecido reprova o teste em vez de chamar uma API paga.
 
 O e2e roda o grafo de verdade e falha se o caminho sair do esperado:
 
