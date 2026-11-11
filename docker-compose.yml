@@ -1,0 +1,36 @@
+# Dashboard em http://localhost:8501. Cada análise gasta créditos, como fora do Docker.
+#   make docker-up   -> docker compose up --build -d   (a imagem como ela é)
+#   make docker-dev  -> docker compose up --build --watch   (recarga ao salvar)
+services:
+  dashboard:
+    build:
+      context: .
+      target: runtime
+    image: pipeline-b3-dashboard
+    ports:
+      - "8501:8501"
+    # Lido na hora de subir: o .env nunca entra na imagem
+    env_file:
+      - .env
+    environment:
+      # Fora do modo watch os arquivos não mudam, então ligado não custa nada
+      STREAMLIT_SERVER_RUN_ON_SAVE: "true"
+    restart: unless-stopped
+    develop:
+      watch:
+        # Código: copiado para dentro do container, sem rebuild; o Streamlit recarrega a página
+        - action: sync
+          path: ./fluxo_financeiro
+          target: /app/fluxo_financeiro
+          ignore:
+            - "**/__pycache__/"
+        - action: sync
+          path: ./dashboard
+          target: /app/dashboard
+          ignore:
+            - "**/__pycache__/"
+        # Dependências: refaz a imagem (só a camada do uv sync roda de novo)
+        - action: rebuild
+          path: pyproject.toml
+        - action: rebuild
+          path: uv.lock

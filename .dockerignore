@@ -1,0 +1,11 @@
+# Lista de permissão: tudo fica fora do contexto do build, menos o que a imagem usa.
+# Arquivos locais (chaves, ambiente, caches) nunca chegam perto da imagem, sem precisar listar um a um.
+*
+!pyproject.toml
+!uv.lock
+!fluxo_financeiro/
+!dashboard/
+
+# Mesmo dentro das pastas liberadas
+**/__pycache__
+**/*.py[oc]

@@ -403,6 +403,22 @@ Para comparar os dois provedores em condições reais, gerei fixtures separadas 
 
 O volume e o formato do texto retornado também mudam bastante entre os dois. Nas fixtures, cada busca de notícias pela Tavily trouxe entre 2,8 mil e 3,3 mil caracteres, contra 1,4 mil a 1,7 mil do resumo do Google, perto do dobro, e no notebook `20` a resposta curta da Tavily veio em inglês incluindo uma página de perfil da própria plataforma entre os resultados da Vale. Nas execuções reais de ponta a ponta os quatro cenários fecharam em 3 voltas no supervisor, com a VALE3 levando 25,3 s no Google e 22,0 s na Tavily e a WEGE3 fechando em 23,0 s e 23,4 s. No notebook, a mesma pergunta levou 3,9 s no Google e 0,5 s na Tavily, mas foi uma chamada só em cada provedor, e uma única passagem não basta para afirmar uma diferença de velocidade entre as APIs.
 
+## O dashboard num container
+
+O deploy na AWS e o banco para registrar as análises dependem de um ambiente que não mude de máquina para máquina, por isso o container veio antes deles. Empacotei só o dashboard, que é a parte que uso no navegador e a que vai para a nuvem. A CLI, os testes e os evals continuam rodando pelo `uv`, porque levá-los para a imagem exigiria os grupos de desenvolvimento (pytest, deepeval e jupyter), que nunca rodam no servidor e só aumentariam o tamanho da imagem.
+
+A imagem é montada em dois estágios. No primeiro, o `uv` instala as dependências num `.venv` a partir do `uv.lock`, sem os grupos `dev` e `notebooks`, e o segundo recebe apenas esse `.venv` e o código, sem o próprio `uv`. As dependências ficam numa camada anterior ao código, então uma mudança em `fluxo_financeiro/` ou `dashboard/` reaproveita a instalação inteira do cache. O primeiro build levou 7 minutos, quase todos baixando pacotes, e um rebuild depois de mexer só no código levou 17,8 s, com o `uv sync` saindo do cache. Quando o `uv.lock` muda, um cache montado no build guarda os pacotes já baixados e só o que mudou é baixado de novo. O `.venv` final ocupa uns 615 MB, quase todos de dependências do Streamlit e do yfinance (pyarrow, pandas e numpy), e não havia o que cortar ali sem trocar de biblioteca.
+
+As chaves continuam no `.env` e entram no container só na hora de subir, pelo `env_file` do compose, sem nunca passar pela imagem. Escrevi o `.dockerignore` como lista de permissão: ele ignora tudo e libera só o `pyproject.toml`, o `uv.lock` e as duas pastas de código. Uma lista do que excluir teria de citar pelo nome cada arquivo local do meu ambiente, e qualquer arquivo novo que eu esquecesse de listar entraria no contexto do build. O container roda com um usuário sem privilégio e tem healthcheck na rota de saúde do próprio Streamlit.
+
+Para o dia a dia, quis que salvar um arquivo bastasse para ver a mudança no navegador, sem refazer a imagem. Montar a pasta do projeto dentro do container dependeria de o aviso de arquivo alterado atravessar a montagem, o que no Windows não acontece, e a saída seria varrer a pasta montada de tempos em tempos. Usei o modo watch do compose, que copia o arquivo salvo para dentro do container, e a configuração pediu três ajustes:
+
+- O Streamlit só recarrega um módulo de fora da pasta do `app.py` quando ele está no `PYTHONPATH`. Por isso o pacote não é instalado no `.venv`, e o `PYTHONPATH` aponta para a raiz do código, o que faz uma mudança em `fluxo_financeiro/` recarregar a página também.
+- O código copiado para a imagem pertence ao usuário do container, porque é com esse usuário que o watch escreve os arquivos alterados.
+- Uma mudança no `pyproject.toml` ou no `uv.lock` não é copiada, e sim refaz a imagem, aproveitando o cache das camadas.
+
+Conferi a recarga com a página aberta, mudando o título no `app.py` e o texto do aviso de ticker inválido em `fluxo_financeiro/shared/utils.py`, e as duas mudanças apareceram sem rebuild e sem recarregar o navegador.
+
 ## O que ainda não resolvi
 
 Os quatro campos de agente no estado ainda guardam texto livre, e os agentes seguem lendo uns aos outros pelo histórico de mensagens. O erro de uma tool chamada pelo LLM continua chegando como string, então o agente lê o "Erro ao ..." e segue em frente, e o supervisor só fica sabendo de uma falha quando o agente inteiro falha. O Analyzer roda numa passagem só e em paralelo com a pesquisa quando há sinais de anomalia, mas ainda é um agente ReAct livre, enquanto o Investigator já segue um fluxo controlado em código.
@@ -413,9 +429,8 @@ A neutralidade do relatório também segue só no prompt. O eval de neutralidade
 
 Daqui para a frente, a ordem é esta:
 
-- Docker e docker-compose, para subir o projeto inteiro com um comando só e fixar o ambiente de que as etapas seguintes dependem.
-- Deploy na AWS em cima desse container, para o projeto sair da minha máquina.
-- Um banco para registrar as chamadas, guardando a entrada, a saída, a data e a hora de cada análise, junto com o checkpointer e o cache de dados frescos. Parecem a mesma coisa, mas resolvem problemas diferentes: o checkpointer guarda o estado de uma análise para ela poder ser retomada, e o cache evita buscar de novo no yfinance um dado que acabou de chegar. Os três dependem de armazenamento persistente, por isso entram depois do container, quando já está definido onde os dados vão ficar.
+- Deploy na AWS em cima do container do dashboard, para o projeto sair da minha máquina.
+- Um banco para registrar as chamadas, guardando a entrada, a saída, a data e a hora de cada análise, junto com o checkpointer e o cache de dados frescos. Parecem a mesma coisa, mas resolvem problemas diferentes: o checkpointer guarda o estado de uma análise para ela poder ser retomada, e o cache evita buscar de novo no yfinance um dado que acabou de chegar. Os três dependem de armazenamento persistente, por isso entram depois do deploy, quando já está definido onde os dados vão ficar.
 - Um LiteLLM na frente do modelo, para deixar o provedor genérico. Hoje o LLM dos agentes já sai de um arquivo só, mas a busca padrão pelo Google e a leitura dos códigos de erro no retry ainda são do Gemini, e com ele bastaria mudar a configuração.
 - Um servidor MCP com as tools do projeto (dados da ação, métricas de risco, Piotroski, indicadores do BCB, notícias e histórico trimestral), para que outros clientes e agentes usem as mesmas ferramentas sem passar pelo grafo. Como cada tool já tem uma docstring que diz quando usá-la e devolve o erro como resposta em vez de levantar exceção, ela chega pronta para ser exposta pelo protocolo.
 
