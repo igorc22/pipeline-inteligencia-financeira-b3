@@ -417,6 +417,7 @@ Daqui para a frente, a ordem é esta:
 - Deploy na AWS em cima desse container, para o projeto sair da minha máquina.
 - Um banco para registrar as chamadas, guardando a entrada, a saída, a data e a hora de cada análise, junto com o checkpointer e o cache de dados frescos. Parecem a mesma coisa, mas resolvem problemas diferentes: o checkpointer guarda o estado de uma análise para ela poder ser retomada, e o cache evita buscar de novo no yfinance um dado que acabou de chegar. Os três dependem de armazenamento persistente, por isso entram depois do container, quando já está definido onde os dados vão ficar.
 - Um LiteLLM na frente do modelo, para deixar o provedor genérico. Hoje o LLM dos agentes já sai de um arquivo só, mas a busca padrão pelo Google e a leitura dos códigos de erro no retry ainda são do Gemini, e com ele bastaria mudar a configuração.
+- Um servidor MCP com as tools do projeto (dados da ação, métricas de risco, Piotroski, indicadores do BCB, notícias e histórico trimestral), para que outros clientes e agentes usem as mesmas ferramentas sem passar pelo grafo. Como cada tool já tem uma docstring que diz quando usá-la e devolve o erro como resposta em vez de levantar exceção, ela chega pronta para ser exposta pelo protocolo.
 
 Depois de tudo isso, quero expor esse fluxo como um agente A2A, que um futuro fluxo de análise de carteira consiga descobrir e chamar. A API do começo do projeto volta, mas falando o protocolo, e o relatório estruturado vira a resposta que o agente de carteira vai consumir.
 

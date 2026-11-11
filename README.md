@@ -140,6 +140,7 @@ Toda nota vai para `tests/evals/notas.csv`, com o custo, e cada reprovação dei
 - Banco de dados para registrar cada análise (entrada, saída, data e hora)
 - Checkpointer para retomar uma análise e cache para não buscar de novo um dado que acabou de chegar
 - LiteLLM na frente do modelo, para trocar de provedor sem mexer nos agentes
+- Servidor MCP com as tools do projeto (dados da ação, métricas de risco, Piotroski, indicadores do BCB, notícias e histórico trimestral), para outros clientes e agentes usarem as mesmas ferramentas sem passar pelo grafo
 - Expor o pipeline como agente A2A, para um futuro fluxo de análise de carteira descobrir e chamar
 
 ## Estrutura
