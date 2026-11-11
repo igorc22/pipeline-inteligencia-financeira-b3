@@ -93,7 +93,7 @@ make docker-dev         # docker compose up --build --watch, recarrega ao salvar
 make docker-down        # para e remove o container
 ```
 
-No `make docker-dev`, salvar um arquivo em `fluxo_financeiro/` ou `dashboard/` copia o arquivo para o container e a página recarrega em segundos, sem rebuild. Mexer no `pyproject.toml` ou no `uv.lock` refaz a imagem, mas o `uv sync` só reinstala o que mudou, porque as dependências ficam numa camada própria, antes do código, e os pacotes baixados ficam num cache do build. A imagem tem dois estágios (o `uv` monta o `.venv` e só o `.venv` e o código vão para a imagem final), deixa de fora os grupos `dev` e `notebooks`, roda com um usuário sem privilégio e tem healthcheck. O `.dockerignore` é uma lista de permissão: só `pyproject.toml`, `uv.lock`, `fluxo_financeiro/` e `dashboard/` entram no contexto do build.
+No `make docker-dev`, salvar um arquivo em `fluxo_financeiro/` ou `dashboard/` copia o arquivo para o container e a página recarrega em segundos, sem rebuild. Mexer no `pyproject.toml` ou no `uv.lock` refaz a imagem, mas o `uv sync` só reinstala o que mudou, porque as dependências ficam numa camada própria, antes do código, e os pacotes baixados ficam num cache do build. A imagem tem dois estágios (o `uv` monta o `.venv` e só o `.venv` e o código vão para a imagem final), deixa de fora os grupos `dev` e `notebooks`, roda com um usuário sem privilégio, tem healthcheck e publica a porta só no localhost (o dashboard não tem login e cada análise gasta créditos). O `.dockerignore` é uma lista de permissão: só `pyproject.toml`, `uv.lock`, `fluxo_financeiro/` e `dashboard/` entram no contexto do build.
 
 ## Chaves de API
 

@@ -7,8 +7,9 @@ services:
       context: .
       target: runtime
     image: pipeline-b3-dashboard
+    # Só no localhost: o dashboard não tem login e cada análise gasta créditos
     ports:
-      - "8501:8501"
+      - "127.0.0.1:8501:8501"
     # Lido na hora de subir: o .env nunca entra na imagem
     env_file:
       - .env
