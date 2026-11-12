@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "estudo-arquitetura-coordenador-langchain"
+name = "pipeline-inteligencia-financeira-b3"
 version = "1.0.0"
-description = "Multi-agent financial intelligence pipeline using LangGraph"
+description = "Pipeline de Inteligência Financeira (B3): sistema multi-agente com LangGraph"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
