@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
-# Dashboard em Streamlit numa imagem enxuta. Uso: make docker-up (imagem como ela é)
-# ou make docker-dev (recarga ao salvar). As chaves vêm do .env em tempo de execução, nunca da imagem.
+# Dashboard em Streamlit (comando padrão) e servidor A2A (comando do serviço a2a no compose) numa imagem
+# enxuta. Uso: make docker-up, make docker-dev ou make docker-a2a. As chaves vêm do .env em tempo de
+# execução, nunca da imagem.
 
 ARG PYTHON_VERSION=3.12
 
@@ -47,6 +48,7 @@ COPY --from=builder --chown=app:app /app/.venv /app/.venv
 # Dono app: o docker compose watch escreve aqui dentro com o usuário do container
 COPY --chown=app:app fluxo_financeiro ./fluxo_financeiro
 COPY --chown=app:app dashboard ./dashboard
+COPY --chown=app:app servidor_a2a ./servidor_a2a
 
 USER app
 

@@ -1,6 +1,7 @@
 # Dashboard em http://localhost:8501. Cada análise gasta créditos, como fora do Docker.
 #   make docker-up   -> docker compose up --build -d   (a imagem como ela é)
 #   make docker-dev  -> docker compose up --build --watch   (recarga ao salvar)
+#   make docker-a2a  -> docker compose --profile a2a up --build -d a2a   (agente A2A em http://localhost:10001)
 services:
   dashboard:
     build:
@@ -35,3 +36,40 @@ services:
           path: pyproject.toml
         - action: rebuild
           path: uv.lock
+
+  # Agente A2A: a mesma imagem, com outro comando. Fica num perfil para o `docker compose up` comum
+  # continuar subindo só o dashboard, sem exigir a rede externa.
+  a2a:
+    profiles: ["a2a"]
+    build:
+      context: .
+      target: runtime
+    image: pipeline-b3-dashboard
+    command: ["uvicorn", "servidor_a2a.servidor:app", "--host", "0.0.0.0", "--port", "10001"]
+    # Só no localhost: o servidor não tem login e cada análise gasta créditos. Quem cobra chave é o gateway
+    ports:
+      - "127.0.0.1:10001:10001"
+    env_file:
+      - .env
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:10001/.well-known/agent-card.json', timeout=4)"
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    # Rede do ecossistema: é por ela que o gateway LiteLLM chega aqui, em http://pipeline-b3:10001.
+    # O apelido não muda se o serviço for renomeado.
+    networks:
+      agentes-net:
+        aliases:
+          - pipeline-b3
+    restart: unless-stopped
+
+# Criada uma vez, fora dos composes, porque vários projetos entram nela: docker network create agentes-net
+networks:
+  agentes-net:
+    external: true

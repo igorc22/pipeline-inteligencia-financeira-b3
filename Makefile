@@ -5,7 +5,7 @@ TICKER ?= VALE3
 FIXTURE ?= vale3
 
 .DEFAULT_GOAL := help
-.PHONY: help install test test-tools test-agents test-graph check run streamlit e2e e2e-anomalia e2e-estavel e2e-sanitizacao eval-fixtures eval-fixtures-tavily eval eval-vale3 eval-wege3 eval-todos notebook docker-up docker-dev docker-down docker-logs clean
+.PHONY: help install test test-tools test-agents test-graph check run streamlit e2e e2e-anomalia e2e-estavel e2e-sanitizacao eval-fixtures eval-fixtures-tavily eval eval-vale3 eval-wege3 eval-todos notebook docker-up docker-dev docker-down docker-logs clean a2a docker-a2a docker-a2a-logs
 
 help:
 	@echo Alvos disponiveis:
@@ -30,6 +30,9 @@ help:
 	@echo   make notebook        - abre o Jupyter
 	@echo   make docker-up       - dashboard num container em http://localhost:8501, em segundo plano, GASTA CREDITOS por analise
 	@echo   make docker-dev      - o mesmo com recarga ao salvar: o codigo vai para o container sem rebuild
+	@echo   make a2a             - servidor A2A local em http://localhost:10001, cada analise GASTA CREDITOS
+	@echo   make docker-a2a      - servidor A2A num container, na rede agentes-net, para o gateway LiteLLM
+	@echo   make docker-a2a-logs - acompanha o log do container do servidor A2A
 	@echo   make docker-down     - para e remove o container
 	@echo   make docker-logs     - acompanha o log do container
 	@echo   make clean           - apaga os caches __pycache__ e .pytest_cache
@@ -110,8 +113,17 @@ docker-up:
 docker-dev:
 	docker compose up --build --watch
 
+a2a:
+	uv run uvicorn servidor_a2a.servidor:app --host 127.0.0.1 --port 10001
+
+docker-a2a:
+	docker compose --profile a2a up --build -d a2a
+
+docker-a2a-logs:
+	docker compose --profile a2a logs -f a2a
+
 docker-down:
-	docker compose down
+	docker compose --profile a2a down
 
 docker-logs:
 	docker compose logs -f dashboard
