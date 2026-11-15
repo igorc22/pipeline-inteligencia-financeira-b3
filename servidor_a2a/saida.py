@@ -1,6 +1,9 @@
 """Saída do servidor A2A: as partes do artefato e o contexto que liga a execução ao trace do cliente."""
 from a2a.helpers import new_data_part, new_text_part
 from a2a.types import Part
+from langsmith.run_trees import RunTree
+
+from fluxo_financeiro.shared.utils import logger
 
 NOME_ARTEFATO = "relatorio"
 
@@ -29,7 +32,13 @@ def contexto_de_trace(cabecalhos: dict[str, str]) -> dict:
         pai = {"langsmith-trace": cabecalhos["langsmith-trace"]}
         if "baggage" in cabecalhos:
             pai["baggage"] = cabecalhos["baggage"]
-        contexto["parent"] = pai
+        # O cabeçalho vem de fora: um valor malformado faria o tracing_context levantar no meio da análise.
+        try:
+            RunTree.from_headers(pai)
+        except Exception:
+            logger.warning("[a2a] cabeçalho langsmith-trace inválido: trace do chamador ignorado")
+        else:
+            contexto["parent"] = pai
 
     metadados = {"entrada": "a2a"}
     if "x-litellm-trace-id" in cabecalhos:

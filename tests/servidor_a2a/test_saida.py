@@ -44,8 +44,15 @@ def test_trace_sem_cabecalhos():
 
 def test_trace_com_pai_do_langsmith():
     """Confere que o cabeçalho langsmith-trace vira o pai da execução, com o baggage junto."""
-    contexto = contexto_de_trace({"langsmith-trace": "20261115T000000Z-abc", "baggage": "x=1", "host": "pipeline-b3"})
-    assert contexto["parent"] == {"langsmith-trace": "20261115T000000Z-abc", "baggage": "x=1"}
+    trace = "20261115T000000000000Z7f3b1c2a-9d4e-4f6a-8b1c-2d3e4f5a6b7c"
+    contexto = contexto_de_trace({"langsmith-trace": trace, "baggage": "x=1", "host": "pipeline-b3"})
+    assert contexto["parent"] == {"langsmith-trace": trace, "baggage": "x=1"}
+
+
+def test_trace_ignora_pai_invalido():
+    """Confere que um cabeçalho langsmith-trace inválido é descartado, em vez de derrubar a análise."""
+    contexto = contexto_de_trace({"langsmith-trace": "lixo", "x-litellm-trace-id": "t1"})
+    assert contexto == {"metadata": {"entrada": "a2a", "litellm_trace_id": "t1"}}
 
 
 def test_trace_com_ids_do_litellm():
