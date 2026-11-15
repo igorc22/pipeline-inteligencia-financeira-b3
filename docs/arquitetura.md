@@ -1,6 +1,6 @@
 # Arquitetura
 
-O desenho geral está em [`desenho-arquitetura.jpg`](desenho-arquitetura.jpg) e a história de cada escolha está em [`decisoes.md`](decisoes.md). Aqui ficam as quatro peças que o desenho mostra por fora mas não explica por dentro: como o Supervisor decide, como o Investigator pesquisa, o que acontece quando algo falha e como a qualidade do texto é medida.
+O desenho geral está em [`desenho-arquitetura.jpg`](desenho-arquitetura.jpg) e a história de cada escolha está em [`decisoes.md`](decisoes.md). Aqui ficam as cinco peças que o desenho mostra por fora mas não explica por dentro: como o Supervisor decide, como o Investigator pesquisa, o que acontece quando algo falha, como a qualidade do texto é medida e como outro agente chama o pipeline.
 
 ## 1. Como o Supervisor decide
 
@@ -128,3 +128,35 @@ flowchart LR
 | Relatório final | Neutralidade: nenhuma recomendação de compra ou venda |
 
 Na fidelidade da `deepeval`, só a afirmação que a fonte contradiz derruba a nota, e a que a fonte não menciona passa. Por isso cada fidelidade grava no `notas.csv` uma segunda nota, a rígida, que conta só as afirmações que a fonte confirma. Ela sai dos vereditos que o juiz já devolveu, não custa chamada nova e nunca reprova. Uma rodada completa nas fixtures da VALE3 e da WEGE3 custa entre US\$ 0,19 e US\$ 0,24 de juiz.
+
+## 5. Como outro agente chama o pipeline
+
+O pipeline atende o protocolo A2A num servidor próprio (`servidor_a2a/`), que roda na mesma imagem do dashboard. Quem chama passa pelo gateway LiteLLM, que confere a chave virtual e registra o custo, e o gateway repassa a mensagem ao servidor pela rede `agentes-net`.
+
+```mermaid
+sequenceDiagram
+    participant C as Agente chamador
+    participant G as Gateway LiteLLM
+    participant S as Servidor A2A
+    participant B as Brapi
+    participant P as Grafo do pipeline
+
+    C->>G: POST /a2a/pipeline-b3 (chave virtual)
+    G->>S: message/send "Analise VALE3"
+    S->>S: extrai e valida o ticker
+    S->>B: o ticker existe?
+    alt ticker inválido ou inexistente
+        S-->>G: tarefa recusada, com o motivo
+    else ticker aceito
+        S->>P: astream("Analise a ação VALE3")
+        loop a cada nó concluído
+            P-->>S: evento do nó
+            S-->>G: status "Etapa concluída"
+        end
+        P-->>S: state final
+        S-->>G: artefato relatorio (markdown + JSON)
+    end
+    G-->>C: tarefa concluída
+```
+
+O servidor nunca repassa o texto de quem chama: ele extrai o ticker, confere o formato e a existência como as outras entradas e monta o pedido ao grafo. A resposta sai num artefato com duas partes, o relatório em markdown e o mesmo relatório estruturado em JSON, que é o que outro agente consegue ler campo a campo. O servidor não tem login, por isso a porta abre só no localhost e na rede dos containers.
