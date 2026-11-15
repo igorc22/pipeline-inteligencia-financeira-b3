@@ -6,7 +6,7 @@ Você digita o código de uma ação da B3 e um grupo de agentes coordenado com 
   <img src="docs/desenho-arquitetura.jpg" alt="Arquitetura">
 </p>
 
-O desenho é a arquitetura-alvo: verde é o que já está no código, laranja está em parte e cinza ainda não existe. As decisões por trás de cada peça estão em [`docs/decisoes.md`](docs/decisoes.md), e as quatro partes que o desenho não explica por dentro (guards, subgrafo de pesquisa, retry e evals) estão em [`docs/arquitetura.md`](docs/arquitetura.md).
+O desenho é a arquitetura-alvo: verde é o que já está no código, laranja está em parte e cinza ainda não existe. As decisões por trás de cada peça estão em [`docs/decisoes.md`](docs/decisoes.md), e as cinco partes que o desenho não explica por dentro (guards, subgrafo de pesquisa, retry, evals e a chamada por outro agente) estão em [`docs/arquitetura.md`](docs/arquitetura.md).
 
 <p align="center">
   <img src="docs/img/analise-ao-vivo.gif" alt="Dashboard analisando a VALE3, com o caminho da análise desenhado enquanto os agentes rodam">
@@ -84,16 +84,57 @@ print(resultado["messages"][-1].content)
 
 ### Com Docker
 
-Só o dashboard roda no container. A CLI, os testes e os evals continuam fora dele, pelo `uv`.
+O dashboard roda no container. A CLI, os testes e os evals continuam fora dele, pelo `uv`. O agente A2A tem um container próprio, na seção abaixo.
 
 ```bash
 cp .env.example .env    # o mesmo .env: lido na hora de subir, nunca copiado para a imagem
 make docker-up          # docker compose up --build -d, dashboard em http://localhost:8501
 make docker-dev         # docker compose up --build --watch, recarrega ao salvar
-make docker-down        # para e remove o container
+make docker-down        # para e remove os containers do dashboard e do A2A
 ```
 
-No `make docker-dev`, salvar um arquivo em `fluxo_financeiro/` ou `dashboard/` copia o arquivo para o container e a página recarrega em segundos, sem rebuild. Mexer no `pyproject.toml` ou no `uv.lock` refaz a imagem, mas o `uv sync` só reinstala o que mudou, porque as dependências ficam numa camada própria, antes do código, e os pacotes baixados ficam num cache do build. A imagem tem dois estágios (o `uv` monta o `.venv` e só o `.venv` e o código vão para a imagem final), deixa de fora os grupos `dev` e `notebooks`, roda com um usuário sem privilégio, tem healthcheck e publica a porta só no localhost (o dashboard não tem login e cada análise gasta créditos). O `.dockerignore` é uma lista de permissão: só `pyproject.toml`, `uv.lock`, `fluxo_financeiro/` e `dashboard/` entram no contexto do build.
+No `make docker-dev`, salvar um arquivo em `fluxo_financeiro/` ou `dashboard/` copia o arquivo para o container e a página recarrega em segundos, sem rebuild. Mexer no `pyproject.toml` ou no `uv.lock` refaz a imagem, mas o `uv sync` só reinstala o que mudou, porque as dependências ficam numa camada própria, antes do código, e os pacotes baixados ficam num cache do build. A imagem tem dois estágios (o `uv` monta o `.venv` e só o `.venv` e o código vão para a imagem final), deixa de fora os grupos `dev` e `notebooks`, roda com um usuário sem privilégio, tem healthcheck e publica a porta só no localhost (o dashboard não tem login e cada análise gasta créditos). O `.dockerignore` é uma lista de permissão: só `pyproject.toml`, `uv.lock`, `fluxo_financeiro/`, `dashboard/` e `servidor_a2a/` entram no contexto do build.
+
+### Como agente A2A
+
+O pipeline também fala o protocolo A2A. Outro agente publica um pedido de análise para ele e recebe o relatório de volta, sem passar pelo dashboard. É assim que o fluxo de análise de carteira vai pedir várias ações e ler cada relatório campo a campo. O servidor fica em `servidor_a2a/`, roda na mesma imagem do dashboard e muda só o comando.
+
+Local, sem container:
+
+```bash
+make a2a    # uvicorn em http://localhost:10001
+```
+
+Num container, na rede `agentes-net` que o gateway LiteLLM usa para chegar aos agentes:
+
+```bash
+docker network create agentes-net    # uma vez, antes do primeiro make docker-a2a
+make docker-a2a                      # sobe o servidor em http://localhost:10001
+make docker-a2a-logs                 # acompanha o log
+```
+
+A rede é criada fora do compose, porque vários projetos entram nela, e o `make docker-a2a` falha sem ela. O serviço `a2a` fica num perfil do compose: `make docker-up` continua subindo só o dashboard, e `make docker-down` para os dois.
+
+O card fica em `http://localhost:10001/.well-known/agent-card.json` e diz o que o agente faz e para qual endereço mandar pedidos. Esse endereço vem de `A2A_URL_PUBLICA` no `.env`. O padrão é `http://pipeline-b3:10001/`, o apelido do serviço na rede `agentes-net`. Para chamar o servidor direto da máquina, sem o gateway, use `A2A_URL_PUBLICA=http://localhost:10001/`.
+
+Pedido de exemplo, no protocolo 1.0. Ele gasta créditos, como uma análise no dashboard:
+
+```bash
+curl -s -X POST http://localhost:10001/ -H "Content-Type: application/json" -H "A2A-Version: 1.0" -d '{"jsonrpc":"2.0","id":"1","method":"SendMessage","params":{"message":{"role":"ROLE_USER","messageId":"m1","parts":[{"text":"Analise WEGE3"}]}}}'
+```
+
+A resposta é uma tarefa. Uma análise que termina traz `TASK_STATE_COMPLETED` e um artefato chamado `relatorio` com duas partes: o relatório em markdown, para mostrar, e um JSON com `ticker` e `relatorio`, o relatório estruturado que outro programa lê campo a campo. Se o Consolidador cai no relatório de emergência, o JSON não vem e sobra só o markdown. Um ticker que a Brapi não conhece, ou uma mensagem com dois tickers, volta com `TASK_STATE_REJECTED` e o motivo. Isso acontece antes de o grafo rodar, então não gasta créditos. Enquanto a análise roda, o servidor manda uma mensagem a cada etapa concluída.
+
+Para um agente chamar o pipeline pelo gateway, o bloco abaixo vai no `config.yaml` do LiteLLM. A chamada sai em `/a2a/pipeline-b3`, com a chave virtual de quem chama.
+
+```yaml
+agents:
+  - agent_name: pipeline-b3
+    agent_card_params:
+      name: "Pipeline B3"
+      url: "http://pipeline-b3:10001"
+      protocolVersion: "1.0"
+```
 
 ## Chaves de API
 
@@ -153,8 +194,7 @@ Toda nota vai para `tests/evals/notas.csv`, com o custo, e cada reprovação dei
 - Banco de dados para registrar cada análise (entrada, saída, data e hora)
 - Checkpointer para retomar uma análise e cache para não buscar de novo um dado que acabou de chegar
 - LiteLLM na frente do modelo, para trocar de provedor sem mexer nos agentes
-- Servidor MCP com as tools do projeto (dados da ação, métricas de risco, Piotroski, indicadores do BCB, notícias e histórico trimestral), para outros clientes e agentes usarem as mesmas ferramentas sem passar pelo grafo
-- Expor o pipeline como agente A2A, para um futuro fluxo de análise de carteira descobrir e chamar
+- Trocar as tools do pipeline pelas do servidor MCP de dados da B3, que já roda em container próprio
 
 ## Estrutura
 
@@ -165,6 +205,7 @@ fluxo_financeiro/
 ├── agents/    # YFinance, Analyzer, subgrafo de pesquisa do Investigator, Consolidador
 └── graph/     # Supervisor (guards e LLM) e o StateGraph
 dashboard/     # Streamlit e as funções que transformam o state em tela
+servidor_a2a/  # agente A2A: card, entrada, executor e saída em volta do grafo
 scripts/       # e2e e gerador das fixtures dos evals
 tests/         # espelha fluxo_financeiro/, mais os evals
 notebooks/     # fluxo_financeiro/01 a 20: cada peça explicada e rodando com as APIs reais
@@ -181,5 +222,6 @@ docs/          # arquitetura.md, decisoes.md e o desenho
 | Busca e notícias | Google Search pelo Gemini ou Tavily, NewsAPI de reserva |
 | Dashboard | Streamlit, com o caminho da análise em graphviz |
 | Observabilidade | LangSmith |
+| Agente A2A | a2a-sdk 1.3.0 (protocolo 1.0), servidor com uvicorn |
 | Testes | pytest, pytest-socket e deepeval |
-| Ambiente | uv, Docker e docker compose (dashboard) |
+| Ambiente | uv, Docker e docker compose (dashboard e agente A2A) |

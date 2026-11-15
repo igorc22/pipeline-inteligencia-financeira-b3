@@ -1,6 +1,6 @@
 import pytest
 
-from fluxo_financeiro.shared.utils import extrair_ticker, numero_br, pct_br, validar_ticker
+from fluxo_financeiro.shared.utils import extrair_ticker, extrair_tickers, numero_br, pct_br, validar_ticker
 
 
 @pytest.mark.parametrize("texto, esperado", [
@@ -33,3 +33,17 @@ def test_numero_e_porcentagem_no_formato_brasileiro():
     assert numero_br(-2.9) == "-2,90"
     assert pct_br(0.1375, casas=2) == "13,75%"
     assert pct_br(-0.315) == "-31,5%"
+
+
+@pytest.mark.parametrize("texto, esperado", [
+    ("Analise a ação VALE3", ["VALE3"]),
+    ("analise vale3.sa por favor", ["VALE3"]),
+    ("Compare VALE3 e PETR4", ["VALE3", "PETR4"]),
+    ("VALE3, vale3 e VALE3.SA", ["VALE3"]),
+    ("TAEE11 hoje", ["TAEE11"]),
+    ("nenhum código aqui", []),
+    ("", []),
+])
+def test_extrair_tickers(texto, esperado):
+    """Confere que extrair_tickers devolve os tickers distintos do texto, na ordem e sem o .SA."""
+    assert extrair_tickers(texto) == esperado

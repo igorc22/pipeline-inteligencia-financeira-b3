@@ -5,6 +5,7 @@
 !uv.lock
 !fluxo_financeiro/
 !dashboard/
+!servidor_a2a/
 
 # Mesmo dentro das pastas liberadas
 **/__pycache__
