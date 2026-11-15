@@ -33,12 +33,15 @@ def contexto_de_trace(cabecalhos: dict[str, str]) -> dict:
         if "baggage" in cabecalhos:
             pai["baggage"] = cabecalhos["baggage"]
         # O cabeçalho vem de fora: um valor malformado faria o tracing_context levantar no meio da análise.
+        # O LangSmith recusa alguns pais devolvendo None, sem exceção: esse caso também sai do contexto.
         try:
-            RunTree.from_headers(pai)
+            pai_valido = RunTree.from_headers(pai) is not None
         except Exception:
-            logger.warning("[a2a] cabeçalho langsmith-trace inválido: trace do chamador ignorado")
-        else:
+            pai_valido = False
+        if pai_valido:
             contexto["parent"] = pai
+        else:
+            logger.warning("[a2a] cabeçalho langsmith-trace inválido: trace do chamador ignorado")
 
     metadados = {"entrada": "a2a"}
     if "x-litellm-trace-id" in cabecalhos:

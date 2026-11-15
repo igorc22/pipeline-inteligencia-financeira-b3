@@ -1,4 +1,6 @@
 """Saída do servidor A2A: partes do artefato e contexto de trace."""
+from unittest.mock import patch
+
 from google.protobuf.json_format import MessageToDict
 from langchain_core.messages import HumanMessage
 
@@ -49,10 +51,18 @@ def test_trace_com_pai_do_langsmith():
     assert contexto["parent"] == {"langsmith-trace": trace, "baggage": "x=1"}
 
 
-def test_trace_ignora_pai_invalido():
+def test_trace_ignora_pai_invalido(caplog):
     """Confere que um cabeçalho langsmith-trace inválido é descartado, em vez de derrubar a análise."""
     contexto = contexto_de_trace({"langsmith-trace": "lixo", "x-litellm-trace-id": "t1"})
     assert contexto == {"metadata": {"entrada": "a2a", "litellm_trace_id": "t1"}}
+    assert "cabeçalho langsmith-trace inválido" in caplog.text
+
+
+def test_trace_ignora_pai_recusado_sem_excecao():
+    """Confere que um pai que o LangSmith recusa devolvendo None também sai do contexto."""
+    with patch("servidor_a2a.saida.RunTree.from_headers", return_value=None):
+        contexto = contexto_de_trace({"langsmith-trace": "20261115T000000000000Z7f3b1c2a-9d4e-4f6a-8b1c-2d3e4f5a6b7c"})
+    assert contexto == {"metadata": {"entrada": "a2a"}}
 
 
 def test_trace_com_ids_do_litellm():
