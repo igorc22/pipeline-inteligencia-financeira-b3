@@ -27,6 +27,12 @@ def extrair_ticker(texto: str) -> Optional[str]:
     return encontrado.group(1) if encontrado else None
 
 
+def extrair_tickers(texto: str) -> list[str]:
+    """Tickers distintos do texto, na ordem da primeira aparição, sem o .SA (ex: 'VALE3 e PETR4' → ['VALE3', 'PETR4'])."""
+    # dict.fromkeys tira os repetidos e mantém a ordem; set() embaralharia a resposta da mensagem de recusa.
+    return list(dict.fromkeys(_PADRAO_TICKER_B3.findall(texto.upper())))
+
+
 TICKER_INVALIDO = "Ticker inválido: use o código da B3, ex: VALE3."
 # Formato válido, mas a Brapi diz que o ticker não existe (404). A sugestão entra quando há uma.
 TICKER_NAO_ENCONTRADO = "Ticker não encontrado na B3: {ticker}."
